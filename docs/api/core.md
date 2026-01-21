@@ -211,6 +211,9 @@ def get_device_table_columns(self) -> list
 def get_device_context_menu_actions(self) -> list
 def get_device_tabs(self) -> list
 def get_dock_widgets(self) -> list
+    # Returns list of (widget_name, widget, area) tuples
+    # IMPORTANT: Panel titles (QDockWidget titles) must use the full plugin name
+    # Example: "Network Scanner" not "Scanner", "Command Manager" not "Commands"
 def get_settings_pages(self) -> list
 ```
 

@@ -1183,16 +1183,17 @@ class NetworkScannerPlugin(PluginInterface):
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(8)
         
-        # Input and controls
-        self.control_group = QGroupBox("Network Scan Controls")
-        self.control_layout = QFormLayout(self.control_group)
-        self.control_layout.setSpacing(8)  # Increase spacing between form rows
-        self.control_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)  # Allow fields to expand
-        self.control_layout.setRowWrapPolicy(QFormLayout.WrapLongRows)  # Stack rows on narrow widths
+        # Single control group with simplified layout
+        self.control_group = QGroupBox("Network Scan")
+        control_layout = QVBoxLayout(self.control_group)
+        control_layout.setContentsMargins(10, 15, 10, 10)
+        control_layout.setSpacing(10)
         
-        # Interface selection
-        self.interface_layout = QHBoxLayout()
-        self.interface_layout.setSpacing(8)
+        # Network interface selection
+        interface_layout = QHBoxLayout()
+        interface_layout.setSpacing(8)
+        interface_layout.addWidget(QLabel("Interface:"))
+        
         self.interface_combo = QComboBox()
         self.interface_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         
@@ -1209,149 +1210,148 @@ class NetworkScannerPlugin(PluginInterface):
         self.refresh_interfaces_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.refresh_interfaces_button.setToolTip("Refresh network interface list")
         self.refresh_interfaces_button.clicked.connect(self._update_interface_choices_and_refresh_ui)
-        self.interface_layout.addWidget(self.interface_combo, 1)
-        self.interface_layout.addWidget(self.refresh_interfaces_button)
-        self.control_layout.addRow("Network Interface:", self.interface_layout)
+        interface_layout.addWidget(self.interface_combo, 1)
+        interface_layout.addWidget(self.refresh_interfaces_button)
+        control_layout.addLayout(interface_layout)
         
-        # Network range input - now in its own section with more space
-        self.network_range_label = QLabel("Network Range:")
+        # Scan target - three options including selected devices
+        target_layout = QHBoxLayout()
+        target_layout.setSpacing(8)
+        target_layout.addWidget(QLabel("Target:"))
+        
+        self.scan_subnet_radio = QRadioButton("Interface Subnet")
+        self.scan_subnet_radio.setChecked(True)  # Default option
+        
+        self.custom_range_radio = QRadioButton("Custom Range")
+        
+        self.selected_devices_radio = QRadioButton("Selected Devices")
+        self.selected_devices_radio.setEnabled(False)  # Enabled when devices are selected
+        
+        target_layout.addWidget(self.scan_subnet_radio)
+        target_layout.addWidget(self.custom_range_radio)
+        target_layout.addWidget(self.selected_devices_radio)
+        target_layout.addStretch()
+        control_layout.addLayout(target_layout)
+        
+        # Selected devices info label
+        self.selected_devices_label = QLabel("No devices selected")
+        self.selected_devices_label.setStyleSheet("color: gray; font-style: italic;")
+        self.selected_devices_label.setVisible(False)
+        control_layout.addWidget(self.selected_devices_label)
+        
+        # Network range input
+        range_layout = QHBoxLayout()
+        range_layout.setSpacing(8)
+        range_layout.addWidget(QLabel("Range:"))
+        
         self.network_range_edit = QLineEdit()
-        self.network_range_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.network_range_edit.setPlaceholderText("e.g., 192.168.1.0/24 or 10.0.0.1-10.0.0.254")
-        self.control_layout.addRow(self.network_range_label, self.network_range_edit)
+        self.network_range_edit.setEnabled(False)  # Disabled by default (interface subnet selected)
+        range_layout.addWidget(self.network_range_edit, 1)
+        control_layout.addLayout(range_layout)
+        
+        # Connect radio buttons to enable/disable network range
+        def update_target_ui_state():
+            self.network_range_edit.setEnabled(self.custom_range_radio.isChecked())
+            self.selected_devices_label.setVisible(self.selected_devices_radio.isChecked())
+            
+        self.scan_subnet_radio.toggled.connect(update_target_ui_state)
+        self.custom_range_radio.toggled.connect(update_target_ui_state)
+        self.selected_devices_radio.toggled.connect(update_target_ui_state)
+        
+        # Initial UI state
+        update_target_ui_state()
+        
+        # Initial update of selected devices UI
+        # The on_device_selected method will be called by the plugin manager when devices are selected
+        QTimer.singleShot(100, self._update_selected_devices_ui)
         
         # Connect interface change to update network range
         self.interface_combo.currentIndexChanged.connect(self._update_network_range_from_interface)
         
         # Initialize network range from currently selected interface
         self._update_network_range_from_interface(self.interface_combo.currentIndex())
-
-        # Group scan controls
-        self.group_layout = QHBoxLayout()
-        self.group_layout.setSpacing(8)
-        self.group_combo = QComboBox()
-        self.group_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.group_combo.setToolTip("Select a device group to scan")
-        self.refresh_groups_button = QPushButton("Refresh")
-        self.refresh_groups_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self.refresh_groups_button.setToolTip("Refresh group list")
-        self.refresh_groups_button.clicked.connect(self._refresh_group_choices)
-        self.group_layout.addWidget(self.group_combo, 1)
-        self.group_layout.addWidget(self.refresh_groups_button)
-        self.control_layout.addRow("Group:", self.group_layout)
-
-        self.group_scan_check = QCheckBox("Scan Group Devices")
-        self.group_scan_check.setToolTip("Scan devices in the selected group instead of a network range")
-        self.group_scan_check.toggled.connect(self._update_group_scan_ui_state)
-        self.control_layout.addRow("", self.group_scan_check)
         
-        # Scan type with manager button
+        # Scan type
         scan_type_layout = QHBoxLayout()
         scan_type_layout.setSpacing(8)
+        scan_type_layout.addWidget(QLabel("Scan Type:"))
         
         self.scan_type_combo = QComboBox()
-        self.scan_type_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.scan_type_combo.addItems(self.settings["scan_type"]["choices"])
         self.scan_type_combo.setCurrentText(self.settings["scan_type"]["value"])
+        scan_type_layout.addWidget(self.scan_type_combo, 1)
         
         self.scan_type_manager_button = QPushButton("Manage")
         self.scan_type_manager_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.scan_type_manager_button.setToolTip("Manage scan profiles and types")
         self.scan_type_manager_button.clicked.connect(self.on_scan_type_manager_action)
-        
-        scan_type_layout.addWidget(self.scan_type_combo, 1)
         scan_type_layout.addWidget(self.scan_type_manager_button)
+        control_layout.addLayout(scan_type_layout)
         
-        self.control_layout.addRow("Scan Type:", scan_type_layout)
+        # Function to update checkboxes when scan type changes
+        def update_scan_options(index):
+            scan_type = self.scan_type_combo.currentText()
+            profiles = self.settings["scan_profiles"]["value"]
+            if scan_type in profiles:
+                if hasattr(self, "os_detection_check"):
+                    self.os_detection_check.setChecked(profiles[scan_type].get("os_detection", False))
+                if hasattr(self, "port_scan_check"):
+                    self.port_scan_check.setChecked(profiles[scan_type].get("port_scan", False))
         
-        # Scan controls in separate section with buttons side by side
-        button_layout = QHBoxLayout()
-        button_layout.setSpacing(10)  # Increase spacing between buttons
+        # Connect the signal
+        self.scan_type_combo.currentIndexChanged.connect(update_scan_options)
         
-        # Create a button grid with 2x2 layout for better organization
+        # Call initially to set the options
+        update_scan_options(0)
+        
+        # Scan options - inline checkboxes
+        options_layout = QHBoxLayout()
+        options_layout.setSpacing(20)
+        
+        self.os_detection_check = QCheckBox("OS Detection")
+        self.os_detection_check.setChecked(self.settings["os_detection"]["value"])
+        options_layout.addWidget(self.os_detection_check)
+        
+        self.port_scan_check = QCheckBox("Port Scanning")
+        self.port_scan_check.setChecked(self.settings["port_scan"]["value"])
+        options_layout.addWidget(self.port_scan_check)
+        
+        options_layout.addStretch()
+        control_layout.addLayout(options_layout)
+        
+        # Scan buttons - 2x2 grid layout to prevent overlapping
         button_grid = QGridLayout()
-        button_grid.setSpacing(8)
-        button_grid.setHorizontalSpacing(10)
-        button_grid.setVerticalSpacing(8)
+        button_grid.setSpacing(4)
+        button_grid.setHorizontalSpacing(4)
+        button_grid.setVerticalSpacing(4)
         
-        # Set a modest minimum width for all buttons to prevent overlapping
-        button_width = 80
-        
-        # Scan button
         self.scan_button = QPushButton("Start Scan")
-        self.scan_button.setMinimumWidth(button_width)
         self.scan_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.scan_button.clicked.connect(self.on_scan_button_clicked)
         button_grid.addWidget(self.scan_button, 0, 0)
         
-        # Quick Ping Scan button
         self.quick_ping_button = QPushButton("Quick Ping")
-        self.quick_ping_button.setMinimumWidth(button_width)
         self.quick_ping_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.quick_ping_button.clicked.connect(self.on_quick_ping_button_clicked)
         self.quick_ping_button.setToolTip("Fast ping scan without using nmap")
         button_grid.addWidget(self.quick_ping_button, 0, 1)
         
-        # Advanced Scan button
         self.advanced_scan_button = QPushButton("Advanced...")
-        self.advanced_scan_button.setMinimumWidth(button_width)
         self.advanced_scan_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.advanced_scan_button.clicked.connect(self.on_advanced_scan_button_clicked)
         self.advanced_scan_button.setToolTip("Open the advanced scan configuration dialog")
         button_grid.addWidget(self.advanced_scan_button, 1, 0)
         
-        # Stop button
         self.stop_button = QPushButton("Stop")
-        self.stop_button.setMinimumWidth(button_width)
         self.stop_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.stop_button.clicked.connect(self.on_stop_button_clicked)
         self.stop_button.setEnabled(False)
         button_grid.addWidget(self.stop_button, 1, 1)
         
-        # Add the grid to the layout
-        button_layout.addLayout(button_grid)
+        control_layout.addLayout(button_grid)
         
-        # Add stretch to push buttons to the left
-        button_layout.addStretch(1)
-        
-        # Add button layout to form with empty label to align properly
-        self.control_layout.addRow("", button_layout)
-        
-        # Create a horizontal layout for checkboxes to save space
-        checkbox_layout = QHBoxLayout()
-        checkbox_layout.setSpacing(20)  # Add spacing between checkboxes
-        
-        # OS Detection
-        os_detection_widget = QWidget()
-        os_detection_layout = QHBoxLayout(os_detection_widget)
-        os_detection_layout.setContentsMargins(0, 0, 0, 0)
-        os_detection_label = QLabel("OS Detection:")
-        self.os_detection_check = QCheckBox()
-        self.os_detection_check.setChecked(self.settings["os_detection"]["value"])
-        os_detection_layout.addWidget(os_detection_label)
-        os_detection_layout.addWidget(self.os_detection_check)
-        checkbox_layout.addWidget(os_detection_widget)
-        
-        # Port Scanning
-        port_scan_widget = QWidget()
-        port_scan_layout = QHBoxLayout(port_scan_widget)
-        port_scan_layout.setContentsMargins(0, 0, 0, 0)
-        port_scan_label = QLabel("Port Scanning:")
-        self.port_scan_check = QCheckBox()
-        self.port_scan_check.setChecked(self.settings["port_scan"]["value"])
-        port_scan_layout.addWidget(port_scan_label)
-        port_scan_layout.addWidget(self.port_scan_check)
-        checkbox_layout.addWidget(port_scan_widget)
-        
-        # Add spacer to push checkboxes to the left
-        checkbox_layout.addStretch(1)
-        
-        # Add the checkbox layout to the control layout
-        control_widget = QWidget()
-        control_widget.setLayout(checkbox_layout)
-        self.control_layout.addRow("", control_widget)
-        
-        # Add the control group to the top section
+        # Add control group to top section
         top_layout.addWidget(self.control_group)
         
         # Progress section
@@ -1468,8 +1468,8 @@ class NetworkScannerPlugin(PluginInterface):
         
     def get_dock_widgets(self):
         """Get plugin dock widgets"""
-        # Avoid duplicate header by using a different name for the dock widget
-        dock = QDockWidget("Scanner")
+        # Panel title should match the plugin name for easy identification
+        dock = QDockWidget("Network Scanner")
         dock.setWidget(self.main_widget)
         dock.setObjectName("NetworkScannerDock")
         dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
@@ -2172,32 +2172,66 @@ class NetworkScannerPlugin(PluginInterface):
             return
             
         # Get network range from the UI
-        if hasattr(self, "group_scan_check") and self.group_scan_check.isChecked():
-            group = self._get_selected_group()
-            devices = self._get_group_devices(group)
-            if not devices:
+        # Determine network range based on selected radio button
+        if hasattr(self, "selected_devices_radio") and self.selected_devices_radio.isChecked():
+            # Scan selected devices
+            selected_devices = self.device_manager.get_selected_devices()
+            if not selected_devices:
                 QMessageBox.warning(
                     self.main_window,
-                    "No Devices in Group",
-                    "The selected group has no devices to scan."
+                    "No Devices Selected",
+                    "Please select one or more devices to scan."
                 )
                 return
-                
+            
+            # Filter devices with IP addresses
+            devices_with_ips = [
+                d for d in selected_devices
+                if hasattr(d, "get_property") and d.get_property("ip_address", "")
+            ]
+            if not devices_with_ips:
+                QMessageBox.warning(
+                    self.main_window,
+                    "No Valid IP Addresses",
+                    "None of the selected devices have valid IP addresses."
+                )
+                return
+            
             scan_type = self.scan_type_combo.currentText()
-            self._start_batch_device_scan(devices, scan_type)
+            self._start_batch_device_scan(devices_with_ips, scan_type)
             return
-        
-        network_range = self.network_range_edit.text()
-        if not network_range:
-            # If no network range is specified, get it from the selected interface
+        elif hasattr(self, "scan_subnet_radio") and self.scan_subnet_radio.isChecked():
+            # Use interface subnet
             network_range = self._get_interface_subnet(self.interface_combo.currentText())
             if not network_range:
                 QMessageBox.warning(
                     self.main_window,
                     "Missing Network Range",
-                    "Please enter a network range or select a valid interface."
+                    "Could not determine subnet for the selected interface. Please select a different interface or use Custom Network Range."
                 )
                 return
+        elif hasattr(self, "custom_range_radio") and self.custom_range_radio.isChecked():
+            # Use custom range from text field
+            network_range = self.network_range_edit.text().strip()
+            if not network_range:
+                QMessageBox.warning(
+                    self.main_window,
+                    "Missing Network Range",
+                    "Please enter a network range (e.g., 192.168.1.0/24 or 10.0.0.1-10.0.0.254)."
+                )
+                return
+        else:
+            # Fallback to interface subnet if radio buttons don't exist (backward compatibility)
+            network_range = self.network_range_edit.text().strip()
+            if not network_range:
+                network_range = self._get_interface_subnet(self.interface_combo.currentText())
+                if not network_range:
+                    QMessageBox.warning(
+                        self.main_window,
+                        "Missing Network Range",
+                        "Please enter a network range or select a valid interface."
+                    )
+                    return
         
         # Get scan type from UI
         scan_type = self.scan_type_combo.currentText()
@@ -3766,15 +3800,10 @@ class NetworkScannerPlugin(PluginInterface):
         return " / ".join(parts)
 
     def _update_group_scan_ui_state(self):
-        """Toggle UI state when group scan is enabled"""
-        if not hasattr(self, "group_scan_check"):
-            return
-            
-        use_group = self.group_scan_check.isChecked()
-        if hasattr(self, "network_range_edit"):
-            self.network_range_edit.setEnabled(not use_group)
-        if hasattr(self, "network_range_label"):
-            self.network_range_label.setEnabled(not use_group)
+        """Toggle UI state when group scan is enabled (deprecated - now handled by radio buttons)"""
+        # This method is kept for backward compatibility but functionality
+        # is now handled by the update_target_ui_state function in _create_widgets
+        pass
 
     def _get_selected_group(self):
         """Return the selected group from the UI"""
@@ -3808,6 +3837,64 @@ class NetworkScannerPlugin(PluginInterface):
             seen.add(ip)
             unique_ips.append(ip)
         return unique_ips
+    
+    def _update_selected_devices_ui(self):
+        """Update the selected devices UI when device selection changes"""
+        if not hasattr(self, "selected_devices_radio") or not hasattr(self, "selected_devices_label"):
+            return
+        
+        if not getattr(self, "device_manager", None):
+            self.selected_devices_radio.setEnabled(False)
+            self.selected_devices_label.setText("Device manager unavailable")
+            self.selected_devices_label.setStyleSheet("color: gray; font-style: italic;")
+            self.selected_devices_label.setVisible(True)
+            return
+        
+        selected_devices = self.device_manager.get_selected_devices()
+        
+        if selected_devices:
+            # Filter devices with IP addresses
+            devices_with_ips = [d for d in selected_devices 
+                              if (d.get_property("ip_address", "") if hasattr(d, "get_property") else "")]
+            count = len(devices_with_ips)
+            
+            if count > 0:
+                self.selected_devices_radio.setEnabled(True)
+                device_names = []
+                for device in devices_with_ips[:5]:  # Show first 5
+                    name = device.get_property("alias", "") if hasattr(device, "get_property") else ""
+                    ip = device.get_property("ip_address", "") if hasattr(device, "get_property") else ""
+                    if name and ip:
+                        device_names.append(f"{name} ({ip})")
+                    elif ip:
+                        device_names.append(ip)
+                    elif name:
+                        device_names.append(name)
+                
+                if count > 5:
+                    device_names.append(f"... and {count - 5} more")
+                
+                self.selected_devices_label.setText(f"Selected: {', '.join(device_names)}")
+                self.selected_devices_label.setStyleSheet("color: black; font-style: normal;")
+                self.selected_devices_label.setVisible(True)
+            else:
+                self.selected_devices_radio.setEnabled(False)
+                self.selected_devices_label.setText("Selected devices have no IP addresses")
+                self.selected_devices_label.setStyleSheet("color: orange; font-style: italic;")
+                self.selected_devices_label.setVisible(True)
+        else:
+            self.selected_devices_radio.setEnabled(False)
+            self.selected_devices_label.setText("No devices selected")
+            self.selected_devices_label.setStyleSheet("color: gray; font-style: italic;")
+            self.selected_devices_label.setVisible(False)
+        
+        # If selected devices radio was checked but no devices available, switch to interface subnet
+        if self.selected_devices_radio.isChecked() and not self.selected_devices_radio.isEnabled():
+            self.scan_subnet_radio.setChecked(True)
+    
+    def on_device_selected(self, devices):
+        """Handle device selection changed signal"""
+        self._update_selected_devices_ui()
 
     @safe_action_wrapper
     def on_scan_type_manager_action(self):
@@ -4024,8 +4111,26 @@ class NetworkScannerPlugin(PluginInterface):
                     
                     # Update the scan type combo box
                     if hasattr(self, "scan_type_combo") and self.scan_type_combo is not None:
+                        current_text = self.scan_type_combo.currentText()
                         self.scan_type_combo.clear()
                         self.scan_type_combo.addItems(choices)
+                        # Restore selection if possible
+                        if current_text in choices:
+                            self.scan_type_combo.setCurrentText(current_text)
+                        # Update checkboxes if this profile is selected
+                        if self.scan_type_combo.currentText() == profile_id:
+                            if hasattr(self, "os_detection_check"):
+                                self.os_detection_check.setChecked(updated_profile.get("os_detection", False))
+                            if hasattr(self, "port_scan_check"):
+                                self.port_scan_check.setChecked(updated_profile.get("port_scan", False))
+                else:
+                    # Profile was edited, update checkboxes if this profile is selected
+                    if hasattr(self, "scan_type_combo") and self.scan_type_combo is not None:
+                        if self.scan_type_combo.currentText() == profile_id:
+                            if hasattr(self, "os_detection_check"):
+                                self.os_detection_check.setChecked(updated_profile.get("os_detection", False))
+                            if hasattr(self, "port_scan_check"):
+                                self.port_scan_check.setChecked(updated_profile.get("port_scan", False))
                 
                 # Refresh the table
                 refresh_table()
@@ -4088,8 +4193,17 @@ class NetworkScannerPlugin(PluginInterface):
                     
                     # Update the scan type combo box
                     if hasattr(self, "scan_type_combo") and self.scan_type_combo is not None:
+                        current_text = self.scan_type_combo.currentText()
                         self.scan_type_combo.clear()
                         self.scan_type_combo.addItems(choices)
+                        # Restore selection if possible, otherwise select first
+                        if current_text in choices:
+                            self.scan_type_combo.setCurrentText(current_text)
+                        elif choices:
+                            self.scan_type_combo.setCurrentIndex(0)
+                        # Trigger description update
+                        if self.scan_type_combo.count() > 0:
+                            self.scan_type_combo.currentIndexChanged.emit(self.scan_type_combo.currentIndex())
                 
                 # Refresh the table
                 refresh_table()
@@ -4430,33 +4544,40 @@ class NetworkScannerPlugin(PluginInterface):
             return
             
         # Get network range from the UI
-        if hasattr(self, "group_scan_check") and self.group_scan_check.isChecked():
-            group = self._get_selected_group()
-            ip_list = self._get_group_ip_list(group)
-            if not ip_list:
-                QMessageBox.warning(
-                    self.main_window,
-                    "No Devices in Group",
-                    "The selected group has no devices with valid IP addresses."
-                )
-                return
-            label = f"Group: {group.name}" if group else "Selected Group"
-            self.quick_ping_scan(ip_list, display_label=label)
-            return
-        
-        network_range = self.network_range_edit.text()
-        if not network_range:
-            # If no network range is specified, get it from the selected interface
+        # Determine network range based on selected radio button
+        if hasattr(self, "scan_subnet_radio") and self.scan_subnet_radio.isChecked():
+            # Use interface subnet
             network_range = self._get_interface_subnet(self.interface_combo.currentText())
             if not network_range:
                 QMessageBox.warning(
                     self.main_window,
                     "Missing Network Range",
-                    "Please enter a network range or select a valid interface."
+                    "Could not determine subnet for the selected interface. Please select a different interface or use Custom Network Range."
                 )
                 return
+        elif hasattr(self, "custom_range_radio") and self.custom_range_radio.isChecked():
+            # Use custom range from text field
+            network_range = self.network_range_edit.text().strip()
+            if not network_range:
+                QMessageBox.warning(
+                    self.main_window,
+                    "Missing Network Range",
+                    "Please enter a network range (e.g., 192.168.1.0/24 or 10.0.0.1-10.0.0.254)."
+                )
+                return
+        else:
+            # Fallback to interface subnet
+            network_range = self.network_range_edit.text().strip()
+            if not network_range:
+                network_range = self._get_interface_subnet(self.interface_combo.currentText())
+                if not network_range:
+                    QMessageBox.warning(
+                        self.main_window,
+                        "Missing Network Range",
+                        "Please enter a network range or select a valid interface."
+                    )
+                    return
         
-        # Start the quick ping scan
         self.quick_ping_scan(network_range)
 
 

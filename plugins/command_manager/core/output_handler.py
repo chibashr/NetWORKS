@@ -1486,6 +1486,65 @@ class OutputHandler:
         header_words = header_line.split()
         if len(header_words) < 2:
             return
+
+        # Special-case common switch port status tables where the Name column
+        # can include spaces and the trailing columns are fixed.
+        normalized_headers = [h.strip().lower() for h in header_words]
+        if normalized_headers == ["port", "name", "status", "vlan", "duplex", "speed", "type"]:
+            headers = header_words
+            table_widget.setColumnCount(len(headers))
+            table_widget.setHorizontalHeaderLabels(headers)
+
+            for col in range(len(headers)):
+                table_widget.horizontalHeader().setSectionResizeMode(
+                    col, QHeaderView.ResizeToContents if col < len(headers) - 1 else QHeaderView.Stretch
+                )
+
+            header_line_normalized = header_line.strip().lower()
+            for i in range(1, len(lines)):
+                line = lines[i].strip()
+                if not line:
+                    continue
+                # Skip repeated header lines inside the output
+                if line.lower() == header_line_normalized:
+                    continue
+
+                parts = line.split()
+                if len(parts) < 5:
+                    continue
+
+                port = parts[0]
+
+                # Some platforms omit the Type column (e.g., port-channels).
+                last_token = parts[-1]
+                looks_like_type = (
+                    last_token.lower() == "unknown"
+                    or "base" in last_token.lower()
+                    or ("/" in last_token and any(ch.isalpha() for ch in last_token))
+                )
+
+                if looks_like_type and len(parts) >= 6:
+                    type_value = last_token
+                    speed = parts[-2]
+                    duplex = parts[-3]
+                    vlan = parts[-4]
+                    status = parts[-5]
+                    name = " ".join(parts[1:-5]).strip()
+                else:
+                    type_value = ""
+                    speed = parts[-1]
+                    duplex = parts[-2] if len(parts) >= 3 else ""
+                    vlan = parts[-3] if len(parts) >= 4 else ""
+                    status = parts[-4] if len(parts) >= 5 else ""
+                    name = " ".join(parts[1:-4]).strip() if len(parts) >= 5 else ""
+
+                row_data = [port, name, status, vlan, duplex, speed, type_value]
+                row_idx = table_widget.rowCount()
+                table_widget.insertRow(row_idx)
+                for col, data in enumerate(row_data):
+                    item = QTableWidgetItem(data)
+                    table_widget.setItem(row_idx, col, item)
+            return
         
         # Find the start position of each header word in the original string
         word_positions = []
@@ -1546,6 +1605,8 @@ class OutputHandler:
                 # Add data rows
                 for i in range(1, len(lines)):
                     if not lines[i].strip():
+                        continue
+                    if lines[i].strip().lower() == header_line.strip().lower():
                         continue
                         
                     row_data = []

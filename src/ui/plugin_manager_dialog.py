@@ -7,13 +7,15 @@ Plugin manager dialog for NetWORKS
 
 from loguru import logger
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget, 
-    QListWidgetItem, QLabel, QTextEdit, QCheckBox, QWidget, QTabWidget,
+    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QListWidget,
+    QListWidgetItem, QLabel, QTextEdit, QWidget, QTabWidget, QCheckBox,
     QGroupBox, QFormLayout, QMessageBox, QLineEdit, QComboBox, QSpinBox,
-    QDoubleSpinBox, QScrollArea, QApplication, QDialogButtonBox, QSplitter, QInputDialog
+    QDoubleSpinBox, QScrollArea, QApplication, QDialogButtonBox, QSplitter, QInputDialog,
+    QTextBrowser, QAbstractItemView
 )
-from PySide6.QtCore import Qt, Signal, Slot, QSettings, QTimer, QSize, QMargins, QRect, QPoint
-from PySide6.QtGui import QIcon, QFont, QAction, QPixmap, QColor, QPainter, QPalette, QBrush, QLinearGradient, QShowEvent, QHideEvent, QIntValidator
+from PySide6.QtCore import Qt, Signal, Slot, QSettings, QTimer, QSize, QMargins, QRect, QPoint, QUrl
+from PySide6.QtGui import QIcon, QFont, QAction, QPixmap, QColor, QPainter, QPalette, QBrush, QLinearGradient, QShowEvent, QHideEvent, QIntValidator, QDesktopServices
+import markdown
 import os
 
 # Import from core
@@ -93,8 +95,44 @@ class PluginManagerDialog(QDialog):
         self.filter_layout.addWidget(self.filter_input)
         self.plugin_list_layout.addLayout(self.filter_layout)
         
+        # Group controls
+        self.group_controls_layout = QHBoxLayout()
+        self.group_label = QLabel("Group:")
+        self.group_selector = QComboBox()
+        self.group_selector.currentIndexChanged.connect(self.on_group_selected)
+        
+        self.group_create_button = QPushButton("New")
+        self.group_create_button.clicked.connect(self.on_group_create_clicked)
+        self.group_create_button.setToolTip("Create a new plugin group")
+        
+        self.group_rename_button = QPushButton("Rename")
+        self.group_rename_button.clicked.connect(self.on_group_rename_clicked)
+        self.group_rename_button.setToolTip("Rename the selected plugin group")
+        
+        self.group_delete_button = QPushButton("Delete")
+        self.group_delete_button.clicked.connect(self.on_group_delete_clicked)
+        self.group_delete_button.setToolTip("Delete the selected plugin group")
+        
+        self.group_add_button = QPushButton("Add Selected")
+        self.group_add_button.clicked.connect(self.on_group_add_selected_clicked)
+        self.group_add_button.setToolTip("Add selected plugins to the current group")
+        
+        self.group_remove_button = QPushButton("Remove Selected")
+        self.group_remove_button.clicked.connect(self.on_group_remove_selected_clicked)
+        self.group_remove_button.setToolTip("Remove selected plugins from the current group")
+        
+        self.group_controls_layout.addWidget(self.group_label)
+        self.group_controls_layout.addWidget(self.group_selector, 1)
+        self.group_controls_layout.addWidget(self.group_create_button)
+        self.group_controls_layout.addWidget(self.group_rename_button)
+        self.group_controls_layout.addWidget(self.group_delete_button)
+        self.group_controls_layout.addWidget(self.group_add_button)
+        self.group_controls_layout.addWidget(self.group_remove_button)
+        self.plugin_list_layout.addLayout(self.group_controls_layout)
+        
         # Plugin list
         self.plugin_list = QListWidget()
+        self.plugin_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.plugin_list.currentItemChanged.connect(self.on_plugin_selected)
         self.plugin_list_layout.addWidget(self.plugin_list)
         
@@ -102,24 +140,19 @@ class PluginManagerDialog(QDialog):
         self.plugin_actions_layout = QHBoxLayout()
         
         self.enable_button = QPushButton("Enable")
-        self.enable_button.clicked.connect(self.on_enable_clicked)
-        self.enable_button.setToolTip("Enable the selected plugin")
+        self.enable_button.clicked.connect(self.on_enable_button_clicked)
+        self.enable_button.setToolTip("Enable or disable the selected plugin (changes apply on save)")
         self.enable_button.setEnabled(False)
         
-        self.disable_button = QPushButton("Disable")
-        self.disable_button.clicked.connect(self.on_disable_clicked)
-        self.disable_button.setToolTip("Disable the selected plugin")
-        self.disable_button.setEnabled(False)
-        
         self.load_button = QPushButton("Load")
-        self.load_button.clicked.connect(self.on_load_clicked)
-        self.load_button.setToolTip("Load the selected plugin")
+        self.load_button.clicked.connect(self.on_load_button_clicked)
+        self.load_button.setToolTip("Load or unload the selected plugin")
         self.load_button.setEnabled(False)
-        
-        self.unload_button = QPushButton("Unload")
-        self.unload_button.clicked.connect(self.on_unload_clicked)
-        self.unload_button.setToolTip("Unload the selected plugin")
-        self.unload_button.setEnabled(False)
+
+        self.reload_button = QPushButton("Reload")
+        self.reload_button.clicked.connect(self.on_reload_clicked)
+        self.reload_button.setToolTip("Reload the selected plugin")
+        self.reload_button.setEnabled(False)
         
         self.repair_button = QPushButton("Repair Dependencies")
         self.repair_button.clicked.connect(self.on_repair_dependencies_clicked)
@@ -127,23 +160,13 @@ class PluginManagerDialog(QDialog):
         self.repair_button.setEnabled(False)
         
         self.plugin_actions_layout.addWidget(self.enable_button)
-        self.plugin_actions_layout.addWidget(self.disable_button)
         self.plugin_actions_layout.addWidget(self.load_button)
-        self.plugin_actions_layout.addWidget(self.unload_button)
+        self.plugin_actions_layout.addWidget(self.reload_button)
         self.plugin_actions_layout.addWidget(self.repair_button)
         
         self.plugin_list_layout.addLayout(self.plugin_actions_layout)
         
-        # Add help text below action buttons
-        self.action_help_label = QLabel(
-            "1. Enable/Disable: Mark plugins for activation\n"
-            "2. Load/Unload: Immediately start/stop plugins\n"
-            "3. Repair Dependencies: Install missing Python packages\n"
-            "4. Save Changes: Apply Enable/Disable changes"
-        )
-        self.action_help_label.setStyleSheet("color: #666; font-style: italic; font-size: 9pt;")
-        self.action_help_label.setWordWrap(True)
-        self.plugin_list_layout.addWidget(self.action_help_label)
+        # Group actions removed to reduce duplicate controls
         
         # Plugin details
         self.plugin_details_group = QGroupBox("Plugin Details")
@@ -254,8 +277,9 @@ class PluginManagerDialog(QDialog):
         self.documentation_layout = QVBoxLayout(self.documentation_tab)
         
         # Documentation viewer
-        self.documentation_view = QTextEdit()
+        self.documentation_view = QTextBrowser()
         self.documentation_view.setReadOnly(True)
+        self.documentation_view.setOpenExternalLinks(True)
         self.documentation_view.setMinimumHeight(200)
         self.documentation_view.setStyleSheet("font-family: monospace;")
         
@@ -287,17 +311,13 @@ class PluginManagerDialog(QDialog):
         # Create button layout
         self.button_layout = QHBoxLayout()
         
-        self.reload_button = QPushButton("Reload")
-        self.reload_button.clicked.connect(self.on_reload_clicked)
-        self.reload_button.setToolTip("Reload the current plugin")
-        
         self.refresh_button = QPushButton("Refresh List")
         self.refresh_button.clicked.connect(self.on_refresh_clicked)
         self.refresh_button.setToolTip("Refresh the plugin list")
         
-        self.repair_all_button = QPushButton("Repair All Dependencies")
-        self.repair_all_button.clicked.connect(self.on_repair_all_dependencies_clicked)
-        self.repair_all_button.setToolTip("Check and install missing dependencies for all plugins")
+        self.open_plugins_folder_button = QPushButton("Open Plugins Folder")
+        self.open_plugins_folder_button.clicked.connect(self.on_open_plugins_folder_clicked)
+        self.open_plugins_folder_button.setToolTip("Open the plugins directory")
         
         self.save_changes_button = QPushButton("Save Changes")
         self.save_changes_button.clicked.connect(self.on_save_changes_clicked)
@@ -310,9 +330,8 @@ class PluginManagerDialog(QDialog):
         self.close_button = QPushButton("Close")
         self.close_button.clicked.connect(self.accept)
         
-        self.button_layout.addWidget(self.reload_button)
         self.button_layout.addWidget(self.refresh_button)
-        self.button_layout.addWidget(self.repair_all_button)
+        self.button_layout.addWidget(self.open_plugins_folder_button)
         self.button_layout.addWidget(self.save_changes_button)
         self.button_layout.addStretch()
         self.button_layout.addWidget(self.close_button)
@@ -330,6 +349,12 @@ class PluginManagerDialog(QDialog):
         
         # Plugin log messages dictionary (plugin_id -> [messages])
         self.plugin_logs = {}
+        
+        # Plugin group storage (config-backed)
+        self.config = getattr(getattr(self.plugin_manager, "app", None), "config", None)
+        self.plugin_groups = {}
+        self._load_plugin_groups()
+        self._refresh_group_selector()
         
         # Connect to plugin manager signals
         self.plugin_manager.plugin_loaded.connect(self.on_plugin_loaded)
@@ -391,6 +416,10 @@ class PluginManagerDialog(QDialog):
         # Update the "Save Changes" button state
         self._update_save_button_state()
         
+        # Apply filters and group highlighting
+        self._apply_filters()
+        self._update_group_controls_state()
+        
     def clear_details(self):
         """Clear the plugin details"""
         self.id_label.setText("")
@@ -415,9 +444,7 @@ class PluginManagerDialog(QDialog):
         
         # Disable all action buttons
         self.enable_button.setEnabled(False)
-        self.disable_button.setEnabled(False)
         self.load_button.setEnabled(False)
-        self.unload_button.setEnabled(False)
         self.reload_button.setEnabled(False)
         
         # Update save button state based on whether there are pending changes
@@ -513,9 +540,6 @@ class PluginManagerDialog(QDialog):
             self.path_label.setStyleSheet("color: #a94442;")
             self.status_label.setStyleSheet("color: #a94442; font-weight: bold;")
         
-        # Update description
-        self.documentation_view.setText(plugin_info.description)
-        
         # Check if this plugin has pending changes
         has_pending_state_change = False
         if plugin_info.id in self.pending_plugin_changes:
@@ -602,13 +626,13 @@ class PluginManagerDialog(QDialog):
         # Update the save button state
         self._update_save_button_state()
         
-        # Set the enable button state to match the plugin's current state
-        # (not the pending state) to accurately reflect the actual plugin state
+        # Update enable/disable button label based on pending state if present
         if hasattr(self, 'enable_button') and self.enable_button is not None:
-            self.enable_button.blockSignals(True)
-            if hasattr(self.enable_button, 'setChecked'):
-                self.enable_button.setChecked(plugin_info.state.is_enabled)
-            self.enable_button.blockSignals(False)
+            pending_enabled = None
+            if plugin_info.id in self.pending_plugin_changes:
+                pending_enabled = self.pending_plugin_changes[plugin_info.id].get("enabled")
+            desired_state = plugin_info.state.is_enabled if pending_enabled is None else pending_enabled
+            self._update_enable_button_label(bool(desired_state))
         
         # Update action buttons (enable/disable/load/unload) to correctly reflect
         # both current state and pending changes
@@ -630,31 +654,60 @@ class PluginManagerDialog(QDialog):
             try:
                 with open(api_doc_path, 'r', encoding='utf-8') as f:
                     content = f.read()
-                self.documentation_view.setPlainText(content)
+                self._render_markdown(content, os.path.dirname(api_doc_path))
                 self.documentation_view.show()
                 self.no_docs_label.hide()
             except Exception as e:
                 logger.error(f"Error loading API.md for plugin {plugin_info.id}: {e}")
-                self.documentation_view.setPlainText(f"Error loading documentation: {str(e)}")
+                self.documentation_view.setHtml(f"<h1>Error</h1><p>Error loading documentation: {str(e)}</p>")
                 self.documentation_view.show()
                 self.no_docs_label.hide()
         elif os.path.exists(readme_path):
             try:
                 with open(readme_path, 'r', encoding='utf-8') as f:
                     content = f.read()
-                self.documentation_view.setPlainText(content)
+                self._render_markdown(content, os.path.dirname(readme_path))
                 self.documentation_view.show()
                 self.no_docs_label.hide()
             except Exception as e:
                 logger.error(f"Error loading README.md for plugin {plugin_info.id}: {e}")
-                self.documentation_view.setPlainText(f"Error loading documentation: {str(e)}")
+                self.documentation_view.setHtml(f"<h1>Error</h1><p>Error loading documentation: {str(e)}</p>")
                 self.documentation_view.show()
                 self.no_docs_label.hide()
         else:
             self.documentation_view.clear()
             self.documentation_view.hide()
-            self.no_docs_label.setText("No documentation (API.md) found for this plugin")
+            self.no_docs_label.setText("No documentation (API.md or README.md) found for this plugin")
             self.no_docs_label.show()
+    
+    def _render_markdown(self, markdown_text, base_path=None):
+        """Render markdown content in the documentation view"""
+        html = markdown.markdown(
+            markdown_text,
+            extensions=["tables", "fenced_code", "codehilite"]
+        )
+        styled_html = f"""
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; margin: 20px; }}
+                h1, h2, h3, h4 {{ color: #2c3e50; }}
+                pre {{ background-color: #f5f5f5; padding: 10px; border-radius: 5px; }}
+                code {{ background-color: #f5f5f5; padding: 2px 4px; border-radius: 3px; }}
+                table {{ border-collapse: collapse; width: 100%; }}
+                th, td {{ text-align: left; padding: 8px; border: 1px solid #ddd; }}
+                th {{ background-color: #f2f2f2; }}
+                tr:nth-child(even) {{ background-color: #f9f9f9; }}
+            </style>
+        </head>
+        <body>
+            {html}
+        </body>
+        </html>
+        """
+        self.documentation_view.setHtml(styled_html)
+        if base_path:
+            self.documentation_view.document().setBaseUrl(QUrl.fromLocalFile(base_path + os.sep))
         
     def clear_settings(self):
         """Clear plugin settings"""
@@ -890,28 +943,8 @@ class PluginManagerDialog(QDialog):
         """Handle save changes button clicked"""
         # Check if there are any changes to apply
         if not self._are_there_pending_changes():
-            # Double-check current selected plugin state against checkbox
-            current_item = self.plugin_list.currentItem()
-            if current_item and current_item.plugin_info:
-                plugin_info = current_item.plugin_info
-                plugin_id = plugin_info.id
-                new_enabled_state = self.enable_button.isChecked()
-                current_enabled_state = plugin_info.state.is_enabled
-                
-                # If checkbox state differs from actual state, add it to pending changes
-                if new_enabled_state != current_enabled_state:
-                    logger.debug(f"Forced detection of pending state change: {plugin_id} {current_enabled_state} -> {new_enabled_state}")
-                    if plugin_id not in self.pending_plugin_changes:
-                        self.pending_plugin_changes[plugin_id] = {"enabled": None, "settings": {}}
-                    self.pending_plugin_changes[plugin_id]["enabled"] = new_enabled_state
-                else:
-                    # If no real changes detected
-                    QMessageBox.information(self, "No Changes", "There are no pending changes to save.")
-                    return
-            else:
-                # If no item selected
-                QMessageBox.information(self, "No Changes", "There are no pending changes to save.")
-                return
+            QMessageBox.information(self, "No Changes", "There are no pending changes to save.")
+            return
             
         # Build a detailed changes list
         detailed_changes = []
@@ -1168,22 +1201,6 @@ class PluginManagerDialog(QDialog):
         
         logger.debug("Generating changes summary for confirmation dialog")
         
-        # First check the currently selected plugin against its checkbox state
-        current_item = self.plugin_list.currentItem()
-        if current_item and current_item.plugin_info:
-            plugin_info = current_item.plugin_info
-            plugin_id = plugin_info.id
-            
-            new_enabled_state = self.enable_button.isChecked()  # Current checkbox state
-            current_enabled_state = plugin_info.state.is_enabled         # Current plugin state
-            
-            # If checkbox differs from current state, ensure this is tracked
-            if new_enabled_state != current_enabled_state:
-                logger.debug(f"Checkbox state differs from plugin state for {plugin_id}: {current_enabled_state} -> {new_enabled_state}")
-                if plugin_id not in self.pending_plugin_changes:
-                    self.pending_plugin_changes[plugin_id] = {"enabled": None, "settings": {}}
-                self.pending_plugin_changes[plugin_id]["enabled"] = new_enabled_state
-        
         # Now process all pending changes for the summary
         for plugin_id, changes in self.pending_plugin_changes.items():
             plugin_info = self.plugin_manager.get_plugin(plugin_id)
@@ -1374,9 +1391,7 @@ class PluginManagerDialog(QDialog):
         """Update action button states based on plugin state"""
         # Default all to disabled
         self.enable_button.setEnabled(False)
-        self.disable_button.setEnabled(False)
         self.load_button.setEnabled(False)
-        self.unload_button.setEnabled(False)
         self.reload_button.setEnabled(False)
         self.repair_button.setEnabled(False)
         
@@ -1395,40 +1410,59 @@ class PluginManagerDialog(QDialog):
         # Log states for debugging
         logger.debug(f"Plugin {plugin_info.id} state: enabled={current_enabled}, loaded={is_loaded}, pending_enabled={pending_enabled}")
         
+        self.enable_button.setEnabled(True)
+        self._update_enable_button_label(current_enabled if pending_enabled is None else pending_enabled)
+        
         # Determine which actions make sense based on current state (ignoring pending changes)
         if current_enabled:
-            # Plugin is currently enabled
-            self.disable_button.setEnabled(True)
-            
             if is_loaded:
-                # Plugin is loaded - can unload or reload
-                self.unload_button.setEnabled(True)
+                self._update_load_button_label(True)
+                self.load_button.setEnabled(True)
                 self.reload_button.setEnabled(True)
             else:
-                # Plugin is enabled but not loaded - can load
+                self._update_load_button_label(False)
                 self.load_button.setEnabled(True)
         else:
-            # Plugin is currently disabled - can enable
-            self.enable_button.setEnabled(True)
-            
+            self._update_load_button_label(False)
+                
         # Override based on pending state if necessary
-        if pending_enabled is not None:
-            # If a change is pending, update button state
-            if pending_enabled:
-                # Will be enabled, show disable button
-                self.enable_button.setEnabled(False)
-                self.disable_button.setEnabled(True)
-            else:
-                # Will be disabled, show enable button
-                self.enable_button.setEnabled(True)
-                self.disable_button.setEnabled(False)
-                # Cannot load/unload if will be disabled
-                self.load_button.setEnabled(False)
-                self.unload_button.setEnabled(False)
-                self.reload_button.setEnabled(False)
+        if pending_enabled is False:
+            # If the plugin will be disabled, prevent load/unload actions
+            self.load_button.setEnabled(False)
+            self.reload_button.setEnabled(False)
+            self._update_load_button_label(is_loaded)
         
-        # Repair button is always enabled if a plugin is selected (can check dependencies anytime)
-        self.repair_button.setEnabled(True)
+        # Repair button is only enabled if the plugin is in error or missing requirements
+        repair_enabled = plugin_info.state == PluginState.ERROR
+        if not repair_enabled:
+            try:
+                all_installed, missing, _ = self.plugin_manager._check_plugin_requirements_installed(plugin_info)
+                repair_enabled = not all_installed
+            except Exception as exc:
+                logger.warning(f"Failed to check plugin requirements for repair button: {exc}")
+        self.repair_button.setEnabled(repair_enabled)
+
+    def _update_enable_button_label(self, is_enabled):
+        """Update enable button label to match desired state"""
+        if not hasattr(self, "enable_button") or self.enable_button is None:
+            return
+        if is_enabled:
+            self.enable_button.setText("Disable")
+            self.enable_button.setToolTip("Disable the selected plugin (changes apply on save)")
+        else:
+            self.enable_button.setText("Enable")
+            self.enable_button.setToolTip("Enable the selected plugin (changes apply on save)")
+
+    def _update_load_button_label(self, is_loaded):
+        """Update load button label to match desired state"""
+        if not hasattr(self, "load_button") or self.load_button is None:
+            return
+        if is_loaded:
+            self.load_button.setText("Unload")
+            self.load_button.setToolTip("Unload the selected plugin")
+        else:
+            self.load_button.setText("Load")
+            self.load_button.setToolTip("Load the selected plugin")
         
     def _are_there_pending_changes(self):
         """Check if there are any pending changes"""
@@ -1483,15 +1517,6 @@ class PluginManagerDialog(QDialog):
                         logger.debug(f"Found pending setting change: {setting_id} value changed from {original_value} to {current_value}")
                         return True
                         
-            # Check if this plugin's enabled state is going to change
-            # Check if checkbox state differs from plugin's actual state
-            new_enabled_state = self.enable_button.isChecked()
-            current_enabled_state = plugin_info.state.is_enabled
-            
-            if new_enabled_state != current_enabled_state:
-                logger.debug(f"Found pending enabled state change for selected plugin {plugin_id}: {current_enabled_state} -> {new_enabled_state}")
-                return True
-                
         logger.debug("No pending changes found")
         return False
         
@@ -1985,6 +2010,15 @@ class PluginManagerDialog(QDialog):
         logger.debug("Refreshing plugins")
         self.plugin_manager.discover_plugins()
         self.load_plugins()
+    
+    @Slot()
+    def on_open_plugins_folder_clicked(self):
+        """Open the plugins directory"""
+        plugins_dir = getattr(self.plugin_manager, "external_plugins_dir", None) or getattr(self.plugin_manager, "internal_plugins_dir", None)
+        if not plugins_dir or not os.path.isdir(plugins_dir):
+            QMessageBox.warning(self, "Plugins Folder Missing", "The plugins directory could not be found.")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(plugins_dir))
         
     @Slot(object)
     def on_plugin_loaded(self, plugin_info):
@@ -2061,161 +2095,310 @@ class PluginManagerDialog(QDialog):
 
     def filter_plugins(self, text):
         """Filter the plugin list based on text input"""
-        for i in range(self.plugin_list.count()):
-            item = self.plugin_list.item(i)
-            if text.lower() in item.text().lower():
-                item.setHidden(False)
-            else:
-                item.setHidden(True)
+        self._apply_filters()
     
     @Slot()
-    def on_enable_clicked(self):
-        """Handle enable button clicked"""
+    def on_enable_button_clicked(self):
+        """Toggle enable/disable state for the selected plugin (staged)"""
         current_item = self.plugin_list.currentItem()
         if not current_item:
             return
-            
+        
         plugin_info = current_item.plugin_info
-        plugin_id = plugin_info.id
+        pending_enabled = None
+        if plugin_info.id in self.pending_plugin_changes:
+            pending_enabled = self.pending_plugin_changes[plugin_info.id].get("enabled")
+        current_state = plugin_info.state.is_enabled if pending_enabled is None else pending_enabled
+        desired_state = not current_state
         
-        # Add to pending changes
-        if plugin_id not in self.pending_plugin_changes:
-            self.pending_plugin_changes[plugin_id] = {"enabled": None, "settings": {}}
-            
-        self.pending_plugin_changes[plugin_id]["enabled"] = True
-        
-        # Update UI
-        self.enable_button.setChecked(True)
-        
-        # Update status text
-        current_status = self.id_label.text().split(" (will be")[0]
-        self.id_label.setText(f"{current_status} (will be enabled on save)")
-        self.name_label.setText(f"{current_status} (will be enabled on save)")
-        self.version_label.setText(f"{current_status} (will be enabled on save)")
-        self.author_label.setText(f"{current_status} (will be enabled on save)")
-        self.min_version_label.setText(f"{current_status} (will be enabled on save)")
-        self.max_version_label.setText(f"{current_status} (will be enabled on save)")
-        self.deps_label.setText(f"{current_status} (will be enabled on save)")
-        self.reqs_label.setText(f"{current_status} (will be enabled on save)")
-        self.sys_reqs_label.setText(f"{current_status} (will be enabled on save)")
-        self.entry_point_label.setText(f"{current_status} (will be enabled on save)")
-        self.path_label.setText(f"{current_status} (will be enabled on save)")
-        self.id_label.setStyleSheet("color: orange;")
-        self.name_label.setStyleSheet("color: orange;")
-        self.version_label.setStyleSheet("color: orange;")
-        self.author_label.setStyleSheet("color: orange;")
-        self.min_version_label.setStyleSheet("color: orange;")
-        self.max_version_label.setStyleSheet("color: orange;")
-        self.deps_label.setStyleSheet("color: orange;")
-        self.reqs_label.setStyleSheet("color: orange;")
-        self.sys_reqs_label.setStyleSheet("color: orange;")
-        self.entry_point_label.setStyleSheet("color: orange;")
-        self.path_label.setStyleSheet("color: orange;")
-        
-        # Update status bar
-        self._update_status_bar()
-        
-        # Update button states
-        self._update_action_buttons(plugin_info)
-        
-        # Apply visual indication of pending change
-        font = current_item.font()
-        font.setBold(True)
-        current_item.setFont(font)
-        
-        # Enable save button
-        self._update_save_button_state()
-        
+        self._set_pending_enabled_state(plugin_info, desired_state)
+        self.update_details(self.plugin_manager.get_plugin(plugin_info.id) or plugin_info)
+    
     @Slot()
-    def on_disable_clicked(self):
-        """Handle disable button clicked"""
+    def on_load_button_clicked(self):
+        """Load or unload the selected plugin based on current state"""
         current_item = self.plugin_list.currentItem()
         if not current_item:
             return
-            
-        plugin_info = current_item.plugin_info
-        plugin_id = plugin_info.id
         
-        # Add to pending changes
+        plugin_info = current_item.plugin_info
+        if plugin_info.state.is_loaded:
+            self.on_unload_clicked()
+        else:
+            self.on_load_clicked()
+    
+    def _apply_filters(self):
+        """Apply text and group filters, with group highlighting"""
+        filter_text = self.filter_input.text().strip().lower()
+        group_name = self._get_selected_group_name()
+        group_ids = set(self.plugin_groups.get(group_name, [])) if group_name else None
+        
+        for i in range(self.plugin_list.count()):
+            item = self.plugin_list.item(i)
+            plugin_info = item.plugin_info
+            plugin_name = (plugin_info.name or "").lower()
+            plugin_id_text = (plugin_info.id or "").lower()
+            matches_text = filter_text in plugin_name or filter_text in plugin_id_text
+            matches_group = True if group_ids is None else plugin_info.id in group_ids
+            item.setHidden(not (matches_text and matches_group))
+            
+            if group_ids is not None and plugin_info.id in group_ids:
+                item.setBackground(QBrush(QColor("#e8f2ff")))
+            else:
+                item.setBackground(QBrush())
+        
+        # Ensure a visible item is selected when filters change
+        current_item = self.plugin_list.currentItem()
+        if current_item and current_item.isHidden():
+            for i in range(self.plugin_list.count()):
+                item = self.plugin_list.item(i)
+                if not item.isHidden():
+                    self.plugin_list.setCurrentItem(item)
+                    break
+        
+        self._update_group_controls_state()
+    
+    def _load_plugin_groups(self):
+        """Load plugin groups from config"""
+        self.plugin_groups = {}
+        if not self.config:
+            return
+        
+        stored_groups = self.config.get("plugins.groups", {})
+        if not isinstance(stored_groups, dict):
+            return
+        
+        for name, plugin_ids in stored_groups.items():
+            if not isinstance(name, str) or not name.strip():
+                continue
+            if not isinstance(plugin_ids, list):
+                continue
+            seen = set()
+            cleaned = []
+            for plugin_id in plugin_ids:
+                plugin_id_str = str(plugin_id).strip()
+                if plugin_id_str and plugin_id_str not in seen:
+                    cleaned.append(plugin_id_str)
+                    seen.add(plugin_id_str)
+            self.plugin_groups[name.strip()] = cleaned
+    
+    def _save_plugin_groups(self):
+        """Persist plugin groups to config"""
+        if not self.config:
+            logger.warning("Plugin group changes were not saved because config is unavailable")
+            return
+        self.config.set("plugins.groups", self.plugin_groups)
+    
+    def _refresh_group_selector(self):
+        """Refresh the group selector options"""
+        current_group = self._get_selected_group_name()
+        self.group_selector.blockSignals(True)
+        self.group_selector.clear()
+        self.group_selector.addItem("All Plugins", None)
+        for name in sorted(self.plugin_groups.keys(), key=str.lower):
+            self.group_selector.addItem(name, name)
+        
+        if current_group in self.plugin_groups:
+            index = self.group_selector.findData(current_group)
+            if index >= 0:
+                self.group_selector.setCurrentIndex(index)
+        self.group_selector.blockSignals(False)
+        self._update_group_controls_state()
+    
+    def _get_selected_group_name(self):
+        """Return the currently selected group name, or None for all plugins"""
+        if not hasattr(self, "group_selector"):
+            return None
+        return self.group_selector.currentData()
+    
+    def _update_group_controls_state(self):
+        """Enable or disable group-related controls based on selection"""
+        group_name = self._get_selected_group_name()
+        has_group = group_name in self.plugin_groups if group_name else False
+        group_has_members = bool(self.plugin_groups.get(group_name)) if has_group else False
+        
+        self.group_rename_button.setEnabled(has_group)
+        self.group_delete_button.setEnabled(has_group)
+        self.group_add_button.setEnabled(has_group)
+        self.group_remove_button.setEnabled(has_group)
+        
+        # Group action buttons removed
+    
+    @Slot(int)
+    def on_group_selected(self, index):
+        """Handle group selector change"""
+        self._apply_filters()
+    
+    @Slot()
+    def on_group_create_clicked(self):
+        """Create a new plugin group"""
+        name, ok = QInputDialog.getText(self, "Create Group", "Group name:")
+        if not ok:
+            return
+        name = name.strip()
+        if not name:
+            QMessageBox.warning(self, "Invalid Group Name", "Group name cannot be empty.")
+            return
+        if name in self.plugin_groups:
+            QMessageBox.warning(self, "Group Exists", f"A group named '{name}' already exists.")
+            return
+        
+        self.plugin_groups[name] = []
+        self._save_plugin_groups()
+        self._refresh_group_selector()
+        self._apply_filters()
+    
+    @Slot()
+    def on_group_rename_clicked(self):
+        """Rename the selected plugin group"""
+        current_group = self._get_selected_group_name()
+        if not current_group:
+            return
+        
+        new_name, ok = QInputDialog.getText(self, "Rename Group", "New group name:", text=current_group)
+        if not ok:
+            return
+        new_name = new_name.strip()
+        if not new_name:
+            QMessageBox.warning(self, "Invalid Group Name", "Group name cannot be empty.")
+            return
+        if new_name in self.plugin_groups and new_name != current_group:
+            QMessageBox.warning(self, "Group Exists", f"A group named '{new_name}' already exists.")
+            return
+        
+        self.plugin_groups[new_name] = self.plugin_groups.pop(current_group)
+        self._save_plugin_groups()
+        self._refresh_group_selector()
+        self._apply_filters()
+    
+    @Slot()
+    def on_group_delete_clicked(self):
+        """Delete the selected plugin group"""
+        current_group = self._get_selected_group_name()
+        if not current_group:
+            return
+        
+        reply = QMessageBox.question(
+            self,
+            "Delete Group",
+            f"Delete group '{current_group}'?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+        
+        self.plugin_groups.pop(current_group, None)
+        self._save_plugin_groups()
+        self._refresh_group_selector()
+        self._apply_filters()
+    
+    @Slot()
+    def on_group_add_selected_clicked(self):
+        """Add selected plugins to the current group"""
+        current_group = self._get_selected_group_name()
+        if not current_group:
+            QMessageBox.information(self, "No Group Selected", "Select a group to add plugins.")
+            return
+        
+        selected_ids = self._get_selected_plugin_ids()
+        if not selected_ids:
+            QMessageBox.information(self, "No Plugins Selected", "Select one or more plugins to add.")
+            return
+        
+        current_ids = self.plugin_groups.get(current_group, [])
+        for plugin_id in selected_ids:
+            if plugin_id not in current_ids:
+                current_ids.append(plugin_id)
+        self.plugin_groups[current_group] = current_ids
+        self._save_plugin_groups()
+        self._apply_filters()
+        self._update_group_controls_state()
+    
+    @Slot()
+    def on_group_remove_selected_clicked(self):
+        """Remove selected plugins from the current group"""
+        current_group = self._get_selected_group_name()
+        if not current_group:
+            QMessageBox.information(self, "No Group Selected", "Select a group to remove plugins.")
+            return
+        
+        selected_ids = self._get_selected_plugin_ids()
+        if not selected_ids:
+            QMessageBox.information(self, "No Plugins Selected", "Select one or more plugins to remove.")
+            return
+        
+        current_ids = [pid for pid in self.plugin_groups.get(current_group, []) if pid not in selected_ids]
+        self.plugin_groups[current_group] = current_ids
+        self._save_plugin_groups()
+        self._apply_filters()
+        self._update_group_controls_state()
+    
+    def _get_selected_plugin_ids(self):
+        """Return the list of selected plugin IDs"""
+        selected_items = self.plugin_list.selectedItems()
+        return [item.plugin_info.id for item in selected_items if item and item.plugin_info]
+    
+    def _get_group_plugin_ids(self):
+        """Return plugin IDs for the current group"""
+        group_name = self._get_selected_group_name()
+        if not group_name:
+            return []
+        return list(self.plugin_groups.get(group_name, []))
+    def _set_pending_enabled_state(self, plugin_info, enabled, allow_unload=True, show_status=True):
+        """Stage an enable/disable change for a plugin"""
+        plugin_id = plugin_info.id
         if plugin_id not in self.pending_plugin_changes:
             self.pending_plugin_changes[plugin_id] = {"enabled": None, "settings": {}}
-            
-        self.pending_plugin_changes[plugin_id]["enabled"] = False
         
-        # If the plugin is currently loaded, unload it immediately
-        if plugin_info.state.is_loaded:
-            logger.info(f"Immediately unloading plugin {plugin_id} when disable button is clicked")
-            
-            # Show "Unloading..." message with busy cursor
+        self.pending_plugin_changes[plugin_id]["enabled"] = enabled
+        
+        if not enabled and allow_unload and plugin_info.state.is_loaded:
+            self._unload_plugin_immediately(plugin_info, show_status=show_status)
+        
+        # Apply visual indication of pending change when it differs from current state
+        if enabled != plugin_info.state.is_enabled:
+            for i in range(self.plugin_list.count()):
+                item = self.plugin_list.item(i)
+                if item.plugin_info.id == plugin_id:
+                    font = item.font()
+                    font.setBold(True)
+                    item.setFont(font)
+                    break
+    
+    def _unload_plugin_immediately(self, plugin_info, show_status=True):
+        """Unload a plugin with optional UI feedback"""
+        if not plugin_info.state.is_loaded:
+            return True
+        
+        if show_status:
             self.setCursor(Qt.WaitCursor)
             self.status_bar.setText(f"Unloading plugin: {plugin_info.name}...")
             self.status_bar.setStyleSheet("padding: 5px; background-color: #ffe8cc; font-weight: bold;")
-            QApplication.processEvents()  # Ensure the UI updates
-            
-            # Force unload the plugin 
-            success = self.plugin_manager.unload_plugin(plugin_id)
-            
-            # Restore cursor
+            QApplication.processEvents()
+        
+        success = self.plugin_manager.unload_plugin(plugin_info.id)
+        
+        if show_status:
             self.setCursor(Qt.ArrowCursor)
-            
             if success:
-                # Force refresh the plugin state
-                plugin_info = self.plugin_manager.get_plugin(plugin_id)
-                current_item.plugin_info = plugin_info
-                current_item.update_icon()
-                
-                # Show success feedback
                 self.status_bar.setText(f"Plugin '{plugin_info.name}' unloaded. It will be disabled when changes are saved.")
-                logger.info(f"Successfully unloaded plugin {plugin_id} immediately on disable click")
+                self.status_bar.setStyleSheet("padding: 5px; background-color: #ffe8cc; font-weight: bold;")
             else:
-                # Show error feedback
                 self.status_bar.setText(f"Failed to unload plugin '{plugin_info.name}'. See logs for details.")
-                logger.error(f"Failed to unload plugin {plugin_id} on disable click")
+                self.status_bar.setStyleSheet("padding: 5px; background-color: #ffd0d0; font-weight: bold;")
         
-        # Update UI
-        self.enable_button.setChecked(False)
+        return success
+    
+    @Slot()
+    def on_enable_clicked(self):
+        """Handle enable button clicked (legacy entry point)"""
+        self.on_enable_button_clicked()
         
-        # Update status text
-        current_status = self.id_label.text().split(" (will be")[0]
-        self.id_label.setText(f"{current_status} (will be disabled on save)")
-        self.name_label.setText(f"{current_status} (will be disabled on save)")
-        self.version_label.setText(f"{current_status} (will be disabled on save)")
-        self.author_label.setText(f"{current_status} (will be disabled on save)")
-        self.min_version_label.setText(f"{current_status} (will be disabled on save)")
-        self.max_version_label.setText(f"{current_status} (will be disabled on save)")
-        self.deps_label.setText(f"{current_status} (will be disabled on save)")
-        self.reqs_label.setText(f"{current_status} (will be disabled on save)")
-        self.sys_reqs_label.setText(f"{current_status} (will be disabled on save)")
-        self.entry_point_label.setText(f"{current_status} (will be disabled on save)")
-        self.path_label.setText(f"{current_status} (will be disabled on save)")
-        self.id_label.setStyleSheet("color: #888;")
-        self.name_label.setStyleSheet("color: #888;")
-        self.version_label.setStyleSheet("color: #888;")
-        self.author_label.setStyleSheet("color: #888;")
-        self.min_version_label.setStyleSheet("color: #888;")
-        self.max_version_label.setStyleSheet("color: #888;")
-        self.deps_label.setStyleSheet("color: #888;")
-        self.reqs_label.setStyleSheet("color: #888;")
-        self.sys_reqs_label.setStyleSheet("color: #888;")
-        self.entry_point_label.setStyleSheet("color: #888;")
-        self.path_label.setStyleSheet("color: #888;")
-        
-        # Update status bar
-        self._update_status_bar()
-        
-        # Update button states
-        self._update_action_buttons(plugin_info)
-        
-        # Apply visual indication of pending change
-        font = current_item.font()
-        font.setBold(True)
-        current_item.setFont(font)
-        
-        # Enable save button
-        self._update_save_button_state()
-        
-        # Refresh the plugin details view to show current state
-        self.update_details(plugin_info)
+    @Slot()
+    def on_disable_clicked(self):
+        """Handle disable button clicked (legacy entry point)"""
+        self.on_enable_button_clicked()
         
     @Slot()
     def on_load_clicked(self):

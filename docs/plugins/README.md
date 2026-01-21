@@ -989,15 +989,24 @@ def on_context_menu_requested(self, devices, menu):
 
 2. Dock widget registration:
 ```python
-def setup_dock_widget(self):
-    # Create the dock widget
-    self.dock_widget = QDockWidget("Network Scanner", self.main_window)
-    self.dock_widget.setObjectName("network_scanner_dock")
-    self.dock_widget.setWidget(self.dock_content)
+def get_dock_widgets(self):
+    """Get plugin dock widgets"""
+    # IMPORTANT: Panel titles should use the full plugin name for easy identification
+    # Example: "Network Scanner" not "Scanner", "Command Manager" not "Commands"
+    dock = QDockWidget("Network Scanner")  # Use full plugin name
+    dock.setWidget(self.main_widget)
+    dock.setObjectName("NetworkScannerDock")
+    dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
     
-    # Add the dock widget to the main window
-    self.main_window.addDockWidget(Qt.RightDockWidgetArea, self.dock_widget)
+    # Return a list of tuples: (widget_name, widget, area)
+    return [("Network Scanner", dock, Qt.RightDockWidgetArea)]
 ```
+
+**Panel Title Requirements:**
+- Panel titles (QDockWidget titles) must use the full plugin name
+- This makes it easy to identify which plugin a panel belongs to
+- Example: "Network Scanner" not "Scanner", "Command Manager" not "Commands"
+- The widget_name in the return tuple should also match the plugin name
 
 #### Signal Management
 
