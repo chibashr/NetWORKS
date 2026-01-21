@@ -131,6 +131,10 @@ class CommandManagerPlugin(PluginInterface):
         # Connect signals
         self._connect_signals()
         
+        # Mark as initialized
+        self._initialized = True
+        self.plugin_initialized.emit()
+        
         logger.info("Command Manager plugin initialized successfully")
         return True
         
@@ -226,6 +230,17 @@ class CommandManagerPlugin(PluginInterface):
             # Save command outputs
             if self.output_handler:
                 self.output_handler.save_command_outputs()
+            
+            # Ensure credentials are saved
+            # Device credentials are saved with workspace (via device properties)
+            # Group and subnet credentials are saved to files immediately when set
+            # But we'll ensure workspace is saved to persist device credentials
+            if self.device_manager:
+                try:
+                    self.device_manager.save_workspace()
+                    logger.debug("Workspace saved during plugin cleanup to persist device credentials")
+                except Exception as e:
+                    logger.warning(f"Could not save workspace during cleanup: {e}")
                     
             # Close command dialog if open
             if hasattr(self, 'command_dialog') and self.command_dialog:
@@ -526,7 +541,7 @@ class CommandManagerPlugin(PluginInterface):
         
         try:
             from plugins.command_manager.ui.credential_manager import CredentialManager
-            dialog = CredentialManager(self, devices, self.main_window)
+            dialog = CredentialManager(self, devices=devices, parent=self.main_window)
             dialog.exec()
         except Exception as e:
             logger.error(f"Error opening credential manager: {e}")

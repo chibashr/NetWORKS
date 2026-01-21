@@ -4,7 +4,8 @@
 
 # ==== Required Core Dependencies ====
 # UI and application framework
-PySide6==6.9.0      # Qt framework for Python
+PySide6==6.9.0; python_version < "3.14"   # Qt framework for Python
+PySide6==6.10.1; python_version >= "3.14" # Qt framework for Python
 qtpy==2.4.3         # Abstraction layer for Qt bindings
 qtawesome==1.4.0    # Icon fonts for Qt applications
 
@@ -18,9 +19,9 @@ loguru==0.7.3       # Logging library
 six==1.17.0         # Python 2/3 compatibility utilities
 chardet==5.2.0      # Character encoding detection
 
-# ==== Optional File Format Handling Dependencies ====
+# Optional File Format Handling Dependencies
 # Data analysis and file formats
-pandas==2.0.3       # Data analysis library (for Excel, CSV, etc.)
+pandas==2.0.3; python_version < "3.13"  # Data analysis library (for Excel, CSV, etc.)
 openpyxl==3.1.2     # Excel XLSX file support
 xlrd==2.0.1         # Excel XLS file support
 python-docx==0.8.11 # Word document support

@@ -9,7 +9,7 @@ advanced:
   use_proxy: false
 application:
   check_for_updates: true
-  external_plugins_directory: D:\SynologyDrive\Development\New folder (2)\plugins
+  external_plugins_directory: plugins
   first_run: false
   plugins_enabled: true
   update_channel: stable
@@ -31,6 +31,7 @@ devices:
 general:
   check_updates: true
   repository_url: https://github.com/chibashr/netWORKS
+  skipped_version: 0.9.4
   update_channel: Beta
 logging:
   backtrace: true

@@ -268,7 +268,7 @@ def on_context_manage_credentials(plugin):
         return
     
     # Show credential manager dialog
-    cred_manager = CredentialManager(plugin, devices, plugin.main_window)
+    cred_manager = CredentialManager(plugin, devices=devices, parent=plugin.main_window)
     cred_manager.exec()
 
 def on_run_commands(plugin):

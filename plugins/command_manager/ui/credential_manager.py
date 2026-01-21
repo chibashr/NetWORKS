@@ -383,8 +383,9 @@ class CredentialManager(QDialog):
                 item = QListWidgetItem(f"{alias} ({ip})")
                 item.setData(Qt.UserRole, device)
                 
-                # Check if credentials exist for this device
-                has_creds = bool(self.plugin.credential_store.get_device_credentials(device.id))
+                # Check if credentials exist for this device (device-specific only, not fallback)
+                device_creds = self.plugin.credential_store.get_device_credentials(device.id)
+                has_creds = bool(device_creds and device_creds.get("username"))
                 
                 # Set font weight based on credential status
                 font = item.font()
@@ -394,18 +395,38 @@ class CredentialManager(QDialog):
                 # Add to list
                 self.device_list.addItem(item)
             
-            # Select the first device if any are available
-            if self.device_list.count() > 0:
-                self.device_list.setCurrentRow(0)
+            # If specific devices were provided, select all of them
+            if self.devices:
+                # Clear any existing selection
+                self.device_list.clearSelection()
                 
-                # If specific devices were provided, select the first one
-                if self.devices:
-                    # Find and select the item
+                # Find and select all provided devices
+                selected_count = 0
+                for i in range(self.device_list.count()):
+                    item = self.device_list.item(i)
+                    device = item.data(Qt.UserRole)
+                    # Check if this device is in the provided devices list
+                    if device in self.devices:
+                        item.setSelected(True)
+                        selected_count += 1
+                        # Set the first selected device as current
+                        if selected_count == 1:
+                            self.device_list.setCurrentItem(item)
+                
+                # If we selected devices, scroll to the first one
+                if selected_count > 0:
+                    first_selected = None
                     for i in range(self.device_list.count()):
                         item = self.device_list.item(i)
-                        if item.data(Qt.UserRole) == self.devices[0]:
-                            self.device_list.setCurrentItem(item)
+                        if item.isSelected():
+                            first_selected = item
                             break
+                    if first_selected:
+                        self.device_list.scrollToItem(first_selected)
+            else:
+                # Select the first device if any are available
+                if self.device_list.count() > 0:
+                    self.device_list.setCurrentRow(0)
     
     def _load_groups(self):
         """Load device groups into the list"""
@@ -470,7 +491,7 @@ class CredentialManager(QDialog):
                 self.group_list.setCurrentRow(0)
             
             # If specific groups were provided, select the first one
-            if self.selected_groups:
+            if self.selected_groups and isinstance(self.selected_groups, (list, tuple)):
                 # Find and select the item
                 for i in range(self.group_list.count()):
                     item = self.group_list.item(i)
@@ -567,11 +588,17 @@ class CredentialManager(QDialog):
             self.device_delete_btn.setEnabled(False)
             return
             
-        # Get device ID
-        device_id = current.data(Qt.UserRole)
-        
-        # Get credentials
-        credentials = self.plugin.get_device_credentials(device_id)
+        # Get device object and extract ID
+        device = current.data(Qt.UserRole)
+        if hasattr(device, 'id'):
+            device_id = device.id
+        else:
+            # Fallback: assume it's already a device ID string
+            device_id = device
+            
+        # Get device-specific credentials only (not fallback to group/subnet)
+        # This ensures we only show/edit device-specific credentials in the device tab
+        credentials = self.plugin.credential_store.get_device_credentials(device_id)
         
         # Fill form
         if credentials:
@@ -718,8 +745,13 @@ class CredentialManager(QDialog):
         if not current:
             return
             
-        # Get device ID
-        device_id = current.data(Qt.UserRole)
+        # Get device object and extract ID
+        device = current.data(Qt.UserRole)
+        if hasattr(device, 'id'):
+            device_id = device.id
+        else:
+            # Fallback: assume it's already a device ID string
+            device_id = device
         
         # Validate form
         username = self.device_username.text().strip()
@@ -740,13 +772,33 @@ class CredentialManager(QDialog):
         }
         
         # Save credentials
-        self.plugin.set_device_credentials(device_id, credentials)
+        result = self.plugin.set_device_credentials(device_id, credentials)
+        if not result:
+            logger.warning(f"Failed to save credentials for device {device_id}")
+            QMessageBox.warning(
+                self,
+                "Save Failed",
+                "Failed to save credentials. Please check the console for details."
+            )
+            return
+        
+        # Refresh the device list to show updated credential status
+        self._load_devices()
+        
+        # Re-select the device that was just saved
+        for i in range(self.device_list.count()):
+            item = self.device_list.item(i)
+            item_device = item.data(Qt.UserRole)
+            if hasattr(item_device, 'id') and item_device.id == device_id:
+                self.device_list.setCurrentItem(item)
+                break
         
         # Show success message
+        device_alias = device.get_property("alias", device.get_property("hostname", "Device"))
         QMessageBox.information(
             self,
             "Credentials Saved",
-            f"Credentials for device saved successfully."
+            f"Credentials for {device_alias} saved successfully."
         )
         
     def _on_delete_device(self):
@@ -756,8 +808,13 @@ class CredentialManager(QDialog):
         if not current:
             return
             
-        # Get device ID
-        device_id = current.data(Qt.UserRole)
+        # Get device object and extract ID
+        device = current.data(Qt.UserRole)
+        if hasattr(device, 'id'):
+            device_id = device.id
+        else:
+            # Fallback: assume it's already a device ID string
+            device_id = device
         
         # Confirm deletion
         result = QMessageBox.question(

@@ -1095,6 +1095,125 @@ class CommandDialog(QDialog):
                 f"Failed to import command set: {e}"
             )
             
+    def _run_commands(self, devices, commands, command_set):
+        """Run commands on devices using a background worker
+        
+        Args:
+            devices: List of device objects to run commands on
+            commands: List of command dictionaries to run
+            command_set: Optional CommandSet object
+        """
+        from loguru import logger
+        
+        # Check if a worker is already running
+        if self.worker_thread and self.worker_thread.isRunning():
+            QMessageBox.warning(
+                self,
+                "Commands Already Running",
+                "Commands are already running. Please wait for them to complete or stop them first."
+            )
+            return
+        
+        # Clear previous output
+        self.output_text.clear()
+        
+        # Create a new thread for the worker
+        self.worker_thread = QThread()
+        
+        # Create the worker
+        self.worker = CommandWorker(self.plugin, devices, commands, command_set)
+        
+        # Move worker to thread
+        self.worker.moveToThread(self.worker_thread)
+        
+        # Connect signals (use QueuedConnection to ensure thread-safe signal delivery)
+        self.worker_thread.started.connect(self.worker.run)
+        self.worker.command_started.connect(self._on_command_started, Qt.QueuedConnection)
+        self.worker.command_complete.connect(self._on_command_complete, Qt.QueuedConnection)
+        self.worker.command_progress.connect(self._on_command_progress, Qt.QueuedConnection)
+        self.worker.all_commands_complete.connect(self._on_all_commands_complete, Qt.QueuedConnection)
+        self.worker_thread.finished.connect(self._on_worker_finished)
+        
+        # Update UI
+        self.run_selected_button.setEnabled(False)
+        self.run_all_button.setEnabled(False)
+        self.stop_button.setEnabled(True)
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setMaximum(len(devices) * len(commands))
+        
+        # Start the thread
+        self.worker_thread.start()
+        
+        logger.debug(f"Started command execution for {len(devices)} devices and {len(commands)} commands")
+    
+    def _on_command_started(self, device, command):
+        """Handle command started signal"""
+        device_name = device.get_property("alias", device.get_property("hostname", "Unknown Device"))
+        device_ip = device.get_property("ip_address", "Unknown IP")
+        command_alias = command.get("alias", command.get("command", "Unknown Command"))
+        
+        self.output_text.append(f"\n{'='*80}")
+        self.output_text.append(f"Device: {device_name} ({device_ip})")
+        self.output_text.append(f"Command: {command_alias}")
+        self.output_text.append(f"{'='*80}\n")
+        
+        # Scroll to bottom
+        cursor = self.output_text.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        self.output_text.setTextCursor(cursor)
+    
+    def _on_command_complete(self, device, command, result, command_set):
+        """Handle command complete signal"""
+        if result.get("success", False):
+            output = result.get("output", "")
+            self.output_text.append(output)
+        else:
+            error_msg = result.get("output", "Unknown error")
+            self.output_text.append(f"ERROR: {error_msg}")
+        
+        self.output_text.append("\n")
+        
+        # Scroll to bottom
+        cursor = self.output_text.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        self.output_text.setTextCursor(cursor)
+    
+    def _on_command_progress(self, current, total):
+        """Handle command progress signal"""
+        self.progress_bar.setValue(current)
+        self.progress_bar.setMaximum(total)
+        self.output_label.setText(f"Command Output: {current}/{total} commands completed")
+    
+    def _on_all_commands_complete(self):
+        """Handle all commands complete signal"""
+        from loguru import logger
+        logger.debug("All commands completed")
+        
+        # Update UI
+        self.run_selected_button.setEnabled(True)
+        self.run_all_button.setEnabled(True)
+        self.stop_button.setEnabled(False)
+        self.progress_bar.setVisible(False)
+        self.output_label.setText("Command Output: All commands completed")
+        
+        # Clean up worker
+        if self.worker_thread:
+            self.worker_thread.quit()
+            self.worker_thread.wait()
+            self.worker_thread = None
+            self.worker = None
+    
+    def _on_worker_finished(self):
+        """Handle worker thread finished signal"""
+        # Clean up
+        if self.worker:
+            self.worker.deleteLater()
+            self.worker = None
+        if self.worker_thread:
+            self.worker_thread.deleteLater()
+            self.worker_thread = None
+    
     def _on_stop(self):
         """Handle stop button"""
         # Stop the worker
@@ -1194,7 +1313,7 @@ class CommandDialog(QDialog):
         
         # Open the credential manager with the selected devices
         from ..ui.credential_manager import CredentialManager
-        cred_manager = CredentialManager(self.plugin, selected_devices, self)
+        cred_manager = CredentialManager(self.plugin, devices=selected_devices, parent=self)
         cred_manager.setWindowTitle("Device Credential Manager")
         cred_manager.resize(700, 550)
         cred_manager.exec()

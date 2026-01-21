@@ -355,6 +355,11 @@ class Application(QApplication):
         splash.update_progress(60, "Loading plugins...")
         self.plugin_manager = PluginManager(self)
         
+        # Check if we need to restore workspace after restart
+        if hasattr(self.plugin_manager, '_check_and_restore_workspace_after_restart'):
+            splash.update_progress(65, "Checking for workspace restoration...")
+            self.plugin_manager._check_and_restore_workspace_after_restart()
+        
         # Initialize issue reporter
         splash.update_progress(80, "Initializing issue reporting system...")
         from .core.issue_reporter import IssueReporter
@@ -387,6 +392,11 @@ class Application(QApplication):
         
         # Now display the main window
         self.main_window.show()
+
+        # Smoke test mode exits automatically after startup
+        if os.environ.get("NETWORKS_SMOKE_TEST") == "1":
+            self.logger.info("Smoke test mode active. Exiting after startup.")
+            QTimer.singleShot(2000, self.quit)
         
         # Check for first run
         if self.config.is_first_run():

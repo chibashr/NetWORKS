@@ -27,12 +27,20 @@ except ImportError as e:
     logger.error(f"Could not import python-nmap: {e}")
     HAS_NMAP = False
 
-# Try to import netifaces for interface detection
+# Try to import psutil for interface detection (preferred, wheels available on most platforms)
+try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError as e:
+    logger.error(f"Could not import psutil for interface detection: {e}")
+    HAS_PSUTIL = False
+
+# Try to import netifaces for interface detection (optional, may require build tools on Windows)
 try:
     import netifaces
     HAS_NETIFACES = True
 except ImportError as e:
-    logger.error(f"Could not import netifaces: {e}")
+    logger.warning(f"Could not import netifaces (optional): {e}")
     HAS_NETIFACES = False
 
 from PySide6.QtWidgets import (
@@ -246,7 +254,16 @@ class ScannerWorker(QObject):
                         try:
                             network = ipaddress.IPv4Network(self.network_range, strict=False)
                             host_count_estimate = network.num_addresses
-                            self.device_found.emit({"status_update": f"Preparing to scan {host_count_estimate} potential addresses..."})
+                            
+                            # Warn if network is very large (more than /20 = 4096 hosts)
+                            # Large networks can cause nmap assertion failures
+                            if host_count_estimate > 4096:
+                                logger.warning(f"Very large network range detected ({host_count_estimate} hosts). This may cause nmap issues.")
+                                self.device_found.emit({
+                                    "status_update": f"Warning: Large network ({host_count_estimate} hosts). Scan may take a long time or fail..."
+                                })
+                            else:
+                                self.device_found.emit({"status_update": f"Preparing to scan {host_count_estimate} potential addresses..."})
                         except Exception:
                             pass
                 except Exception:
@@ -257,14 +274,34 @@ class ScannerWorker(QObject):
                     # Use a reasonable timeout value
                     timeout_val = max(60, min(self.timeout, 900))  # Between 60 and 900 seconds
                     
-                    # Only add a -T4 timing template if not already specified to speed up the scan
-                    if not any(arg in arguments for arg in ["-T1", "-T2", "-T3", "-T4", "-T5"]):
+                    # For large networks, use a more conservative timing template to avoid assertion failures
+                    # Large networks can trigger nmap internal bugs with aggressive timing
+                    # Check if timing template is already in arguments (from scan type)
+                    has_timing = any(arg in arguments for arg in ["-T1", "-T2", "-T3", "-T4", "-T5"])
+                    
+                    if host_count_estimate > 1024:
+                        # For large networks, replace T4 with T3 if present, or add T3 if not
+                        if "-T4" in arguments or "-T5" in arguments:
+                            # Replace aggressive timing with normal timing for large networks
+                            arguments = arguments.replace("-T4", "-T3").replace("-T5", "-T3")
+                            logger.debug("Replaced aggressive timing template with T3 for large network to avoid nmap assertion failures")
+                        elif not has_timing:
+                            arguments += " -T3"
+                            logger.debug("Using T3 timing template for large network to avoid nmap assertion failures")
+                    elif not has_timing:
+                        # For smaller networks, T4 is fine if not already specified
                         arguments += " -T4"
                         
-                    logger.debug(f"Starting nmap scan with timeout {timeout_val}s and arguments: {arguments}")
+                    # For large networks, add host timeout to prevent individual hosts from hanging
+                    # This helps avoid nmap assertion failures
+                    if host_count_estimate > 512 and "--host-timeout" not in arguments:
+                        arguments += " --host-timeout 30s"
+                        logger.debug("Added --host-timeout for large network scan")
+                    
+                    logger.debug(f"Starting nmap scan (estimated {host_count_estimate} hosts) with arguments: {arguments}")
                     
                     # Let the user know we're starting
-                    self.device_found.emit({"status_update": f"Starting nmap scan with timeout {timeout_val}s..."})
+                    self.device_found.emit({"status_update": f"Starting nmap scan of {host_count_estimate} hosts..."})
                     
                     # Create a timer to provide updates during the scan
                     import threading
@@ -302,8 +339,11 @@ class ScannerWorker(QObject):
                     update_timer.start()
                     
                     # Execute nmap scan
+                    # Note: Don't pass timeout parameter - it causes assertion failures with large networks
+                    # Instead, use --host-timeout in arguments if needed, or let nmap use defaults
+                    # The timeout_val is used for our own progress tracking, not passed to nmap
                     self.scanner.scan(hosts=self.network_range, arguments=arguments, 
-                                     timeout=timeout_val, sudo=self.use_sudo)
+                                     sudo=self.use_sudo)
                     
                     # Stop the update timer
                     if update_timer:
@@ -312,12 +352,54 @@ class ScannerWorker(QObject):
                 except Exception as scan_error:
                     logger.error(f"Error during nmap scan: {scan_error}")
                     
-                    # Check if the error is a timeout and provide a more helpful message
+                    # Stop the update timer if still running
+                    if update_timer:
+                        try:
+                            update_timer.cancel()
+                        except Exception:
+                            pass
+                    
+                    # Check for specific error types and provide helpful messages
                     error_msg = str(scan_error).lower()
-                    if "timed out" in error_msg or "timeout" in error_msg:
-                        self.scan_error.emit("Scan timed out. Try using a smaller network range or increasing the timeout value in settings.")
+                    error_str = str(scan_error)
+                    
+                    # Check for nmap assertion failures (internal nmap bugs)
+                    if "assertion failed" in error_msg or "htn.toclock_running" in error_msg:
+                        logger.warning("Nmap internal assertion failure detected. This may be due to a large network range or nmap version issue.")
+                        # Try to provide helpful guidance
+                        helpful_msg = (
+                            "Nmap encountered an internal error during the scan.\n\n"
+                            "This can happen with:\n"
+                            "  • Very large network ranges (try scanning smaller subnets)\n"
+                            "  • Certain nmap versions (try updating nmap)\n"
+                            "  • Network timeout issues\n\n"
+                            "Suggestions:\n"
+                            "  • Try scanning a smaller range (e.g., /24 instead of /22)\n"
+                            "  • Use the 'Quick Ping' option for faster discovery\n"
+                            "  • Update nmap to the latest version\n"
+                            "  • Try increasing the scan timeout in settings"
+                        )
+                        self.scan_error.emit(helpful_msg)
+                    elif "timed out" in error_msg or "timeout" in error_msg:
+                        self.scan_error.emit(
+                            "Scan timed out. Try using a smaller network range or increasing the timeout value in settings."
+                        )
+                    elif "permission denied" in error_msg or "requires root" in error_msg:
+                        self.scan_error.emit(
+                            "Scan requires elevated permissions. Enable 'Use Elevated Permissions' in scan settings or run NetWORKS as administrator."
+                        )
                     else:
-                        self.scan_error.emit(f"Scan error: {scan_error}")
+                        # Generic error - provide the error message but also suggest solutions
+                        generic_msg = (
+                            f"Scan error: {error_str}\n\n"
+                            "Troubleshooting:\n"
+                            "  • Try scanning a smaller network range\n"
+                            "  • Check that nmap is properly installed\n"
+                            "  • Try using the 'Quick Ping' scan option\n"
+                            "  • Ensure you have network connectivity"
+                        )
+                        self.scan_error.emit(generic_msg)
+                    
                     self.is_running = False
                     return
                     
@@ -859,17 +941,23 @@ class NetworkScannerPlugin(PluginInterface):
             self.config = app.config
             self.plugin_info = plugin_info
             
+            # Initialize nmap availability flag
+            self.nmap_available = False
+            
             # Check if nmap module was successfully imported
             if not HAS_NMAP:
-                error_msg = "The python-nmap module is not available. Please install it using 'pip install python-nmap'"
-                logger.error(error_msg)
+                warning_msg = (
+                    "The python-nmap module is not available. Network scanning features will be disabled.\n\n"
+                    "To enable scanning, install python-nmap using:\n"
+                    "pip install python-nmap"
+                )
+                logger.warning(warning_msg)
                 if hasattr(self, "main_window") and self.main_window:
-                    QMessageBox.critical(
+                    QMessageBox.warning(
                         self.main_window,
-                        "Network Scanner Error",
-                        error_msg
+                        "Network Scanner Warning",
+                        warning_msg
                     )
-                raise ImportError(error_msg)
                 
             # Check if nmap is available
             try:
@@ -879,40 +967,45 @@ class NetworkScannerPlugin(PluginInterface):
                 
                 # Check if the nmap executable is available
                 if not self._check_nmap_executable():
-                    error_msg = "The nmap executable was not found in the system PATH. Please install nmap and make sure it's in your PATH."
-                    logger.error(error_msg)
+                    warning_msg = (
+                        "The nmap executable was not found in your system PATH.\n\n"
+                        "Network scanning features will be disabled until nmap is installed.\n\n"
+                        "To install nmap:\n"
+                        "  • Windows: Download from https://nmap.org/download.html\n"
+                        "  • macOS: brew install nmap\n"
+                        "  • Linux: sudo apt install nmap (or equivalent)\n\n"
+                        "After installing, make sure nmap is in your system PATH and restart NetWORKS."
+                    )
+                    logger.warning(warning_msg)
                     if hasattr(self, "main_window") and self.main_window:
-                        QMessageBox.critical(
+                        QMessageBox.warning(
                             self.main_window,
-                            "Network Scanner Error",
-                            error_msg
+                            "Network Scanner Warning",
+                            warning_msg
                         )
-                    raise RuntimeError(error_msg)
+                    # Don't raise - allow plugin to load but disable scanning
+                    self.nmap_available = False
+                else:
+                    logger.info("Nmap is available and ready to use")
+                    self.nmap_available = True
                     
-                logger.info("Nmap is available and ready to use")
-                
-            except ImportError as e:
-                error_msg = f"Error importing nmap module: {e}"
-                logger.error(error_msg)
-                # Show an error message
-                if hasattr(self, "main_window") and self.main_window:
-                    QMessageBox.critical(
-                        self.main_window,
-                        "Network Scanner Error",
-                        f"Failed to import nmap module. Make sure python-nmap is installed.\n\nError: {e}"
-                    )
-                raise ImportError(error_msg)
             except Exception as e:
-                error_msg = f"Error initializing nmap: {e}"
-                logger.error(error_msg)
-                # Show an error message
+                warning_msg = (
+                    f"Nmap initialization failed: {str(e)}\n\n"
+                    "Network scanning features will be disabled.\n\n"
+                    "To fix this:\n"
+                    "1. Install the nmap executable (see https://nmap.org/download.html)\n"
+                    "2. Make sure nmap is in your system PATH\n"
+                    "3. Restart NetWORKS"
+                )
+                logger.warning(warning_msg)
+                self.nmap_available = False
                 if hasattr(self, "main_window") and self.main_window:
-                    QMessageBox.critical(
+                    QMessageBox.warning(
                         self.main_window,
-                        "Network Scanner Error",
-                        f"Failed to initialize nmap. Make sure nmap is installed.\n\nError: {e}"
+                        "Network Scanner Warning",
+                        warning_msg
                     )
-                raise RuntimeError(error_msg)
             
             # Check for netifaces
             if not HAS_NETIFACES:
@@ -949,6 +1042,9 @@ class NetworkScannerPlugin(PluginInterface):
             
             # Connect to application signals
             QTimer.singleShot(500, self._connect_signals)
+            
+            # Mark plugin as initialized
+            self._initialized = True
             
             logger.info(f"{self.name} initialization complete")
             return True
@@ -1366,6 +1462,21 @@ class NetworkScannerPlugin(PluginInterface):
         Returns:
             bool: True if scan started successfully, False otherwise
         """
+        # Check if nmap is available
+        if not hasattr(self, 'nmap_available') or not self.nmap_available:
+            logger.error("Cannot start scan: nmap is not available")
+            if hasattr(self, "main_window") and self.main_window:
+                QMessageBox.warning(
+                    self.main_window,
+                    "Nmap Not Available",
+                    "Nmap is not available. Network scanning features are disabled.\n\n"
+                    "To enable scanning:\n"
+                    "1. Install the nmap executable (see https://nmap.org/download.html)\n"
+                    "2. Make sure nmap is in your system PATH\n"
+                    "3. Restart NetWORKS"
+                )
+            return False
+            
         # Check if already scanning
         if self._is_scanning:
             logger.warning("Scan already in progress")
@@ -1863,6 +1974,19 @@ class NetworkScannerPlugin(PluginInterface):
     @safe_action_wrapper
     def on_scan_button_clicked(self):
         """Handle scan button click"""
+        # Check if nmap is available
+        if not hasattr(self, 'nmap_available') or not self.nmap_available:
+            QMessageBox.warning(
+                self.main_window,
+                "Nmap Not Available",
+                "Nmap is not available. Network scanning features are disabled.\n\n"
+                "To enable scanning:\n"
+                "1. Install the nmap executable (see https://nmap.org/download.html)\n"
+                "2. Make sure nmap is in your system PATH\n"
+                "3. Restart NetWORKS"
+            )
+            return
+            
         # Check if scan already in progress
         if self._is_scanning:
             QMessageBox.information(
@@ -2492,31 +2616,76 @@ class NetworkScannerPlugin(PluginInterface):
     def _get_network_interfaces(self):
         """Get a list of available network interfaces with their details"""
         interfaces = []
-        
+
+        # Preferred path: use psutil (pure Python interface, wheels available on most platforms)
+        if HAS_PSUTIL:
+            try:
+                for iface, addrs in psutil.net_if_addrs().items():
+                    try:
+                        # Skip loopback and common virtual interfaces
+                        if iface == "lo" or iface.startswith("vbox") or iface.startswith("docker"):
+                            continue
+
+                        for addr in addrs:
+                            # AF_INET == IPv4; use numeric literal to avoid importing socket here
+                            if addr.family == 2 and addr.address and not addr.address.startswith("127."):
+                                ip = addr.address
+                                netmask = addr.netmask
+
+                                # Try to get a friendly name/alias for the interface
+                                interface_alias = self._get_interface_friendly_name(iface)
+
+                                # Create interface info
+                                interface_info = {
+                                    "name": iface,
+                                    "alias": interface_alias,
+                                    "ip": ip,
+                                    "netmask": netmask,
+                                    "display": f"{interface_alias}: {ip}",
+                                }
+
+                                # Try to get subnet in CIDR format
+                                try:
+                                    if netmask:
+                                        network = ipaddress.IPv4Network(f"{ip}/{netmask}", strict=False)
+                                        interface_info["network"] = str(network)
+                                        interface_info["display"] = f"{interface_alias}: {ip} ({network})"
+                                except Exception as e:
+                                    logger.debug(f"Error calculating network for {iface}: {e}")
+
+                                interfaces.append(interface_info)
+                    except Exception as e:
+                        logger.debug(f"Error processing interface {iface} via psutil: {e}")
+                        continue
+                return interfaces
+            except Exception as e:
+                logger.error(f"Error getting network interfaces via psutil: {e}")
+
+        # Fallback path: use netifaces if available (optional, may require build tools on Windows)
         if not HAS_NETIFACES:
-            logger.warning("Netifaces library not available, cannot enumerate interfaces")
+            logger.warning("Neither psutil nor netifaces are available; cannot enumerate interfaces")
             return interfaces
-            
+
         try:
-            # Get list of interfaces
+            # Get list of interfaces via netifaces
             for iface in netifaces.interfaces():
                 try:
                     # Skip loopback and non-active interfaces
                     if iface == 'lo' or iface.startswith('vbox') or iface.startswith('docker'):
                         continue
-                        
+
                     addrs = netifaces.ifaddresses(iface)
-                    
+
                     # Get IPv4 address if available
                     if netifaces.AF_INET in addrs:
                         for addr in addrs[netifaces.AF_INET]:
                             ip = addr.get('addr')
                             netmask = addr.get('netmask')
-                            
+
                             if ip and not ip.startswith('127.'):
                                 # Try to get a friendly name/alias for the interface
                                 interface_alias = self._get_interface_friendly_name(iface)
-                                
+
                                 # Create interface info
                                 interface_info = {
                                     'name': iface,
@@ -2525,7 +2694,7 @@ class NetworkScannerPlugin(PluginInterface):
                                     'netmask': netmask,
                                     'display': f"{interface_alias}: {ip}"
                                 }
-                                
+
                                 # Try to get subnet in CIDR format
                                 try:
                                     network = ipaddress.IPv4Network(f"{ip}/{netmask}", strict=False)
@@ -2533,13 +2702,13 @@ class NetworkScannerPlugin(PluginInterface):
                                     interface_info['display'] = f"{interface_alias}: {ip} ({network})"
                                 except Exception as e:
                                     logger.debug(f"Error calculating network for {iface}: {e}")
-                                
+
                                 interfaces.append(interface_info)
                 except Exception as e:
-                    logger.debug(f"Error processing interface {iface}: {e}")
+                    logger.debug(f"Error processing interface {iface} via netifaces: {e}")
                     continue
         except Exception as e:
-            logger.error(f"Error getting network interfaces: {e}")
+            logger.error(f"Error getting network interfaces via netifaces: {e}")
             
         return interfaces
 

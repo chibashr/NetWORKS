@@ -27,7 +27,7 @@ The Network Scanner plugin allows NetWORKS to discover devices on your network u
 - Nmap 7.0+
 - Python packages:
   - python-nmap>=0.7.1
-  - netifaces>=0.11.0
+  - psutil>=5.9.0 (used for interface detection; wheels are available on most platforms)
 
 ## Installation
 

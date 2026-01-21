@@ -176,8 +176,8 @@ class CredentialStore:
                 with open(file_path, "r") as f:
                     data = json.load(f)
                     
-                # Extract subnet from filename
-                subnet = file_path.stem
+                # Extract subnet from filename (filename might be sanitized with _ instead of /)
+                subnet = file_path.stem.replace("_", "/")
                 
                 # Store credentials
                 self.subnet_credentials[subnet] = data
@@ -252,6 +252,7 @@ class CredentialStore:
                 creds_copy = creds.copy()
                 
                 # Encrypt password before saving
+                # Note: Credentials in memory are always plaintext (from UI input)
                 if "password" in creds_copy and creds_copy["password"]:
                     creds_copy["password"] = encrypt_password(creds_copy["password"])
                 
@@ -263,9 +264,12 @@ class CredentialStore:
                 file_path = self.group_creds_dir / f"{group_name}.json"
                 with open(file_path, "w") as f:
                     json.dump(creds_copy, f, indent=2)
+                
+                logger.debug(f"Saved group credentials to {file_path}")
             
             except Exception as e:
                 logger.error(f"Error saving credentials for group {group_name}: {e}")
+                logger.exception("Exception details:")
     
     def _save_subnet_credentials(self):
         """Save subnet credentials to disk"""
@@ -280,6 +284,7 @@ class CredentialStore:
                 creds_copy = creds.copy()
                 
                 # Encrypt password before saving
+                # Note: Credentials in memory are always plaintext (from UI input)
                 if "password" in creds_copy and creds_copy["password"]:
                     creds_copy["password"] = encrypt_password(creds_copy["password"])
                 
@@ -287,13 +292,17 @@ class CredentialStore:
                 if "enable_password" in creds_copy and creds_copy["enable_password"]:
                     creds_copy["enable_password"] = encrypt_password(creds_copy["enable_password"])
                 
-                # Save to file
-                file_path = self.subnet_creds_dir / f"{subnet}.json"
+                # Save to file (subnet might contain /, so sanitize filename)
+                safe_subnet = subnet.replace("/", "_")
+                file_path = self.subnet_creds_dir / f"{safe_subnet}.json"
                 with open(file_path, "w") as f:
                     json.dump(creds_copy, f, indent=2)
+                
+                logger.debug(f"Saved subnet credentials to {file_path}")
             
             except Exception as e:
                 logger.error(f"Error saving credentials for subnet {subnet}: {e}")
+                logger.exception("Exception details:")
     
     def get_device_credentials(self, device_id, device_ip=None, groups=None):
         """Get credentials for a device
@@ -302,13 +311,18 @@ class CredentialStore:
         This allows the plugin to control the credential hierarchy itself.
         
         Args:
-            device_id: The device ID
+            device_id: The device ID (string) or Device object
             device_ip: The device IP (not used for direct device credentials)
             groups: Device group names (not used for direct device credentials)
             
         Returns:
             dict: Credentials or None if not found
         """
+        # Handle Device objects passed as device_id
+        if hasattr(device_id, 'id'):
+            device_id = device_id.id
+            logger.debug(f"Extracted device ID from Device object: {device_id}")
+        
         logger.debug(f"Getting credentials for device {device_id}")
         
         # First, check if the device exists and has credentials in its properties
@@ -317,13 +331,20 @@ class CredentialStore:
             if device:
                 creds = self._get_credentials_from_device(device)
                 if creds:
+                    logger.debug(f"Found credentials in device properties for device {device_id}")
                     return creds
+            else:
+                logger.debug(f"Device {device_id} not found in device manager")
+        else:
+            logger.debug("Device manager not available")
         
         # For backward compatibility, check the legacy storage
         if device_id in self.device_credentials:
+            logger.debug(f"Found credentials in legacy storage for device {device_id}")
             return self.device_credentials[device_id]
         
         # No credentials found for this device
+        logger.debug(f"No credentials found for device {device_id}")
         return None
     
     def get_group_credentials(self, group_name):
@@ -377,9 +398,23 @@ class CredentialStore:
         return None
     
     def set_device_credentials(self, device_id, credentials):
-        """Set credentials for a device"""
+        """Set credentials for a device
+        
+        Args:
+            device_id: The device ID (string) or Device object
+            credentials: Dictionary containing credentials
+        """
+        # Handle Device objects passed as device_id
+        if hasattr(device_id, 'id'):
+            device_id = device_id.id
+            logger.debug(f"Extracted device ID from Device object: {device_id}")
+        
+        logger.debug(f"Setting credentials for device {device_id} (type: {type(device_id)})")
+        
         # Check if we have a device manager reference
-        if self.device_manager:
+        if not self.device_manager:
+            logger.warning(f"Device manager not available, falling back to legacy storage for device {device_id}")
+        else:
             device = self.device_manager.get_device(device_id)
             if device:
                 # Create a copy of the credentials
@@ -394,9 +429,16 @@ class CredentialStore:
                     creds_copy["enable_password"] = encrypt_password(creds_copy["enable_password"])
                 
                 # Save to device property
+                # This will emit device.changed signal which triggers workspace autosave
                 device.set_property("credentials", creds_copy)
-                logger.debug(f"Saved credentials to device properties for device {device_id}")
+                logger.info(f"Saved credentials to device properties for device {device_id} ({device.get_property('alias', 'Unknown')})")
+                
+                # Note: Device credentials are persisted via workspace save (triggered by device.changed signal)
+                # The workspace autosave mechanism will save device properties including credentials
+                
                 return True
+            else:
+                logger.warning(f"Device {device_id} not found in device manager, falling back to legacy storage")
         
         # Fall back to legacy file-based storage
         logger.warning(f"Falling back to legacy credential storage for device {device_id}")
@@ -455,8 +497,13 @@ class CredentialStore:
     
     def set_group_credentials(self, group_name, credentials):
         """Set credentials for a group"""
-        self.group_credentials[group_name] = credentials
+        # Store credentials in memory (decrypted for use)
+        self.group_credentials[group_name] = credentials.copy()
+        
+        # Save to disk (encrypted)
         self._save_group_credentials()
+        
+        logger.info(f"Saved credentials for group '{group_name}'")
         return True
     
     def delete_group_credentials(self, group_name):
@@ -485,8 +532,13 @@ class CredentialStore:
             logger.error(f"Invalid subnet: {subnet}")
             return False
             
-        self.subnet_credentials[subnet] = credentials
+        # Store credentials in memory (decrypted for use)
+        self.subnet_credentials[subnet] = credentials.copy()
+        
+        # Save to disk (encrypted)
         self._save_subnet_credentials()
+        
+        logger.info(f"Saved credentials for subnet '{subnet}'")
         return True
     
     def delete_subnet_credentials(self, subnet):

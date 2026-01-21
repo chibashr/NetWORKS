@@ -385,19 +385,19 @@ class CommandHandler:
         """
         logger.debug(f"Running command on device: {device.id}")
         
-        # If no credentials provided, get them
+        # Get device properties
+        device_type = device.get_property("device_type", "")
+        ip_address = device.get_property("ip_address", "")
+        
+        # If no credentials provided, get them with proper hierarchy (Device -> Group -> Subnet)
         if not credentials:
-            credentials = self.plugin.get_device_credentials(device.id)
+            credentials = self.plugin.get_device_credentials(device.id, device_ip=ip_address)
             
         # Default result
         result = {
             "success": False,
             "output": f"Command: {command}\n\nNo connection method available for device: {device.id}"
         }
-        
-        # Get device properties
-        device_type = device.get_property("device_type", "")
-        ip_address = device.get_property("ip_address", "")
         
         # Log credential status
         if not credentials or not credentials.get("username"):

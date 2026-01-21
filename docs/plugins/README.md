@@ -744,6 +744,8 @@ The Network Scanner plugin provides an excellent example of a well-structured pl
 - Supports custom scan profiles with configurable options
 - Provides UI integration through context menu actions
 - Incorporates a dedicated settings page for configuration
+- **Automatic system dependency installation**: When enabled, automatically detects and offers to install `nmap` if missing
+- **Automatic system dependency installation**: When enabled, automatically detects and offers to install `nmap` if missing
 
 #### Code Organization
 

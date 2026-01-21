@@ -1141,7 +1141,12 @@ class DeviceManager(QObject):
                 
                 try:
                     # First, discover all available plugins to ensure we have a complete list
-                    plugin_manager.discover_plugins()
+                    # Only discover if not already discovering (to avoid duplicate calls during init)
+                    if not plugin_manager._discovering:
+                        logger.debug("Discovering plugins for workspace...")
+                        plugin_manager.discover_plugins()
+                    else:
+                        logger.debug("Plugin discovery already in progress, skipping duplicate call")
                     
                     # Then enable plugins based on the workspace configuration
                     for plugin_id in enabled_plugins:

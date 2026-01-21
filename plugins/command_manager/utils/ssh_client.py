@@ -132,8 +132,11 @@ class SSHClient:
             full_output = f"{output}"
             if error:
                 full_output += f"\nERROR: {error}"
+            
+            # Clean the output to remove control characters and ANSI sequences
+            full_output = self._clean_output(full_output, command)
                 
-            return full_output.strip()
+            return full_output
         except Exception as e:
             logger.error(f"Error executing command via paramiko: {e}")
             return f"Error executing command: {str(e)}"
@@ -152,21 +155,47 @@ class SSHClient:
         # Collect output until prompt is seen or timeout
         output = ""
         start_time = time.time()
+        max_pagination_iterations = 1000  # Prevent infinite loops
+        pagination_count = 0
         
         while time.time() - start_time < self.timeout:
             # Read available output
             new_output = self._read_output()
             output += new_output
             
-            # Check if we've reached the prompt
+            # Check for pagination prompts (--More--, --more--, etc.) in the most recent output
+            # Pagination typically appears at the end of output chunks
+            if new_output and re.search(r"--\s*[Mm]ore\s*--", new_output, re.IGNORECASE):
+                # Remove the pagination prompt from output
+                output = re.sub(r"--\s*[Mm]ore\s*--[\r\n]*", "", output)
+                # Send space to continue
+                self.shell.send(" ")
+                time.sleep(0.3)
+                pagination_count += 1
+                
+                # Safety check to prevent infinite loops
+                if pagination_count > max_pagination_iterations:
+                    logger.warning("Maximum pagination iterations reached, stopping")
+                    break
+                
+                # Continue reading
+                continue
+            
+            # Check if we've reached the prompt (but not if it's part of pagination)
             if self.prompt and re.search(re.escape(self.prompt), output):
-                break
+                # Make sure the prompt is at the end, not in the middle
+                prompt_match = re.search(re.escape(self.prompt) + r"\s*$", output, re.MULTILINE)
+                if prompt_match:
+                    break
                 
             # Short pause
             time.sleep(0.5)
             
         # Remove command echo and prompt from output
         output = self._clean_output(output, command)
+        
+        # Final cleanup: remove any remaining pagination prompts (shouldn't be needed, but just in case)
+        output = re.sub(r"--\s*[Mm]ore\s*--[\r\n]*", "", output)
         
         return output
         
@@ -215,7 +244,30 @@ class SSHClient:
         return None
         
     def _clean_output(self, output, command):
-        """Clean up command output by removing echoed command and prompt"""
+        """Clean up command output by removing echoed command, prompt, and control characters"""
+        # First, handle backspace sequences (backspace deletes previous character)
+        # This handles cases where devices use backspace for formatting
+        # Process backspaces from left to right
+        result = []
+        for char in output:
+            if char == '\b':
+                # Backspace: remove last character if any
+                if result:
+                    result.pop()
+            else:
+                result.append(char)
+        output = ''.join(result)
+        
+        # Remove ANSI escape sequences (color codes, cursor movement, etc.)
+        # Pattern: ESC [ followed by parameters and a command character
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        output = ansi_escape.sub('', output)
+        
+        # Remove other common control characters (but keep \r, \n, \t)
+        # Control characters: 0x00-0x1F except \r (0x0D), \n (0x0A), \t (0x09)
+        control_chars = re.compile(r'[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]')
+        output = control_chars.sub('', output)
+        
         # Remove the echoed command
         output = re.sub(re.escape(command) + r"[\r\n]+", "", output, count=1)
         
@@ -223,6 +275,10 @@ class SSHClient:
         if self.prompt:
             output = re.sub(re.escape(self.prompt) + r"\s*$", "", output)
             
+        # Clean up multiple spaces (but preserve intentional spacing)
+        output = re.sub(r'[ \t]+', ' ', output)  # Multiple spaces/tabs to single space
+        output = re.sub(r' *\n *', '\n', output)  # Clean up spaces around newlines
+        
         # Strip extra whitespace
         output = output.strip()
         

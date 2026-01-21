@@ -12,8 +12,12 @@ echo  - Validating/recreating the virtual environment
 echo  - Reinstalling all dependencies
 echo  - Verifying the installation
 echo.
-echo Press Ctrl+C to cancel or any key to continue...
-pause > nul
+if "%NETWORKS_AUTOMATED%"=="1" (
+    echo [INFO] Automated mode detected. Continuing without prompt...
+) else (
+    echo Press Ctrl+C to cancel or any key to continue...
+    pause > nul
+)
 
 :: Check if Python is installed
 echo.
@@ -23,7 +27,11 @@ if %ERRORLEVEL% neq 0 (
     echo [ERROR] Python is not installed or not in PATH.
     echo Please install Python 3.8 or later from https://www.python.org/downloads/
     echo.
-    pause
+    if "%NETWORKS_AUTOMATED%"=="1" (
+        echo [INFO] Automated mode: skipping pause.
+    ) else (
+        pause
+    )
     exit /b 1
 )
 
@@ -39,7 +47,11 @@ if %MAJOR% LSS 3 (
     echo [ERROR] Python 3.8 or later is required.
     echo Current version: %PYVER%
     echo.
-    pause
+    if "%NETWORKS_AUTOMATED%"=="1" (
+        echo [INFO] Automated mode: skipping pause.
+    ) else (
+        pause
+    )
     exit /b 1
 )
 
@@ -48,7 +60,11 @@ if %MAJOR% EQU 3 (
         echo [ERROR] Python 3.8 or later is required.
         echo Current version: %PYVER%
         echo.
-        pause
+        if "%NETWORKS_AUTOMATED%"=="1" (
+            echo [INFO] Automated mode: skipping pause.
+        ) else (
+            pause
+        )
         exit /b 1
     )
 )
@@ -60,7 +76,11 @@ if not exist "requirements.txt" (
     echo [ERROR] requirements.txt not found in the current directory.
     echo Please run this script from the root directory of NetWORKS.
     echo.
-    pause
+    if "%NETWORKS_AUTOMATED%"=="1" (
+        echo [INFO] Automated mode: skipping pause.
+    ) else (
+        pause
+    )
     exit /b 1
 )
 
@@ -82,7 +102,11 @@ if exist "venv" (
         python -m venv venv
         if !ERRORLEVEL! neq 0 (
             echo [ERROR] Failed to create virtual environment.
-            pause
+            if "%NETWORKS_AUTOMATED%"=="1" (
+                echo [INFO] Automated mode: skipping pause.
+            ) else (
+                pause
+            )
             exit /b 1
         )
     ) else (
@@ -90,7 +114,12 @@ if exist "venv" (
         echo [INFO] Virtual environment is functional.
         
         :: Ask if user wants to recreate it anyway
-        set /p RECREATE="Do you want to recreate the virtual environment anyway? (y/n): "
+        if "%NETWORKS_AUTOMATED%"=="1" (
+            set RECREATE=n
+            echo [INFO] Automated mode: skipping venv recreation prompt.
+        ) else (
+            set /p RECREATE="Do you want to recreate the virtual environment anyway? (y/n): "
+        )
         if /i "!RECREATE!"=="y" (
             echo [INFO] Removing existing virtual environment...
             call venv\Scripts\deactivate.bat 2>nul
@@ -99,7 +128,11 @@ if exist "venv" (
             python -m venv venv
             if !ERRORLEVEL! neq 0 (
                 echo [ERROR] Failed to create virtual environment.
-                pause
+                if "%NETWORKS_AUTOMATED%"=="1" (
+                    echo [INFO] Automated mode: skipping pause.
+                ) else (
+                    pause
+                )
                 exit /b 1
             )
         )
@@ -109,7 +142,11 @@ if exist "venv" (
     python -m venv venv
     if !ERRORLEVEL! neq 0 (
         echo [ERROR] Failed to create virtual environment.
-        pause
+        if "%NETWORKS_AUTOMATED%"=="1" (
+            echo [INFO] Automated mode: skipping pause.
+        ) else (
+            pause
+        )
         exit /b 1
     )
 )
@@ -120,7 +157,11 @@ echo [STEP 4/4] Reinstalling dependencies...
 call venv\Scripts\activate.bat
 if %ERRORLEVEL% neq 0 (
     echo [ERROR] Failed to activate virtual environment.
-    pause
+    if "%NETWORKS_AUTOMATED%"=="1" (
+        echo [INFO] Automated mode: skipping pause.
+    ) else (
+        pause
+    )
     exit /b 1
 )
 
@@ -141,21 +182,25 @@ if %ERRORLEVEL% neq 0 (
 :: Try to install critical packages directly to be sure
 echo [INFO] Ensuring critical packages are installed...
 echo [INFO] Installing core dependencies...
-pip install PySide6==6.9.0 --force-reinstall --no-cache-dir
+pip install PySide6>=6.9.0 --force-reinstall --no-cache-dir
 pip install loguru==0.7.3 --force-reinstall --no-cache-dir
 pip install chardet==5.2.0 --force-reinstall --no-cache-dir
 
-echo [INFO] Installing pandas with compatible numpy...
-pip uninstall -y pandas numpy python-dateutil pytz
-pip install numpy==1.24.3 --no-cache-dir
-pip install python-dateutil==2.8.2 pytz==2023.3 --no-cache-dir
-pip install pandas==1.5.3 --no-cache-dir
-echo [INFO] Pandas installation completed.
+echo [INFO] Attempting optional pandas install (non-blocking)...
+pip install "pandas>=2.3.3,<3.0" --only-binary=:all: --no-cache-dir
+if %ERRORLEVEL% neq 0 (
+    echo [WARNING] Optional pandas install failed. Some file import features may be unavailable.
+) else (
+    echo [INFO] Optional pandas installed successfully.
+)
 
 echo [INFO] Installing plugin dependencies...
 pip install paramiko==3.5.1 --no-cache-dir
 pip install python-nmap==0.7.1 --no-cache-dir
-pip install netifaces==0.11.0 --no-cache-dir
+pip install netifaces==0.11.0 --only-binary=:all: --no-cache-dir
+if %ERRORLEVEL% neq 0 (
+    echo [WARNING] Optional plugin dependency netifaces failed to install.
+)
 pip install scapy==2.6.1 --no-cache-dir
 pip install bcrypt==4.3.0 --no-cache-dir
 pip install pycryptodome==3.22.0 --no-cache-dir
@@ -177,8 +222,8 @@ python -c "import importlib.util; packages=['paramiko', 'nmap', 'netifaces', 'sc
 :: Try direct imports for most problematic packages
 echo.
 echo [INFO] Testing critical imports directly...
-python -c "try: import PySide6; print('PySide6 imported successfully'); except ImportError as e: print(f'Failed to import PySide6: {e}')"
-python -c "try: import pandas; print('pandas imported successfully'); except ImportError as e: print(f'Failed to import pandas: {e}')"
+python -c "import importlib.util; mod='PySide6'; print('PySide6 imported successfully' if importlib.util.find_spec(mod) else f'Failed to import {mod}')"
+python -c "import importlib.util; mod='pandas'; print('pandas imported successfully' if importlib.util.find_spec(mod) else f'Failed to import {mod}')"
 
 :: Deactivate virtual environment
 call venv\Scripts\deactivate.bat
@@ -199,4 +244,8 @@ echo.
 echo ==========================================
 echo.
 
-pause 
+if "%NETWORKS_AUTOMATED%"=="1" (
+    echo [INFO] Automated mode: skipping pause.
+) else (
+    pause
+)

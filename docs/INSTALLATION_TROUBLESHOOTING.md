@@ -16,6 +16,20 @@ This script will:
 - Reinstall all dependencies
 - Verify the installation
 
+## Automated Full Install Test (Recommended)
+
+If you want a one-click way to verify a full installation and run:
+
+1. Double-click `Test_Installation.bat` in the project root.
+
+What it does:
+- Creates a fresh test environment
+- Installs dependencies
+- Runs a smoke test automatically
+- Cleans up after completion
+
+It prints a clear `SUCCESS` or `FAILED` result.
+
 ## Common Issues and Solutions
 
 ### Missing Dependencies
@@ -119,7 +133,20 @@ pip install PySide6
 
 ### DLL Load Failed while importing PySide6
 
-Missing Visual C++ redistributable.
+This error can have several causes:
+
+**Cause 1: Missing Visual C++ Redistributable**
 
 **Solution**:
-Install the Microsoft Visual C++ Redistributable for Visual Studio 2019 or later. 
+Install the Microsoft Visual C++ Redistributable for Visual Studio 2019 or later.
+Download from: https://aka.ms/vs/17/release/vc_redist.x64.exe
+
+**Cause 2: Python 3.14+ DLL Path Issue**
+
+Python 3.14 and later versions have stricter DLL loading requirements. PySide6 DLLs need to be explicitly registered.
+
+**Solution**:
+The application automatically handles this in `networks.py`. If you're still experiencing issues:
+1. Ensure you're using the latest version of NetWORKS
+2. The fix is automatically applied on startup for Python 3.14+
+3. If problems persist, try running `scripts\fix_pyside6.bat` to reinstall PySide6 

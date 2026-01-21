@@ -13,6 +13,26 @@ import json
 from pathlib import Path
 from loguru import logger
 
+# Fix for Python 3.14+ DLL loading issue with PySide6
+# Python 3.14 requires explicit DLL directory registration
+if sys.version_info >= (3, 14):
+    try:
+        # Find PySide6 installation directory
+        import site
+        for site_packages in site.getsitepackages():
+            pyside6_path = os.path.join(site_packages, "PySide6")
+            if os.path.exists(pyside6_path):
+                os.add_dll_directory(pyside6_path)
+                break
+        # Also check in virtual environment
+        venv_pyside6 = os.path.join(os.path.dirname(sys.executable), "..", "Lib", "site-packages", "PySide6")
+        venv_pyside6 = os.path.abspath(venv_pyside6)
+        if os.path.exists(venv_pyside6):
+            os.add_dll_directory(venv_pyside6)
+    except Exception:
+        # If DLL path setup fails, continue anyway - might work without it
+        pass
+
 # Create logs directory if it doesn't exist
 os.makedirs("logs", exist_ok=True)
 
@@ -42,6 +62,10 @@ logger.add(
     format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
     level="INFO"
 )
+
+def _is_automated_run():
+    return os.environ.get("NETWORKS_AUTOMATED") == "1" or not sys.stdin.isatty()
+
 
 def check_requirements():
     """Check if all required dependencies are installed"""
@@ -119,6 +143,8 @@ def check_requirements():
         # Check optional dependencies
         missing_optional = check_dependencies(optional_requirements)
                 
+        automated = _is_automated_run()
+
         # Handle missing required dependencies
         if missing:
             logger.error(f"Missing required dependencies: {', '.join(missing)}")
@@ -127,7 +153,7 @@ def check_requirements():
                 print(f"  - {pkg}")
             
             # Ask if user wants to install missing required dependencies
-            response = input("\nDo you want to install the missing required dependencies now? (y/n): ")
+            response = "y" if automated else input("\nDo you want to install the missing required dependencies now? (y/n): ")
             if response.lower() in ('y', 'yes'):
                 try:
                     print("\nInstalling missing required dependencies...")
@@ -166,7 +192,7 @@ def check_requirements():
             print("\nSome features may be unavailable.")
             
             # Ask if user wants to install missing optional dependencies
-            response = input("\nDo you want to install the missing optional dependencies now? (y/n): ")
+            response = "y" if automated else input("\nDo you want to install the missing optional dependencies now? (y/n): ")
             if response.lower() in ('y', 'yes'):
                 try:
                     print("\nInstalling missing optional dependencies...")
@@ -198,6 +224,9 @@ def check_requirements():
 
 if __name__ == "__main__":
     try:
+        if "--smoke-test" in sys.argv:
+            os.environ["NETWORKS_SMOKE_TEST"] = "1"
+
         # Initialize the logging manager first with the application version
         from src.core import LoggingManager
         logging_manager = LoggingManager(version)
@@ -221,7 +250,8 @@ if __name__ == "__main__":
         else:
             logger.error("Application cannot start due to missing required dependencies")
             print("\nApplication cannot start due to missing required dependencies.")
-            input("Press Enter to exit...")
+            if not _is_automated_run():
+                input("Press Enter to exit...")
             sys.exit(1)
     except Exception as e:
         # Ensure we log any startup errors
@@ -233,5 +263,6 @@ if __name__ == "__main__":
         
         # Show error to user
         print(f"\n[FATAL ERROR] An unexpected error occurred during startup: {e}")
-        input("Press Enter to exit...")
+        if not _is_automated_run():
+            input("Press Enter to exit...")
         sys.exit(1) 

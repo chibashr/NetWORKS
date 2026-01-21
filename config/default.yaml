@@ -1,7 +1,7 @@
 application:
-  external_plugins_directory: D:\SynologyDrive\Development\New folder (2)\plugins
+  external_plugins_directory: plugins
   logs_level: INFO
-  plugins_directory: D:\SynologyDrive\Development\New folder (2)\src\plugins
+  plugins_directory: src/plugins
   plugins_enabled: true
   theme: dark
 devices:

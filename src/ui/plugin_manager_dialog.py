@@ -121,10 +121,16 @@ class PluginManagerDialog(QDialog):
         self.unload_button.setToolTip("Unload the selected plugin")
         self.unload_button.setEnabled(False)
         
+        self.repair_button = QPushButton("Repair Dependencies")
+        self.repair_button.clicked.connect(self.on_repair_dependencies_clicked)
+        self.repair_button.setToolTip("Check and install missing dependencies for the selected plugin")
+        self.repair_button.setEnabled(False)
+        
         self.plugin_actions_layout.addWidget(self.enable_button)
         self.plugin_actions_layout.addWidget(self.disable_button)
         self.plugin_actions_layout.addWidget(self.load_button)
         self.plugin_actions_layout.addWidget(self.unload_button)
+        self.plugin_actions_layout.addWidget(self.repair_button)
         
         self.plugin_list_layout.addLayout(self.plugin_actions_layout)
         
@@ -132,7 +138,8 @@ class PluginManagerDialog(QDialog):
         self.action_help_label = QLabel(
             "1. Enable/Disable: Mark plugins for activation\n"
             "2. Load/Unload: Immediately start/stop plugins\n"
-            "3. Save Changes: Apply Enable/Disable changes"
+            "3. Repair Dependencies: Install missing Python packages\n"
+            "4. Save Changes: Apply Enable/Disable changes"
         )
         self.action_help_label.setStyleSheet("color: #666; font-style: italic; font-size: 9pt;")
         self.action_help_label.setWordWrap(True)
@@ -288,6 +295,10 @@ class PluginManagerDialog(QDialog):
         self.refresh_button.clicked.connect(self.on_refresh_clicked)
         self.refresh_button.setToolTip("Refresh the plugin list")
         
+        self.repair_all_button = QPushButton("Repair All Dependencies")
+        self.repair_all_button.clicked.connect(self.on_repair_all_dependencies_clicked)
+        self.repair_all_button.setToolTip("Check and install missing dependencies for all plugins")
+        
         self.save_changes_button = QPushButton("Save Changes")
         self.save_changes_button.clicked.connect(self.on_save_changes_clicked)
         self.save_changes_button.setToolTip("Save all changes to plugin states and settings")
@@ -301,6 +312,7 @@ class PluginManagerDialog(QDialog):
         
         self.button_layout.addWidget(self.reload_button)
         self.button_layout.addWidget(self.refresh_button)
+        self.button_layout.addWidget(self.repair_all_button)
         self.button_layout.addWidget(self.save_changes_button)
         self.button_layout.addStretch()
         self.button_layout.addWidget(self.close_button)
@@ -1366,6 +1378,7 @@ class PluginManagerDialog(QDialog):
         self.load_button.setEnabled(False)
         self.unload_button.setEnabled(False)
         self.reload_button.setEnabled(False)
+        self.repair_button.setEnabled(False)
         
         if not plugin_info:
             return
@@ -1413,6 +1426,9 @@ class PluginManagerDialog(QDialog):
                 self.load_button.setEnabled(False)
                 self.unload_button.setEnabled(False)
                 self.reload_button.setEnabled(False)
+        
+        # Repair button is always enabled if a plugin is selected (can check dependencies anytime)
+        self.repair_button.setEnabled(True)
         
     def _are_there_pending_changes(self):
         """Check if there are any pending changes"""
@@ -2298,6 +2314,171 @@ class PluginManagerDialog(QDialog):
                 "Unload Failed",
                 f"Failed to unload plugin '{plugin_info.name}'. Check the logs for details."
             ) 
+
+    @Slot()
+    def on_repair_dependencies_clicked(self):
+        """Handle repair dependencies button clicked for selected plugin"""
+        current_item = self.plugin_list.currentItem()
+        if not current_item:
+            return
+            
+        plugin_info = current_item.plugin_info
+        plugin_id = plugin_info.id
+        
+        # Check for missing dependencies
+        all_installed, missing, requires_restart = self.plugin_manager._check_plugin_requirements_installed(plugin_info)
+        
+        if all_installed:
+            QMessageBox.information(
+                self,
+                "Dependencies OK",
+                f"All dependencies for '{plugin_info.name}' are already installed."
+            )
+            return
+        
+        # Ask user for confirmation
+        reply = QMessageBox.question(
+            self,
+            "Repair Dependencies",
+            f"The following dependencies are missing for '{plugin_info.name}':\n\n" +
+            "\n".join(f"  • {req}" for req in missing) +
+            "\n\nWould you like to install them now?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        
+        if reply != QMessageBox.Yes:
+            return
+        
+        # Show progress
+        self.setCursor(Qt.WaitCursor)
+        self.status_bar.setText(f"Installing dependencies for '{plugin_info.name}'...")
+        self.status_bar.setStyleSheet("padding: 5px; background-color: #ffe8cc; font-weight: bold;")
+        QApplication.processEvents()
+        
+        # Install dependencies
+        success = self.plugin_manager._install_plugin_requirements(plugin_info)
+        
+        # Restore cursor
+        self.setCursor(Qt.ArrowCursor)
+        
+        if success:
+            # Re-check dependencies
+            all_installed, missing, requires_restart = self.plugin_manager._check_plugin_requirements_installed(plugin_info)
+            
+            if all_installed:
+                message = f"All dependencies for '{plugin_info.name}' have been installed successfully."
+                if requires_restart:
+                    message += "\n\nNote: Some packages may require a restart to take effect."
+                
+                self.status_bar.setText(f"Dependencies for '{plugin_info.name}' installed successfully.")
+                self.status_bar.setStyleSheet("padding: 5px; background-color: #d0f0d0; font-weight: bold;")
+                
+                QMessageBox.information(self, "Dependencies Installed", message)
+                
+                # Refresh plugin details to show updated status
+                self.update_details(plugin_info)
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Partial Installation",
+                    f"Some dependencies could not be installed:\n\n" +
+                    "\n".join(f"  • {req}" for req in missing) +
+                    "\n\nCheck the logs for details."
+                )
+        else:
+            QMessageBox.warning(
+                self,
+                "Installation Failed",
+                f"Failed to install dependencies for '{plugin_info.name}'. Check the logs for details."
+            )
+    
+    @Slot()
+    def on_repair_all_dependencies_clicked(self):
+        """Handle repair all dependencies button clicked"""
+        # Check all plugins for missing dependencies
+        plugins_with_missing = []
+        all_plugins = self.plugin_manager.get_plugins()
+        
+        for plugin_info in all_plugins:
+            all_installed, missing, _ = self.plugin_manager._check_plugin_requirements_installed(plugin_info)
+            if not all_installed:
+                plugins_with_missing.append((plugin_info, missing))
+        
+        if not plugins_with_missing:
+            QMessageBox.information(
+                self,
+                "All Dependencies OK",
+                "All dependencies for all plugins are already installed."
+            )
+            return
+        
+        # Show summary
+        summary = f"Found {len(plugins_with_missing)} plugin(s) with missing dependencies:\n\n"
+        for plugin_info, missing in plugins_with_missing:
+            summary += f"  • {plugin_info.name}: {', '.join(missing)}\n"
+        
+        summary += "\nWould you like to install all missing dependencies now?"
+        
+        reply = QMessageBox.question(
+            self,
+            "Repair All Dependencies",
+            summary,
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+        )
+        
+        if reply != QMessageBox.Yes:
+            return
+        
+        # Show progress
+        self.setCursor(Qt.WaitCursor)
+        self.status_bar.setText("Installing dependencies for all plugins...")
+        self.status_bar.setStyleSheet("padding: 5px; background-color: #ffe8cc; font-weight: bold;")
+        QApplication.processEvents()
+        
+        # Install dependencies for each plugin
+        success_count = 0
+        failed_plugins = []
+        
+        for plugin_info, missing in plugins_with_missing:
+            self.status_bar.setText(f"Installing dependencies for '{plugin_info.name}'...")
+            QApplication.processEvents()
+            
+            if self.plugin_manager._install_plugin_requirements(plugin_info):
+                success_count += 1
+            else:
+                failed_plugins.append((plugin_info.name, missing))
+        
+        # Restore cursor
+        self.setCursor(Qt.ArrowCursor)
+        
+        # Show results
+        if success_count == len(plugins_with_missing):
+            self.status_bar.setText("All dependencies installed successfully.")
+            self.status_bar.setStyleSheet("padding: 5px; background-color: #d0f0d0; font-weight: bold;")
+            QMessageBox.information(
+                self,
+                "Dependencies Installed",
+                f"Successfully installed dependencies for {success_count} plugin(s)."
+            )
+        else:
+            failed_summary = "\n".join(f"  • {name}: {', '.join(missing)}" for name, missing in failed_plugins)
+            self.status_bar.setText(f"Installed for {success_count}/{len(plugins_with_missing)} plugins. Some failed.")
+            self.status_bar.setStyleSheet("padding: 5px; background-color: #ffd0d0; font-weight: bold;")
+            QMessageBox.warning(
+                self,
+                "Partial Installation",
+                f"Installed dependencies for {success_count} plugin(s).\n\n"
+                f"Failed to install for:\n{failed_summary}\n\n"
+                "Check the logs for details."
+            )
+        
+        # Refresh plugin list and details
+        self.load_plugins()
+        current_item = self.plugin_list.currentItem()
+        if current_item:
+            self.update_details(current_item.plugin_info)
 
     def on_plugin_status_changed(self, plugin_info, status_message):
         """Handle plugin status changed signal"""

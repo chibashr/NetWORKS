@@ -1,5 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
+Fix these command managset NETWORKS_AUTOMATED=1
 
 echo.
 echo ==========================================
@@ -11,11 +12,11 @@ echo.
 where python >nul 2>&1
 if %ERRORLEVEL% equ 0 (
     if exist "venv\Scripts\python.exe" (
-        for /f "tokens=*" %%a in ('venv\Scripts\python.exe -c "import json; f=open('.\manifest.json'); data=json.load(f); print(data.get('version', '0.1.0')); f.close()"') do (
+        for /f "tokens=*" %%a in ('venv\Scripts\python.exe -c "import json; f=open(r'.\\manifest.json'); data=json.load(f); print(data.get('version', '0.1.0')); f.close()"') do (
             set APP_VERSION=%%a
         )
     ) else (
-        for /f "tokens=*" %%a in ('python -c "import json; f=open('.\manifest.json'); data=json.load(f); print(data.get('version', '0.1.0')); f.close()"') do (
+        for /f "tokens=*" %%a in ('python -c "import json; f=open(r'.\\manifest.json'); data=json.load(f); print(data.get('version', '0.1.0')); f.close()"') do (
             set APP_VERSION=%%a
         )
     )
@@ -72,7 +73,7 @@ if not exist "venv" (
 :: Activate virtual environment
 echo [INFO] Activating virtual environment...
 call venv\Scripts\activate.bat
-if %ERRORLEVEL% neq 0 (
+if errorlevel 1 (
     echo [ERROR] Failed to activate virtual environment.
     echo [INFO] This may indicate a corrupt environment. Attempting repair...
     
@@ -100,39 +101,45 @@ if %ERRORLEVEL% neq 0 (
 
 :: Quick validation of critical dependencies
 echo [INFO] Validating core dependencies...
-venv\Scripts\python.exe -c "import sys; import importlib.util; required_modules=['PySide6', 'loguru', 'chardet', 'pandas']; missing = [m for m in required_modules if importlib.util.find_spec(m) is None or (m == 'PySide6' and importlib.util.find_spec('PySide6') is None)]; sys.exit(1 if missing else 0)" >nul 2>&1
+venv\Scripts\python.exe scripts\check_core_deps.py PySide6 qtpy qtawesome yaml jsonschema markdown loguru chardet >nul 2>&1
+if errorlevel 1 goto missing_deps
+goto deps_done
 
-if %ERRORLEVEL% neq 0 (
-    echo [WARNING] Some required dependencies are missing. Attempting targeted installation...
-    
-    echo [INFO] Installing critical dependencies individually...
-    venv\Scripts\pip.exe install PySide6==6.9.0 loguru==0.7.3 chardet==5.2.0 --force-reinstall --no-cache-dir
-    
-    echo [INFO] Installing pandas with compatible dependencies...
-    venv\Scripts\pip.exe uninstall -y pandas numpy pytz python-dateutil
-    venv\Scripts\pip.exe install numpy==1.24.3 --no-cache-dir
-    venv\Scripts\pip.exe install python-dateutil==2.8.2 pytz==2023.3 --no-cache-dir
-    venv\Scripts\pip.exe install pandas==1.5.3 --no-cache-dir
-    
-    :: Check again if all dependencies are now available
-    venv\Scripts\python.exe -c "import sys; import importlib.util; required_modules=['PySide6', 'loguru', 'chardet', 'pandas']; missing = [m for m in required_modules if importlib.util.find_spec(m) is None]; sys.exit(1 if missing else 0)" >nul 2>&1
-    
-    if %ERRORLEVEL% neq 0 (
-        echo [ERROR] Critical dependencies still missing after installation attempts.
-        if exist "repair_installation.bat" (
-            echo [INFO] Running full repair...
-            call venv\Scripts\deactivate.bat
-            call repair_installation.bat
-            call venv\Scripts\activate.bat
-        ) else (
-            echo [ERROR] Cannot automatically repair. Please reinstall the application.
-            pause
-            exit /b 1
-        )
-    ) else (
-        echo [INFO] Dependencies installed successfully.
-    )
+:missing_deps
+echo [WARNING] Some required dependencies are missing. Attempting targeted installation...
+
+echo [INFO] Installing dependencies from requirements.txt...
+venv\Scripts\pip.exe install -r requirements.txt --no-cache-dir
+
+echo [INFO] Attempting optional pandas install (non-blocking)...
+venv\Scripts\pip.exe install "pandas>=2.3.3,<3.0" --only-binary=:all: --no-cache-dir >nul 2>&1
+if errorlevel 1 goto pandas_missing
+echo [INFO] Optional dependency pandas installed.
+goto pandas_done
+:pandas_missing
+echo [WARNING] Optional dependency pandas could not be installed. Some features may be unavailable.
+:pandas_done
+
+:: Check again if all dependencies are now available
+venv\Scripts\python.exe scripts\check_core_deps.py PySide6 qtpy qtawesome yaml jsonschema markdown loguru chardet >nul 2>&1
+if errorlevel 1 goto deps_failed
+echo [INFO] Dependencies installed successfully.
+goto deps_done
+
+:deps_failed
+echo [ERROR] Critical dependencies still missing after installation attempts.
+if exist "repair_installation.bat" (
+    echo [INFO] Running full repair...
+    call venv\Scripts\deactivate.bat
+    call repair_installation.bat
+    call venv\Scripts\activate.bat
+) else (
+    echo [ERROR] Cannot automatically repair. Please reinstall the application.
+    pause
+    exit /b 1
 )
+
+:deps_done
 
 echo [INFO] Starting NetWORKS...
 venv\Scripts\python.exe networks.py
