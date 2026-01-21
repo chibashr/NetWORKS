@@ -95,3 +95,30 @@ The Command Manager plugin integrates with the main NetWORKS application:
 - Adds context menu items for devices
 - Provides panels for device details
 - Registers custom settings 
+
+## UI Entry Points
+
+You can access Command Manager features from:
+- The main toolbar (Command Manager action)
+- Device context menu entries (Run Commands, Manage Credentials)
+- The Command Output panel in device details
+- Plugin settings in the Plugin Manager dialog
+
+## Configuration and Storage
+
+Command Manager stores its data inside the plugin directory:
+- `data/commands/`: Command set definitions by platform/firmware
+- `data/credentials/`: Group and subnet credential stores
+- `data/outputs/`: Saved command outputs per device and command
+
+Device-specific credentials are stored directly on the device as encrypted properties and are saved with device data.
+
+## Reports and Outputs
+
+The plugin can export command outputs for offline review. Outputs are persisted in `data/outputs/` and can be exported via the UI.
+
+## Troubleshooting
+
+- **Credentials not found**: Verify device/group/subnet credentials and confirm the device has a reachable IP address.
+- **Command set missing**: Confirm the device type and firmware match a command set in `data/commands/`.
+- **SSH/Telnet failures**: Validate credentials, network reachability, and connection type.

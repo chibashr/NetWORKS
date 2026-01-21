@@ -53,11 +53,11 @@ When adding new features to NetWORKS, consider whether the feature should be par
 
 ### Creating a Plugin
 
-See the [README.md](README.md) for basic plugin creation instructions.
+See the [Plugin Development Guide](plugins/README.md) for basic plugin creation instructions.
 
 **Plugin API Documentation Requirements:**
 
-All plugins must include an `API.md` file in their root directory that documents:
+All plugins should include an `API.md` file in their root directory that documents (NetWORKS will warn if this file is missing):
 
 1. Public APIs exposed by the plugin
 2. Device properties added or modified by the plugin
@@ -154,23 +154,25 @@ Each plugin must follow this directory structure:
 
 ```
 plugin_name/
-├── API.md              # API documentation (required)
-├── plugin.yaml         # Plugin metadata (required)
+├── API.md              # API documentation (expected)
+├── manifest.json       # Plugin metadata (required, preferred)
 ├── plugin_main.py      # Main plugin file (specified in entry_point)
 └── ...                 # Additional plugin files
 ```
 
-### Plugin Metadata (plugin.yaml)
+### Plugin Metadata (manifest.json / plugin.json / plugin.yaml)
 
-The `plugin.yaml` file must contain the following fields:
+The plugin manifest must contain the following fields:
 
-```yaml
-id: unique_plugin_id
-name: Human Readable Plugin Name
-version: 1.0.0
-description: Description of what the plugin does
-author: Author Name
-entry_point: plugin_main.py  # Main plugin file
+```json
+{
+  "id": "unique_plugin_id",
+  "name": "Human Readable Plugin Name",
+  "version": "1.0.0",
+  "description": "Description of what the plugin does",
+  "author": "chibashr",
+  "entry_point": "plugin_main.py"
+}
 ```
 
 ### Plugin Events

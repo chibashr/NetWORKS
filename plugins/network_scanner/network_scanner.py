@@ -35,21 +35,14 @@ except ImportError as e:
     logger.error(f"Could not import psutil for interface detection: {e}")
     HAS_PSUTIL = False
 
-# Try to import netifaces for interface detection (optional, may require build tools on Windows)
-try:
-    import netifaces
-    HAS_NETIFACES = True
-except ImportError as e:
-    logger.warning(f"Could not import netifaces (optional): {e}")
-    HAS_NETIFACES = False
-
 from PySide6.QtWidgets import (
     QLabel, QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QDockWidget,
     QPushButton, QTabWidget, QScrollArea, QTreeWidget, QTreeWidgetItem,
     QGridLayout, QFormLayout, QGroupBox, QCheckBox, QComboBox,
-    QSplitter, QProgressBar, QMessageBox, QLineEdit, QTableWidget, 
+    QSplitter, QProgressBar, QMessageBox, QLineEdit, QTableWidget,
     QTableWidgetItem, QDialog, QDialogButtonBox, QMenu, QFileDialog,
-    QRadioButton, QInputDialog, QHeaderView
+    QRadioButton, QInputDialog, QHeaderView, QSizePolicy, QListWidget,
+    QListWidgetItem
 )
 from PySide6.QtCore import Qt, Signal, Slot, QSize, QTimer, QThread, QObject
 from PySide6.QtGui import QIcon, QAction, QFont, QColor, QIntValidator
@@ -773,6 +766,11 @@ class NetworkScannerPlugin(PluginInterface):
         self._is_scanning = False
         self._scan_results = {}
         self._scan_log = []
+        self._batch_scan_queue = []
+        self._batch_scan_total = 0
+        self._batch_scan_index = 0
+        self._batch_scan_current = None
+        self._batch_scan_active = False
         
         # Plugin settings
         self.settings = {
@@ -1007,19 +1005,6 @@ class NetworkScannerPlugin(PluginInterface):
                         warning_msg
                     )
             
-            # Check for netifaces
-            if not HAS_NETIFACES:
-                logger.warning("Netifaces module not available. Interface detection will be limited.")
-                # Show a warning but don't fail initialization
-                if hasattr(self, "main_window") and self.main_window:
-                    QMessageBox.warning(
-                        self.main_window,
-                        "Network Scanner Warning",
-                        "The netifaces module is not available. Interface detection will be limited.\n\n"
-                        "For better network interface detection, install netifaces using:\n"
-                        "pip install netifaces"
-                    )
-            
             # Update network interfaces
             self._update_interface_choices()
             
@@ -1033,6 +1018,11 @@ class NetworkScannerPlugin(PluginInterface):
                 selected_if_text = self.interface_combo.currentText()
                 if selected_if_text and selected_if_text != "Any (default)" and hasattr(self, "network_range_edit"):
                     self._update_network_range_from_interface(0)  # 0 is dummy index
+
+            # Refresh group choices if available
+            if hasattr(self, "group_combo") and self.group_combo is not None:
+                self._refresh_group_choices()
+                self._update_group_scan_ui_state()
             
             # Initialize threading system
             self._initialize_scanner()
@@ -1097,6 +1087,24 @@ class NetworkScannerPlugin(PluginInterface):
             self.device_manager.device_changed,
             self.on_device_changed,
             "device_changed"
+        )
+
+        self._connect_to_signal(
+            self.device_manager.group_added,
+            self._refresh_group_choices,
+            "group_added"
+        )
+        
+        self._connect_to_signal(
+            self.device_manager.group_removed,
+            self._refresh_group_choices,
+            "group_removed"
+        )
+        
+        self._connect_to_signal(
+            self.device_manager.group_changed,
+            self._refresh_group_choices,
+            "group_changed"
         )
         
     def cleanup(self):
@@ -1180,11 +1188,13 @@ class NetworkScannerPlugin(PluginInterface):
         self.control_layout = QFormLayout(self.control_group)
         self.control_layout.setSpacing(8)  # Increase spacing between form rows
         self.control_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)  # Allow fields to expand
+        self.control_layout.setRowWrapPolicy(QFormLayout.WrapLongRows)  # Stack rows on narrow widths
         
         # Interface selection
         self.interface_layout = QHBoxLayout()
         self.interface_layout.setSpacing(8)
         self.interface_combo = QComboBox()
+        self.interface_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         
         # First make sure we have interface choices
         if not self.settings["preferred_interface"]["choices"]:
@@ -1196,6 +1206,7 @@ class NetworkScannerPlugin(PluginInterface):
             self.interface_combo.setCurrentText(current_interface)
             
         self.refresh_interfaces_button = QPushButton("Refresh")
+        self.refresh_interfaces_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.refresh_interfaces_button.setToolTip("Refresh network interface list")
         self.refresh_interfaces_button.clicked.connect(self._update_interface_choices_and_refresh_ui)
         self.interface_layout.addWidget(self.interface_combo, 1)
@@ -1205,6 +1216,7 @@ class NetworkScannerPlugin(PluginInterface):
         # Network range input - now in its own section with more space
         self.network_range_label = QLabel("Network Range:")
         self.network_range_edit = QLineEdit()
+        self.network_range_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.network_range_edit.setPlaceholderText("e.g., 192.168.1.0/24 or 10.0.0.1-10.0.0.254")
         self.control_layout.addRow(self.network_range_label, self.network_range_edit)
         
@@ -1213,16 +1225,37 @@ class NetworkScannerPlugin(PluginInterface):
         
         # Initialize network range from currently selected interface
         self._update_network_range_from_interface(self.interface_combo.currentIndex())
+
+        # Group scan controls
+        self.group_layout = QHBoxLayout()
+        self.group_layout.setSpacing(8)
+        self.group_combo = QComboBox()
+        self.group_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.group_combo.setToolTip("Select a device group to scan")
+        self.refresh_groups_button = QPushButton("Refresh")
+        self.refresh_groups_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.refresh_groups_button.setToolTip("Refresh group list")
+        self.refresh_groups_button.clicked.connect(self._refresh_group_choices)
+        self.group_layout.addWidget(self.group_combo, 1)
+        self.group_layout.addWidget(self.refresh_groups_button)
+        self.control_layout.addRow("Group:", self.group_layout)
+
+        self.group_scan_check = QCheckBox("Scan Group Devices")
+        self.group_scan_check.setToolTip("Scan devices in the selected group instead of a network range")
+        self.group_scan_check.toggled.connect(self._update_group_scan_ui_state)
+        self.control_layout.addRow("", self.group_scan_check)
         
         # Scan type with manager button
         scan_type_layout = QHBoxLayout()
         scan_type_layout.setSpacing(8)
         
         self.scan_type_combo = QComboBox()
+        self.scan_type_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.scan_type_combo.addItems(self.settings["scan_type"]["choices"])
         self.scan_type_combo.setCurrentText(self.settings["scan_type"]["value"])
         
         self.scan_type_manager_button = QPushButton("Manage")
+        self.scan_type_manager_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.scan_type_manager_button.setToolTip("Manage scan profiles and types")
         self.scan_type_manager_button.clicked.connect(self.on_scan_type_manager_action)
         
@@ -1241,18 +1274,20 @@ class NetworkScannerPlugin(PluginInterface):
         button_grid.setHorizontalSpacing(10)
         button_grid.setVerticalSpacing(8)
         
-        # Set a fixed minimum width for all buttons to prevent overlapping
-        button_width = 100
+        # Set a modest minimum width for all buttons to prevent overlapping
+        button_width = 80
         
         # Scan button
         self.scan_button = QPushButton("Start Scan")
         self.scan_button.setMinimumWidth(button_width)
+        self.scan_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.scan_button.clicked.connect(self.on_scan_button_clicked)
         button_grid.addWidget(self.scan_button, 0, 0)
         
         # Quick Ping Scan button
         self.quick_ping_button = QPushButton("Quick Ping")
         self.quick_ping_button.setMinimumWidth(button_width)
+        self.quick_ping_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.quick_ping_button.clicked.connect(self.on_quick_ping_button_clicked)
         self.quick_ping_button.setToolTip("Fast ping scan without using nmap")
         button_grid.addWidget(self.quick_ping_button, 0, 1)
@@ -1260,6 +1295,7 @@ class NetworkScannerPlugin(PluginInterface):
         # Advanced Scan button
         self.advanced_scan_button = QPushButton("Advanced...")
         self.advanced_scan_button.setMinimumWidth(button_width)
+        self.advanced_scan_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.advanced_scan_button.clicked.connect(self.on_advanced_scan_button_clicked)
         self.advanced_scan_button.setToolTip("Open the advanced scan configuration dialog")
         button_grid.addWidget(self.advanced_scan_button, 1, 0)
@@ -1267,6 +1303,7 @@ class NetworkScannerPlugin(PluginInterface):
         # Stop button
         self.stop_button = QPushButton("Stop")
         self.stop_button.setMinimumWidth(button_width)
+        self.stop_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.stop_button.clicked.connect(self.on_stop_button_clicked)
         self.stop_button.setEnabled(False)
         button_grid.addWidget(self.stop_button, 1, 1)
@@ -1572,6 +1609,87 @@ class NetworkScannerPlugin(PluginInterface):
             self._cleanup_previous_scan()
             self.scan_error.emit(f"Error starting scan: {e}")
             return False
+
+    def _start_batch_device_scan(self, devices, scan_type):
+        """Start a batch scan for a list of devices sequentially"""
+        if self._is_scanning:
+            QMessageBox.information(
+                self.main_window,
+                "Scan in Progress",
+                "A scan is already in progress. Please wait for it to complete before starting a batch scan."
+            )
+            return False
+
+        batch_targets = []
+        for device in devices:
+            if isinstance(device, dict):
+                ip = device.get("ip", "")
+                label = device.get("label", "").strip() or ip
+                if not ip and device.get("device") is not None:
+                    ip = device["device"].get_property("ip_address", "")
+                    alias = device["device"].get_property("alias", "").strip()
+                    label = label or alias or ip
+                if not ip:
+                    continue
+                batch_targets.append({"ip": ip, "label": label})
+                continue
+
+            ip = device.get_property("ip_address", "")
+            if not ip:
+                continue
+            alias = device.get_property("alias", "").strip() if hasattr(device, "get_property") else ""
+            label = alias if alias else ip
+            batch_targets.append({"ip": ip, "label": label})
+
+        if not batch_targets:
+            QMessageBox.warning(
+                self.main_window,
+                "No Valid Devices",
+                "None of the selected devices have valid IP addresses."
+            )
+            return False
+
+        self._batch_scan_queue = batch_targets
+        self._batch_scan_total = len(batch_targets)
+        self._batch_scan_index = 0
+        self._batch_scan_current = None
+        self._batch_scan_active = True
+
+        self.log_message(f"Starting batch scan for {self._batch_scan_total} device(s)")
+        return self._start_next_batch_scan(scan_type)
+
+    def _start_next_batch_scan(self, scan_type):
+        """Start the next scan in the batch queue"""
+        if not self._batch_scan_active or not self._batch_scan_queue:
+            self._clear_batch_scan()
+            return False
+
+        if self._is_scanning:
+            return False
+
+        self._batch_scan_index += 1
+        self._batch_scan_current = self._batch_scan_queue.pop(0)
+        current_ip = self._batch_scan_current["ip"]
+        current_label = self._batch_scan_current["label"]
+
+        if hasattr(self, "status_label"):
+            self.status_label.setText(
+                f"Scanning device {self._batch_scan_index}/{self._batch_scan_total}: {current_label}"
+            )
+
+        self.log_message(
+            f"Starting device {self._batch_scan_index}/{self._batch_scan_total} scan: {current_label}"
+        )
+
+        return self.scan_network(current_ip, scan_type)
+
+    def _clear_batch_scan(self):
+        """Reset batch scan state"""
+        self._batch_scan_queue = []
+        self._batch_scan_total = 0
+        self._batch_scan_index = 0
+        self._batch_scan_current = None
+        self._batch_scan_active = False
         
     def _cleanup_previous_scan(self):
         """Clean up any previous scan thread and worker"""
@@ -1636,6 +1754,8 @@ class NetworkScannerPlugin(PluginInterface):
         """
         if not self.is_scanning():
             logger.debug("No scan running to stop")
+            if self._batch_scan_active:
+                self._clear_batch_scan()
             return False
             
         logger.info("Stopping scan...")
@@ -1712,6 +1832,9 @@ class NetworkScannerPlugin(PluginInterface):
             self.status_label.setText("Scan stopped by user")
             
         self.log_message("Scan stopped by user")
+
+        if self._batch_scan_active:
+            self._clear_batch_scan()
         
         return True
         
@@ -1738,7 +1861,14 @@ class NetworkScannerPlugin(PluginInterface):
             
         # Update status label
         if hasattr(self, "status_label"):
-            self.status_label.setText(f"Scanning: {current}/{total} hosts processed ({percentage}%)")
+            if self._batch_scan_active and self._batch_scan_current:
+                current_label = self._batch_scan_current.get("label", self._batch_scan_current.get("ip", "device"))
+                self.status_label.setText(
+                    f"Scanning device {self._batch_scan_index}/{self._batch_scan_total}: "
+                    f"{current_label} ({current}/{total} hosts, {percentage}%)"
+                )
+            else:
+                self.status_label.setText(f"Scanning: {current}/{total} hosts processed ({percentage}%)")
             
         # Emit the scan progress signal
         self.scan_progress.emit(current, total)
@@ -1864,7 +1994,16 @@ class NetworkScannerPlugin(PluginInterface):
             
         # Update status
         if hasattr(self, "status_label"):
-            self.status_label.setText("Scan complete")
+            if self._batch_scan_active and self._batch_scan_current:
+                current_label = self._batch_scan_current.get("label", self._batch_scan_current.get("ip", "device"))
+                if self._batch_scan_queue:
+                    self.status_label.setText(
+                        f"Completed device {self._batch_scan_index}/{self._batch_scan_total}: {current_label}"
+                    )
+                else:
+                    self.status_label.setText("Batch scan complete")
+            else:
+                self.status_label.setText("Scan complete")
             
         # Set progress to 100%
         if hasattr(self, "progress_bar"):
@@ -1900,6 +2039,13 @@ class NetworkScannerPlugin(PluginInterface):
         
         # Emit the scan completed signal
         self.scan_completed.emit(results)
+
+        if self._batch_scan_active:
+            if self._batch_scan_queue:
+                scan_type = self.settings["scan_type"]["value"]
+                QTimer.singleShot(200, lambda: self._start_next_batch_scan(scan_type))
+            else:
+                self._clear_batch_scan()
         
     def _on_scan_error(self, error_message):
         """Handle scan errors"""
@@ -1910,10 +2056,23 @@ class NetworkScannerPlugin(PluginInterface):
             
         # Update status
         if hasattr(self, "status_label"):
-            self.status_label.setText(f"Error: {error_message}")
+            if self._batch_scan_active and self._batch_scan_current:
+                current_label = self._batch_scan_current.get("label", self._batch_scan_current.get("ip", "device"))
+                self.status_label.setText(
+                    f"Error on device {self._batch_scan_index}/{self._batch_scan_total}: {current_label}"
+                )
+            else:
+                self.status_label.setText(f"Error: {error_message}")
             
         # Log the error
         self.log_message(f"Scan error: {error_message}")
+
+        if self._batch_scan_active and self._batch_scan_current:
+            current_label = self._batch_scan_current.get("label", self._batch_scan_current.get("ip", "device"))
+            self.log_message(
+                f"Batch scan error on device {self._batch_scan_index}/{self._batch_scan_total}: "
+                f"{current_label} - {error_message}"
+            )
         
         # Clean up
         self._is_scanning = False
@@ -1926,6 +2085,13 @@ class NetworkScannerPlugin(PluginInterface):
         # Emit the scan error signal
         self.scan_error.emit(error_message) 
 
+        if self._batch_scan_active:
+            if self._batch_scan_queue:
+                scan_type = self.settings["scan_type"]["value"]
+                QTimer.singleShot(200, lambda: self._start_next_batch_scan(scan_type))
+            else:
+                self._clear_batch_scan()
+
     @safe_action_wrapper
     def on_scan_action(self):
         """Handle main scan action"""
@@ -1933,14 +2099,14 @@ class NetworkScannerPlugin(PluginInterface):
         self._update_interface_choices()
         
         # Show scan dialog
-        network_range = self._show_scan_dialog()
+        dialog_result = self._show_scan_dialog()
         
-        if network_range:
+        if dialog_result:
             # Get scan type from settings
             scan_type = self.settings["scan_type"]["value"]
             
             # Start the scan
-            self.scan_network(network_range, scan_type)
+            self._handle_scan_target(dialog_result, scan_type)
             
     @safe_action_wrapper
     def on_scan_selected_action(self):
@@ -1967,9 +2133,18 @@ class NetworkScannerPlugin(PluginInterface):
                 "Please select one or more devices to scan."
             )
             return
-            
-        # Call the rescan device action handler
-        self._on_rescan_device_action(selected_devices)
+
+        # Update network interfaces before showing dialog
+        self._update_interface_choices()
+
+        dialog_result = self._show_scan_dialog(selected_devices)
+        if not dialog_result:
+            return
+
+        # Get scan type from settings
+        scan_type = self.settings["scan_type"]["value"]
+
+        self._handle_scan_target(dialog_result, scan_type)
         
     @safe_action_wrapper
     def on_scan_button_clicked(self):
@@ -1997,6 +2172,21 @@ class NetworkScannerPlugin(PluginInterface):
             return
             
         # Get network range from the UI
+        if hasattr(self, "group_scan_check") and self.group_scan_check.isChecked():
+            group = self._get_selected_group()
+            devices = self._get_group_devices(group)
+            if not devices:
+                QMessageBox.warning(
+                    self.main_window,
+                    "No Devices in Group",
+                    "The selected group has no devices to scan."
+                )
+                return
+                
+            scan_type = self.scan_type_combo.currentText()
+            self._start_batch_device_scan(devices, scan_type)
+            return
+        
         network_range = self.network_range_edit.text()
         if not network_range:
             # If no network range is specified, get it from the selected interface
@@ -2035,22 +2225,25 @@ class NetworkScannerPlugin(PluginInterface):
         self._update_interface_choices()
         
         # Show scan dialog
-        network_range = self._show_scan_dialog()
+        dialog_result = self._show_scan_dialog()
         
-        if network_range:
+        if dialog_result:
             # Get scan type from settings
             scan_type = self.settings["scan_type"]["value"]
             
             # Start the scan
-            self.scan_network(network_range, scan_type)
+            self._handle_scan_target(dialog_result, scan_type)
         
     @safe_action_wrapper
     def on_stop_button_clicked(self):
         """Handle stop button click"""
         self.stop_scan()
         
-    def _show_scan_dialog(self, selected_device=None):
+    def _show_scan_dialog(self, selected_devices=None):
         """Show a dialog to get scan parameters"""
+        if selected_devices and not isinstance(selected_devices, list):
+            selected_devices = [selected_devices]
+
         dialog = QDialog(self.main_window)
         dialog.setWindowTitle("Network Scan")
         dialog.setMinimumWidth(550)  # Slightly wider to accommodate content
@@ -2097,6 +2290,62 @@ class NetworkScannerPlugin(PluginInterface):
         target_layout.setContentsMargins(10, 15, 10, 10)
         target_layout.setSpacing(10)
         
+        # Option for selected devices
+        selected_devices_radio = None
+        selected_devices_list = None
+        if selected_devices:
+            selected_devices_radio = QRadioButton(f"Selected Devices ({len(selected_devices)})")
+            target_layout.addWidget(selected_devices_radio)
+
+            list_container = QGroupBox("Devices to Scan")
+            list_layout = QVBoxLayout(list_container)
+            list_layout.setContentsMargins(10, 10, 10, 10)
+            list_layout.setSpacing(6)
+
+            selected_devices_list = QListWidget()
+            for device in selected_devices:
+                ip_address = device.get_property("ip_address", "") if hasattr(device, "get_property") else ""
+                alias = device.get_property("alias", "") if hasattr(device, "get_property") else ""
+                if alias and ip_address:
+                    label = f"{alias} ({ip_address})"
+                elif ip_address:
+                    label = ip_address
+                else:
+                    label = alias or "Device"
+
+                item = QListWidgetItem(label)
+                item.setData(Qt.UserRole, {"device": device, "ip": ip_address, "label": label})
+                selected_devices_list.addItem(item)
+
+            list_layout.addWidget(selected_devices_list)
+
+            list_button_layout = QHBoxLayout()
+            add_device_button = QPushButton("Add by IP...")
+            remove_device_button = QPushButton("Remove Selected")
+            list_button_layout.addWidget(add_device_button)
+            list_button_layout.addWidget(remove_device_button)
+            list_layout.addLayout(list_button_layout)
+
+            target_layout.addWidget(list_container)
+            selected_devices_radio.setChecked(True)
+
+        # Option for group devices
+        group_radio = None
+        group_combo = None
+        available_groups = [g for g in self.device_manager.get_groups() if g != self.device_manager.root_group]
+        if available_groups:
+            group_radio = QRadioButton("Group Devices")
+            target_layout.addWidget(group_radio)
+            group_combo = QComboBox()
+            group_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            group_combo.setToolTip("Select a group to scan")
+            # Sort groups by display path
+            available_groups.sort(key=lambda g: self._format_group_path(g).lower())
+            for group in available_groups:
+                group_combo.addItem(self._format_group_path(group), group)
+            group_combo.setVisible(False)
+            target_layout.addWidget(group_combo)
+
         # Option to scan subnet of selected interface
         scan_subnet_radio = QRadioButton("Scan Interface Subnet")
         
@@ -2113,13 +2362,7 @@ class NetworkScannerPlugin(PluginInterface):
         network_range_edit.setPlaceholderText("e.g., 192.168.1.0/24 or 10.0.0.1-10.0.0.254")
         custom_range_layout.addWidget(network_range_edit)
         
-        # If a selected device was provided, add an option to rescan it
-        rescan_device_radio = None
-        if selected_device:
-            rescan_device_radio = QRadioButton(f"Rescan Selected Device: {selected_device.get_property('alias', 'Device')}")
-            target_layout.addWidget(rescan_device_radio)
-            rescan_device_radio.setChecked(True)
-        else:
+        if not selected_devices:
             scan_subnet_radio.setChecked(True)
             
         target_layout.addWidget(scan_subnet_radio)
@@ -2130,11 +2373,51 @@ class NetworkScannerPlugin(PluginInterface):
         def update_ui_state():
             network_range_edit.setEnabled(custom_range_radio.isChecked())
             custom_range_container.setVisible(custom_range_radio.isChecked())
+            if selected_devices_list and selected_devices_radio:
+                selected_devices_list.parentWidget().setVisible(selected_devices_radio.isChecked())
+            if group_combo and group_radio:
+                group_combo.setVisible(group_radio.isChecked())
+            interface_group.setEnabled(scan_subnet_radio.isChecked())
             
         scan_subnet_radio.toggled.connect(update_ui_state)
         custom_range_radio.toggled.connect(update_ui_state)
-        if rescan_device_radio:
-            rescan_device_radio.toggled.connect(update_ui_state)
+        if selected_devices_radio:
+            selected_devices_radio.toggled.connect(update_ui_state)
+        if group_radio:
+            group_radio.toggled.connect(update_ui_state)
+
+        if selected_devices_list:
+            def add_device_by_ip():
+                ip, ok = QInputDialog.getText(
+                    dialog,
+                    "Add Device by IP",
+                    "Enter IP address or range:"
+                )
+                if not ok:
+                    return
+                ip = ip.strip()
+                if not ip:
+                    return
+                label = ip
+                item = QListWidgetItem(label)
+                item.setData(Qt.UserRole, {"device": None, "ip": ip, "label": label})
+                selected_devices_list.addItem(item)
+                if selected_devices_radio:
+                    selected_devices_radio.setText(
+                        f"Selected Devices ({selected_devices_list.count()})"
+                    )
+
+            def remove_selected_devices():
+                for item in selected_devices_list.selectedItems():
+                    row = selected_devices_list.row(item)
+                    selected_devices_list.takeItem(row)
+                if selected_devices_radio:
+                    selected_devices_radio.setText(
+                        f"Selected Devices ({selected_devices_list.count()})"
+                    )
+
+            add_device_button.clicked.connect(add_device_by_ip)
+            remove_device_button.clicked.connect(remove_selected_devices)
             
         # Initial UI state
         update_ui_state()
@@ -2230,36 +2513,178 @@ class NetworkScannerPlugin(PluginInterface):
         profiles_layout.setContentsMargins(10, 10, 10, 10)
         profiles_layout.setSpacing(12)
         
-        # Display the current scan profiles
-        profiles_label = QLabel("Available Scan Profiles:")
+        # Profile selector
+        profiles_label = QLabel("Profile Editor")
         profiles_label.setStyleSheet("font-weight: bold; font-size: 13px;")
         profiles_layout.addWidget(profiles_label)
-        
-        # Create a text display for the profiles
-        profiles_text = QTextEdit()
-        profiles_text.setReadOnly(True)
-        profiles_text.setStyleSheet("line-height: 1.4;")  # Improve line spacing
-        
-        # Format the profiles information
-        profile_info = ""
-        for scan_id, profile in self.settings["scan_profiles"]["value"].items():
-            profile_info += f"<div style='margin-bottom: 12px; padding: 8px; background-color: rgba(240, 240, 240, 100); border-radius: 4px;'>"
-            profile_info += f"<div style='font-weight: bold; font-size: 14px; color: #444; margin-bottom: 5px;'>{profile.get('name', scan_id)}</div>"
-            profile_info += f"<div style='margin: 3px 0;'><b>Description:</b> {profile.get('description', 'No description')}</div>"
-            profile_info += f"<div style='margin: 3px 0;'><b>Arguments:</b> <code>{profile.get('arguments', '')}</code></div>"
-            profile_info += f"<div style='margin: 3px 0;'><b>OS Detection:</b> {'Yes' if profile.get('os_detection', False) else 'No'}</div>"
-            profile_info += f"<div style='margin: 3px 0;'><b>Port Scan:</b> {'Yes' if profile.get('port_scan', False) else 'No'}</div>"
-            profile_info += f"<div style='margin: 3px 0;'><b>Timeout:</b> {profile.get('timeout', 300)} seconds</div>"
-            profile_info += "</div>"
-            
-        profiles_text.setHtml(profile_info)
-        profiles_layout.addWidget(profiles_text)
-        
-        # Help text
-        help_label = QLabel("Note: Scan profiles can be edited in the plugin settings.")
-        help_label.setWordWrap(True)
-        help_label.setStyleSheet("font-style: italic; color: #666; padding: 5px;")
-        profiles_layout.addWidget(help_label)
+
+        profile_select_layout = QHBoxLayout()
+        profile_select_layout.addWidget(QLabel("Profile:"))
+        profile_select_combo = QComboBox()
+        profile_keys = list(self.settings["scan_profiles"]["value"].keys())
+        profile_select_combo.addItems(profile_keys)
+        profile_select_layout.addWidget(profile_select_combo, 1)
+        profiles_layout.addLayout(profile_select_layout)
+
+        profile_description_display = QLabel()
+        profile_description_display.setWordWrap(True)
+        profile_description_display.setStyleSheet(
+            "padding: 5px; background-color: rgba(240, 240, 240, 100); border-radius: 4px;"
+        )
+        profile_description_display.setMinimumHeight(50)
+        profiles_layout.addWidget(profile_description_display)
+
+        editor_group = QGroupBox("Edit Profile")
+        editor_layout = QFormLayout(editor_group)
+        editor_layout.setContentsMargins(10, 15, 10, 10)
+        editor_layout.setSpacing(10)
+
+        profile_name_edit = QLineEdit()
+        editor_layout.addRow("Name:", profile_name_edit)
+
+        profile_description_edit = QTextEdit()
+        profile_description_edit.setFixedHeight(80)
+        editor_layout.addRow("Description:", profile_description_edit)
+
+        profile_arguments_edit = QLineEdit()
+        editor_layout.addRow("Arguments:", profile_arguments_edit)
+
+        profile_os_detection_check = QCheckBox()
+        editor_layout.addRow("OS Detection:", profile_os_detection_check)
+
+        profile_port_scan_check = QCheckBox()
+        editor_layout.addRow("Port Scan:", profile_port_scan_check)
+
+        profile_timeout_edit = QLineEdit()
+        profile_timeout_edit.setValidator(QIntValidator(10, 2000))
+        editor_layout.addRow("Timeout (seconds):", profile_timeout_edit)
+
+        profiles_layout.addWidget(editor_group)
+
+        profile_button_layout = QHBoxLayout()
+        profile_save_button = QPushButton("Save Profile")
+        profile_delete_button = QPushButton("Delete Profile")
+        profile_button_layout.addWidget(profile_save_button)
+        profile_button_layout.addWidget(profile_delete_button)
+        profiles_layout.addLayout(profile_button_layout)
+
+        profiles_layout.addStretch(1)
+
+        profiles = self.settings["scan_profiles"]["value"]
+
+        def refresh_profile_choices(preferred_key=None):
+            keys = list(self.settings["scan_profiles"]["value"].keys())
+            if not keys:
+                return
+            current_scan_key = scan_type_combo.currentText()
+            current_profile_key = profile_select_combo.currentText()
+
+            scan_type_combo.blockSignals(True)
+            scan_type_combo.clear()
+            scan_type_combo.addItems(keys)
+            if preferred_key and preferred_key in keys:
+                scan_type_combo.setCurrentText(preferred_key)
+            elif current_scan_key in keys:
+                scan_type_combo.setCurrentText(current_scan_key)
+            else:
+                scan_type_combo.setCurrentText(keys[0])
+            scan_type_combo.blockSignals(False)
+
+            profile_select_combo.blockSignals(True)
+            profile_select_combo.clear()
+            profile_select_combo.addItems(keys)
+            if preferred_key and preferred_key in keys:
+                profile_select_combo.setCurrentText(preferred_key)
+            elif current_profile_key in keys:
+                profile_select_combo.setCurrentText(current_profile_key)
+            else:
+                profile_select_combo.setCurrentText(keys[0])
+            profile_select_combo.blockSignals(False)
+
+            self.settings["scan_type"]["choices"] = keys
+
+        def load_profile(profile_key):
+            profile = profiles.get(profile_key, {})
+            profile_name_edit.setText(profile.get("name", profile_key))
+            profile_description_edit.setPlainText(profile.get("description", ""))
+            profile_arguments_edit.setText(profile.get("arguments", ""))
+            profile_os_detection_check.setChecked(profile.get("os_detection", False))
+            profile_port_scan_check.setChecked(profile.get("port_scan", False))
+            profile_timeout_edit.setText(str(profile.get("timeout", 300)))
+            profile_description_display.setText(profile.get("description", ""))
+
+        def save_profile():
+            profile_key = profile_select_combo.currentText().strip()
+            if not profile_key:
+                return
+            profiles[profile_key] = {
+                "name": profile_name_edit.text().strip() or profile_key,
+                "description": profile_description_edit.toPlainText().strip(),
+                "arguments": profile_arguments_edit.text().strip(),
+                "os_detection": profile_os_detection_check.isChecked(),
+                "port_scan": profile_port_scan_check.isChecked(),
+                "timeout": int(profile_timeout_edit.text() or 300),
+            }
+            self.settings["scan_profiles"]["value"] = profiles
+            refresh_profile_choices(preferred_key=profile_key)
+            load_profile(profile_key)
+            if scan_type_combo.currentText() == profile_key:
+                update_scan_description(0)
+
+        def delete_profile():
+            profile_key = profile_select_combo.currentText().strip()
+            if not profile_key or profile_key not in profiles:
+                return
+            if len(profiles) <= 1:
+                QMessageBox.warning(
+                    self.main_window,
+                    "Cannot Delete Profile",
+                    "At least one scan profile must remain."
+                )
+                return
+            result = QMessageBox.question(
+                self.main_window,
+                "Delete Profile",
+                f"Delete the scan profile '{profile_key}'?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if result != QMessageBox.Yes:
+                return
+            del profiles[profile_key]
+            self.settings["scan_profiles"]["value"] = profiles
+            refresh_profile_choices()
+            load_profile(profile_select_combo.currentText())
+            update_scan_description(0)
+
+        def on_profile_selection_changed(index):
+            profile_key = profile_select_combo.currentText()
+            if profile_key:
+                load_profile(profile_key)
+                if profile_key in self.settings["scan_type"]["choices"]:
+                    scan_type_combo.setCurrentText(profile_key)
+                    update_scan_description(0)
+
+        def sync_profile_from_scan_type(index):
+            profile_key = scan_type_combo.currentText()
+            if profile_key in self.settings["scan_profiles"]["value"]:
+                profile_select_combo.setCurrentText(profile_key)
+                load_profile(profile_key)
+                profile_description_display.setText(
+                    self.settings["scan_profiles"]["value"][profile_key].get("description", "")
+                )
+
+        profile_select_combo.currentIndexChanged.connect(on_profile_selection_changed)
+        scan_type_combo.currentIndexChanged.connect(sync_profile_from_scan_type)
+        profile_save_button.clicked.connect(save_profile)
+        profile_delete_button.clicked.connect(delete_profile)
+
+        # Initialize the editor selection
+        if scan_type_combo.currentText() in profile_keys:
+            profile_select_combo.setCurrentText(scan_type_combo.currentText())
+        elif profile_keys:
+            profile_select_combo.setCurrentText(profile_keys[0])
+        load_profile(profile_select_combo.currentText())
+        sync_profile_from_scan_type(0)
         
         # Try to get a default value for network range based on the local network
         try:
@@ -2335,25 +2760,78 @@ class NetworkScannerPlugin(PluginInterface):
                 
             self.settings["preferred_interface"]["value"] = interface_combo.currentText()
             
-            # Determine the network range to scan
-            if selected_device and rescan_device_radio and rescan_device_radio.isChecked():
-                # Return the IP of the selected device
-                return selected_device.get_property("ip_address", "")
-            elif scan_subnet_radio.isChecked():
+            # Determine the target to scan
+            if selected_devices_list and selected_devices_radio and selected_devices_radio.isChecked():
+                selected_targets = []
+                for index in range(selected_devices_list.count()):
+                    item = selected_devices_list.item(index)
+                    data = item.data(Qt.UserRole) or {}
+                    if not data.get("ip") and data.get("device") is None:
+                        continue
+                    selected_targets.append(data)
+                return {"target_type": "devices", "selected_devices": selected_targets}
+            if group_radio and group_radio.isChecked():
+                selected_group = group_combo.currentData() if group_combo else None
+                return {"target_type": "group", "group": selected_group}
+            if scan_subnet_radio.isChecked():
                 # Get subnet from selected interface
                 selected_if_text = interface_combo.currentText()
                 if selected_if_text and selected_if_text != "Any (default)":
                     selected_if = selected_if_text.split(":")[0].strip()
                     subnet = self._get_interface_subnet(selected_if)
                     if subnet:
-                        return subnet
+                        return {"target_type": "interface", "interface": selected_if_text, "network_range": subnet}
                 # Fallback to the network range edit
-                return network_range_edit.text().strip()
-            else:
-                # Return the custom network range
-                return network_range_edit.text().strip()
+                return {"target_type": "interface", "interface": interface_combo.currentText(), "network_range": network_range_edit.text().strip()}
+            # Custom network range
+            return network_range_edit.text().strip()
         
         return None
+
+    def _handle_scan_target(self, dialog_result, scan_type):
+        """Handle scan dialog results for various target types"""
+        if not dialog_result:
+            return False
+            
+        if isinstance(dialog_result, dict):
+            target_type = dialog_result.get("target_type")
+            if target_type == "devices":
+                selected_devices = dialog_result.get("selected_devices", [])
+                return self._start_batch_device_scan(selected_devices, scan_type)
+            if target_type == "group":
+                group = dialog_result.get("group")
+                devices = self._get_group_devices(group)
+                if not devices:
+                    QMessageBox.warning(
+                        self.main_window,
+                        "No Devices in Group",
+                        "The selected group has no devices to scan."
+                    )
+                    return False
+                return self._start_batch_device_scan(devices, scan_type)
+            if target_type == "interface":
+                network_range = dialog_result.get("network_range", "").strip()
+                if not network_range:
+                    QMessageBox.warning(
+                        self.main_window,
+                        "Missing Network Range",
+                        "Please select a valid interface with a subnet."
+                    )
+                    return False
+                return self.scan_network(network_range, scan_type)
+            
+        if isinstance(dialog_result, str):
+            network_range = dialog_result.strip()
+            if not network_range:
+                QMessageBox.warning(
+                    self.main_window,
+                    "Missing Network Range",
+                    "Please enter a valid network range."
+                )
+                return False
+            return self.scan_network(network_range, scan_type)
+            
+        return False
 
     @safe_action_wrapper
     def _on_scan_subnet_action(self, device_or_devices=None):
@@ -2365,7 +2843,7 @@ class NetworkScannerPlugin(PluginInterface):
         
         # If no interface is selected or it's the "Any" option, show the dialog
         if not selected_if_text or selected_if_text == "Any (default)":
-            network_range = self._show_scan_dialog()
+            dialog_result = self._show_scan_dialog()
         else:
             # Get the interface name
             selected_if = selected_if_text.split(":")[0].strip()
@@ -2373,7 +2851,7 @@ class NetworkScannerPlugin(PluginInterface):
             
             if not subnet:
                 # If we couldn't determine the subnet, show the dialog
-                network_range = self._show_scan_dialog()
+                dialog_result = self._show_scan_dialog()
             else:
                 # Show confirmation dialog
                 result = QMessageBox.question(
@@ -2384,16 +2862,16 @@ class NetworkScannerPlugin(PluginInterface):
                 )
                 
                 if result == QMessageBox.Yes:
-                    network_range = subnet
+                    dialog_result = subnet
                 else:
-                    network_range = None
+                    dialog_result = None
         
-        if network_range:
+        if dialog_result:
             # Get scan type from settings
             scan_type = self.settings["scan_type"]["value"]
             
             # Start the scan
-            self.scan_network(network_range, scan_type)
+            self._handle_scan_target(dialog_result, scan_type)
             
     @safe_action_wrapper
     def _on_rescan_device_action(self, device_or_devices):
@@ -2417,63 +2895,26 @@ class NetworkScannerPlugin(PluginInterface):
             )
             return
             
-        # If only one device, show scan dialog for that device
-        if len(devices) == 1:
-            network_range = self._show_scan_dialog(devices[0])
-            
-            if network_range:
-                # Get scan type from settings
-                scan_type = self.settings["scan_type"]["value"]
-                
-                # Start the scan
-                self.scan_network(network_range, scan_type)
-        else:
-            # For multiple devices, ask for confirmation
-            device_ips = []
-            for device in devices:
-                ip = device.get_property("ip_address", "")
-                if ip:
-                    device_ips.append(ip)
-                    
-            if not device_ips:
-                QMessageBox.warning(
-                    self.main_window,
-                    "No Valid Devices",
-                    "None of the selected devices have valid IP addresses."
-                )
-                return
-                
-            # Show confirmation dialog
-            result = QMessageBox.question(
-                self.main_window,
-                "Confirm Device Rescan",
-                f"Do you want to rescan {len(device_ips)} selected devices?\n\n"
-                f"This will perform individual scans for each device.",
-                QMessageBox.Yes | QMessageBox.No
-            )
-            
-            if result == QMessageBox.Yes:
-                # Get scan type from settings
-                scan_type = self.settings["scan_type"]["value"]
-                
-                # Scan each device
-                for ip in device_ips:
-                    self.scan_network(ip, scan_type)
-                    # Sleep briefly between scans to avoid resource contention
-                    time.sleep(0.5)
+        # Show scan dialog for selected devices
+        dialog_result = self._show_scan_dialog(devices)
+
+        if dialog_result:
+            # Get scan type from settings
+            scan_type = self.settings["scan_type"]["value"]
+            self._handle_scan_target(dialog_result, scan_type)
                     
     @safe_action_wrapper
     def _on_scan_network_action(self, device_or_devices):
         """Handle Scan Network action from context menu"""
         # This action doesn't need the selected device, just show the scan dialog
-        network_range = self._show_scan_dialog()
+        dialog_result = self._show_scan_dialog()
         
-        if network_range:
+        if dialog_result:
             # Get scan type from settings
             scan_type = self.settings["scan_type"]["value"]
             
             # Start the scan
-            self.scan_network(network_range, scan_type)
+            self._handle_scan_target(dialog_result, scan_type)
             
     @safe_action_wrapper
     def _on_scan_from_device_action(self, device_or_devices):
@@ -2526,13 +2967,11 @@ class NetworkScannerPlugin(PluginInterface):
             # Show the scan dialog with the device's network pre-filled
             dialog_result = self._show_scan_dialog()
             if dialog_result:
-                network_range = dialog_result
-                
                 # Get scan type from settings
                 scan_type = self.settings["scan_type"]["value"]
                 
                 # Start the scan
-                self.scan_network(network_range, scan_type)
+                self._handle_scan_target(dialog_result, scan_type)
                 
         except Exception as e:
             QMessageBox.critical(
@@ -2618,98 +3057,52 @@ class NetworkScannerPlugin(PluginInterface):
         interfaces = []
 
         # Preferred path: use psutil (pure Python interface, wheels available on most platforms)
-        if HAS_PSUTIL:
-            try:
-                for iface, addrs in psutil.net_if_addrs().items():
-                    try:
-                        # Skip loopback and common virtual interfaces
-                        if iface == "lo" or iface.startswith("vbox") or iface.startswith("docker"):
-                            continue
-
-                        for addr in addrs:
-                            # AF_INET == IPv4; use numeric literal to avoid importing socket here
-                            if addr.family == 2 and addr.address and not addr.address.startswith("127."):
-                                ip = addr.address
-                                netmask = addr.netmask
-
-                                # Try to get a friendly name/alias for the interface
-                                interface_alias = self._get_interface_friendly_name(iface)
-
-                                # Create interface info
-                                interface_info = {
-                                    "name": iface,
-                                    "alias": interface_alias,
-                                    "ip": ip,
-                                    "netmask": netmask,
-                                    "display": f"{interface_alias}: {ip}",
-                                }
-
-                                # Try to get subnet in CIDR format
-                                try:
-                                    if netmask:
-                                        network = ipaddress.IPv4Network(f"{ip}/{netmask}", strict=False)
-                                        interface_info["network"] = str(network)
-                                        interface_info["display"] = f"{interface_alias}: {ip} ({network})"
-                                except Exception as e:
-                                    logger.debug(f"Error calculating network for {iface}: {e}")
-
-                                interfaces.append(interface_info)
-                    except Exception as e:
-                        logger.debug(f"Error processing interface {iface} via psutil: {e}")
-                        continue
-                return interfaces
-            except Exception as e:
-                logger.error(f"Error getting network interfaces via psutil: {e}")
-
-        # Fallback path: use netifaces if available (optional, may require build tools on Windows)
-        if not HAS_NETIFACES:
-            logger.warning("Neither psutil nor netifaces are available; cannot enumerate interfaces")
+        if not HAS_PSUTIL:
+            logger.warning("psutil is not available; cannot enumerate network interfaces")
             return interfaces
 
         try:
-            # Get list of interfaces via netifaces
-            for iface in netifaces.interfaces():
+            for iface, addrs in psutil.net_if_addrs().items():
                 try:
-                    # Skip loopback and non-active interfaces
-                    if iface == 'lo' or iface.startswith('vbox') or iface.startswith('docker'):
+                    # Skip loopback and common virtual interfaces
+                    if iface == "lo" or iface.startswith("vbox") or iface.startswith("docker"):
                         continue
 
-                    addrs = netifaces.ifaddresses(iface)
+                    for addr in addrs:
+                        # AF_INET == IPv4; use numeric literal to avoid importing socket here
+                        if addr.family == 2 and addr.address and not addr.address.startswith("127."):
+                            ip = addr.address
+                            netmask = addr.netmask
 
-                    # Get IPv4 address if available
-                    if netifaces.AF_INET in addrs:
-                        for addr in addrs[netifaces.AF_INET]:
-                            ip = addr.get('addr')
-                            netmask = addr.get('netmask')
+                            # Try to get a friendly name/alias for the interface
+                            interface_alias = self._get_interface_friendly_name(iface)
 
-                            if ip and not ip.startswith('127.'):
-                                # Try to get a friendly name/alias for the interface
-                                interface_alias = self._get_interface_friendly_name(iface)
+                            # Create interface info
+                            interface_info = {
+                                "name": iface,
+                                "alias": interface_alias,
+                                "ip": ip,
+                                "netmask": netmask,
+                                "display": f"{interface_alias}: {ip}",
+                            }
 
-                                # Create interface info
-                                interface_info = {
-                                    'name': iface,
-                                    'alias': interface_alias,
-                                    'ip': ip,
-                                    'netmask': netmask,
-                                    'display': f"{interface_alias}: {ip}"
-                                }
-
-                                # Try to get subnet in CIDR format
-                                try:
+                            # Try to get subnet in CIDR format
+                            try:
+                                if netmask:
                                     network = ipaddress.IPv4Network(f"{ip}/{netmask}", strict=False)
-                                    interface_info['network'] = str(network)
-                                    interface_info['display'] = f"{interface_alias}: {ip} ({network})"
-                                except Exception as e:
-                                    logger.debug(f"Error calculating network for {iface}: {e}")
+                                    interface_info["network"] = str(network)
+                                    interface_info["display"] = f"{interface_alias}: {ip} ({network})"
+                            except Exception as e:
+                                logger.debug(f"Error calculating network for {iface}: {e}")
 
-                                interfaces.append(interface_info)
+                            interfaces.append(interface_info)
                 except Exception as e:
-                    logger.debug(f"Error processing interface {iface} via netifaces: {e}")
+                    logger.debug(f"Error processing interface {iface} via psutil: {e}")
                     continue
+            return interfaces
         except Exception as e:
-            logger.error(f"Error getting network interfaces via netifaces: {e}")
-            
+            logger.error(f"Error getting network interfaces via psutil: {e}")
+
         return interfaces
 
     def _get_interface_friendly_name(self, interface_name):
@@ -3330,6 +3723,92 @@ class NetworkScannerPlugin(PluginInterface):
             
         return False
 
+    def _refresh_group_choices(self):
+        """Refresh the group selection dropdown"""
+        if not hasattr(self, "device_manager") or not self.device_manager:
+            return
+        if not hasattr(self, "group_combo") or self.group_combo is None:
+            return
+            
+        current_group = self.group_combo.currentData() if self.group_combo.count() else None
+        current_name = current_group.name if current_group else None
+        
+        self.group_combo.blockSignals(True)
+        self.group_combo.clear()
+        
+        root_group = self.device_manager.root_group
+        self.group_combo.addItem("All Devices", root_group)
+        
+        groups = [g for g in self.device_manager.get_groups() if g != root_group]
+        groups.sort(key=lambda g: self._format_group_path(g).lower())
+        for group in groups:
+            label = self._format_group_path(group)
+            self.group_combo.addItem(label, group)
+        
+        # Restore previous selection if possible
+        if current_name:
+            for index in range(self.group_combo.count()):
+                group = self.group_combo.itemData(index)
+                if group and group.name == current_name:
+                    self.group_combo.setCurrentIndex(index)
+                    break
+        
+        self.group_combo.blockSignals(False)
+
+    def _format_group_path(self, group):
+        """Return a display path for a group"""
+        parts = [group.name]
+        parent = group.parent
+        while parent and parent != self.device_manager.root_group:
+            parts.append(parent.name)
+            parent = parent.parent
+        parts.reverse()
+        return " / ".join(parts)
+
+    def _update_group_scan_ui_state(self):
+        """Toggle UI state when group scan is enabled"""
+        if not hasattr(self, "group_scan_check"):
+            return
+            
+        use_group = self.group_scan_check.isChecked()
+        if hasattr(self, "network_range_edit"):
+            self.network_range_edit.setEnabled(not use_group)
+        if hasattr(self, "network_range_label"):
+            self.network_range_label.setEnabled(not use_group)
+
+    def _get_selected_group(self):
+        """Return the selected group from the UI"""
+        if not hasattr(self, "group_combo") or self.group_combo.count() == 0:
+            return None
+        return self.group_combo.currentData()
+
+    def _get_group_devices(self, group):
+        """Return devices for a group including subgroups"""
+        if not group:
+            return []
+        try:
+            return group.get_all_devices()
+        except Exception:
+            return []
+
+    def _get_group_ip_list(self, group):
+        """Return a list of IPs for devices in the group"""
+        devices = self._get_group_devices(group)
+        ip_list = []
+        for device in devices:
+            ip = device.get_property("ip_address", "") if hasattr(device, "get_property") else ""
+            if ip:
+                ip_list.append(ip)
+        # De-duplicate while preserving order
+        seen = set()
+        unique_ips = []
+        for ip in ip_list:
+            if ip in seen:
+                continue
+            seen.add(ip)
+            unique_ips.append(ip)
+        return unique_ips
+
     @safe_action_wrapper
     def on_scan_type_manager_action(self):
         """Handle scan type manager action"""
@@ -3631,7 +4110,7 @@ class NetworkScannerPlugin(PluginInterface):
         # Show the dialog
         dialog.exec_()
 
-    def quick_ping_scan(self, network_range):
+    def quick_ping_scan(self, network_range, display_label=None):
         """
         Perform a quick ping scan using system commands
         
@@ -3639,7 +4118,8 @@ class NetworkScannerPlugin(PluginInterface):
         when just checking if hosts are alive.
         
         Args:
-            network_range: Network range to scan (e.g., 192.168.1.0/24)
+            network_range: Network range or list of IPs to scan
+            display_label: Optional label for logging/status
             
         Returns:
             bool: True if scan started successfully, False otherwise
@@ -3804,41 +4284,51 @@ class NetworkScannerPlugin(PluginInterface):
             
             # Clear the scan log and reset progress
             self._scan_log = []
-            self.log_message(f"Starting quick ping scan of {network_range}")
+            label = display_label or (network_range if isinstance(network_range, str) else "Selected devices")
+            self.log_message(f"Starting quick ping scan of {label}")
             self._scan_results = {}
             
-            # Extract IP addresses from network range
+            # Extract IP addresses from network range or list
             ip_list = []
             try:
-                # For CIDR notation like 192.168.1.0/24
-                if '/' in network_range:
-                    net = ipaddress.ip_network(network_range, strict=False)
-                    ip_list = list(net.hosts())
-                    
-                # For range notation like 192.168.1.1-10
-                elif '-' in network_range:
-                    parts = network_range.split('-')
-                    if len(parts) == 2:
-                        start_ip = parts[0].strip()
-                        
-                        # Check if the second part is a full IP or just the last octet
-                        if '.' in parts[1]:
-                            end_ip = parts[1].strip()
-                        else:
-                            # Assume it's just the last octet
-                            start_parts = start_ip.split('.')
-                            end_ip = f"{start_parts[0]}.{start_parts[1]}.{start_parts[2]}.{parts[1].strip()}"
-                            
-                        # Generate IP range
-                        start = int(ipaddress.IPv4Address(start_ip))
-                        end = int(ipaddress.IPv4Address(end_ip))
-                        
-                        for i in range(start, end + 1):
-                            ip_list.append(ipaddress.IPv4Address(i))
-                
-                # Single IP address
+                if isinstance(network_range, (list, tuple, set)):
+                    for entry in network_range:
+                        if not entry:
+                            continue
+                        try:
+                            ip_list.append(ipaddress.ip_address(str(entry)))
+                        except Exception:
+                            continue
                 else:
-                    ip_list = [ipaddress.ip_address(network_range)]
+                    # For CIDR notation like 192.168.1.0/24
+                    if '/' in network_range:
+                        net = ipaddress.ip_network(network_range, strict=False)
+                        ip_list = list(net.hosts())
+                        
+                    # For range notation like 192.168.1.1-10
+                    elif '-' in network_range:
+                        parts = network_range.split('-')
+                        if len(parts) == 2:
+                            start_ip = parts[0].strip()
+                            
+                            # Check if the second part is a full IP or just the last octet
+                            if '.' in parts[1]:
+                                end_ip = parts[1].strip()
+                            else:
+                                # Assume it's just the last octet
+                                start_parts = start_ip.split('.')
+                                end_ip = f"{start_parts[0]}.{start_parts[1]}.{start_parts[2]}.{parts[1].strip()}"
+                                
+                            # Generate IP range
+                            start = int(ipaddress.IPv4Address(start_ip))
+                            end = int(ipaddress.IPv4Address(end_ip))
+                            
+                            for i in range(start, end + 1):
+                                ip_list.append(ipaddress.IPv4Address(i))
+                    
+                    # Single IP address
+                    else:
+                        ip_list = [ipaddress.ip_address(network_range)]
             except Exception as e:
                 self.log_message(f"Error parsing network range: {e}")
                 self._is_scanning = False
@@ -3858,7 +4348,7 @@ class NetworkScannerPlugin(PluginInterface):
             
             # Create worker thread
             self._ping_scan_thread = QThread()
-            self._ping_scan_worker = PingScanWorker(ip_list, network_range)
+            self._ping_scan_worker = PingScanWorker(ip_list, label)
             self._ping_scan_worker.moveToThread(self._ping_scan_thread)
             
             # Connect worker signals
@@ -3940,6 +4430,20 @@ class NetworkScannerPlugin(PluginInterface):
             return
             
         # Get network range from the UI
+        if hasattr(self, "group_scan_check") and self.group_scan_check.isChecked():
+            group = self._get_selected_group()
+            ip_list = self._get_group_ip_list(group)
+            if not ip_list:
+                QMessageBox.warning(
+                    self.main_window,
+                    "No Devices in Group",
+                    "The selected group has no devices with valid IP addresses."
+                )
+                return
+            label = f"Group: {group.name}" if group else "Selected Group"
+            self.quick_ping_scan(ip_list, display_label=label)
+            return
+        
         network_range = self.network_range_edit.text()
         if not network_range:
             # If no network range is specified, get it from the selected interface

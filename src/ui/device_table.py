@@ -6,10 +6,11 @@ Device table model and view for NetWORKS
 """
 
 from loguru import logger
-from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Signal, Slot
-from PySide6.QtWidgets import (QTableView, QHeaderView, QAbstractItemView, QMenu, QApplication, QWidget, QDialog, QVBoxLayout, QFormLayout, QLineEdit, QDialogButtonBox, QLabel, QTextEdit, QPushButton, QHBoxLayout, QComboBox, QTabWidget, QListWidget, QListWidgetItem, QMessageBox, QGroupBox, QCheckBox, QTableWidget, QTableWidgetItem, QFileDialog, QWizard, QWizardPage, QScrollArea, QRadioButton)
+from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Signal, Slot, QItemSelectionModel
+from PySide6.QtWidgets import (QTableView, QHeaderView, QAbstractItemView, QMenu, QApplication, QWidget, QDialog, QVBoxLayout, QFormLayout, QLineEdit, QDialogButtonBox, QLabel, QTextEdit, QPushButton, QHBoxLayout, QComboBox, QTabWidget, QListWidget, QListWidgetItem, QMessageBox, QGroupBox, QCheckBox, QTableWidget, QTableWidgetItem, QFileDialog, QWizard, QWizardPage, QScrollArea, QRadioButton, QSizePolicy, QGridLayout)
 from PySide6.QtGui import QColor, QBrush, QFont, QIcon, QAction
 from ..core.device_manager import Device
+from .responsive_toolbar import ResponsiveToolbar
 import csv
 import io
 import re
@@ -80,6 +81,54 @@ class IPSortFilterProxyModel(QSortFilterProxyModel):
         
         # For other columns, use the default sorting mechanism
         return super().lessThan(left, right)
+
+
+class _WrappingButtonGroup(QWidget):
+    """Wrap buttons into rows based on available width."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._buttons = []
+        self._columns = 0
+        self._layout = QGridLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setHorizontalSpacing(6)
+        self._layout.setVerticalSpacing(4)
+
+    def addButton(self, button):
+        button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self._buttons.append(button)
+        self._reflow()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._reflow()
+
+    def _reflow(self):
+        if not self._buttons:
+            return
+
+        max_width = max(button.sizeHint().width() for button in self._buttons)
+        spacing = self._layout.horizontalSpacing()
+        if spacing < 0:
+            spacing = 6
+
+        available = max(1, self.width())
+        columns = max(1, available // max(1, max_width + spacing))
+        if columns == self._columns:
+            return
+
+        self._columns = columns
+
+        while self._layout.count():
+            item = self._layout.takeAt(0)
+            if item and item.widget():
+                item.widget().setParent(self)
+
+        for index, button in enumerate(self._buttons):
+            row = index // columns
+            col = index % columns
+            self._layout.addWidget(button, row, col)
 
 
 class DeviceTableModel(QAbstractTableModel):
@@ -435,6 +484,9 @@ class DeviceTableView(QTableView):
         self.setSortingEnabled(True)
         self.setAlternatingRowColors(True)
         self.setShowGrid(True)
+        # Keep row heights uniform for smoother resizing on large tables.
+        if hasattr(self, "setUniformRowHeights"):
+            self.setUniformRowHeights(True)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         
         # Set up the horizontal header
@@ -443,48 +495,55 @@ class DeviceTableView(QTableView):
         header.setStretchLastSection(True)
         header.setSortIndicator(0, Qt.AscendingOrder)
         
-        # Create a filter layout to put above the table
-        self.filter_widget = QWidget()
-        self.filter_layout = QHBoxLayout(self.filter_widget)
-        self.filter_layout.setContentsMargins(5, 5, 5, 5)
+        # Create a responsive filter toolbar above the table to avoid overlap
+        self.filter_widget = ResponsiveToolbar(breakpoint=900)
+        self.filter_widget.setContentsMargins(5, 5, 5, 5)
+        self.filter_widget.setSpacing(6)
         
         # Create a search filter
         self.filter_label = QLabel("Filter:")
-        self.filter_layout.addWidget(self.filter_label)
+        self.filter_widget.addWidget(self.filter_label)
         
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText("Search in all columns...")
         self.filter_edit.textChanged.connect(self.filter_table)
-        self.filter_layout.addWidget(self.filter_edit)
+        self.filter_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.filter_widget.addWidget(self.filter_edit)
         
         # Create a group filter
         self.group_label = QLabel("Group:")
-        self.filter_layout.addWidget(self.group_label)
+        self.filter_widget.addWidget(self.group_label)
         
         self.group_combo = QComboBox()
         self.refresh_group_combo()
         self.group_combo.currentIndexChanged.connect(self.filter_by_group)
-        self.filter_layout.addWidget(self.group_combo)
+        self.group_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.filter_widget.addWidget(self.group_combo)
         
+        # Create a compact, wrapping button group
+        self.button_group = _WrappingButtonGroup()
+
         # Create a button to customize columns
         self.columns_button = QPushButton("Columns")
         self.columns_button.clicked.connect(self.show_column_selector)
-        self.filter_layout.addWidget(self.columns_button)
+        self.button_group.addButton(self.columns_button)
         
         # Create a button for deduplication
         self.deduplicate_button = QPushButton("Deduplicate")
         self.deduplicate_button.setToolTip("Identify and manage duplicate devices based on column values")
         self.deduplicate_button.clicked.connect(self.show_deduplicate_dialog)
-        self.filter_layout.addWidget(self.deduplicate_button)
+        self.button_group.addButton(self.deduplicate_button)
         
         # Add select all/none buttons
         self.select_all_button = QPushButton("Select All")
         self.select_all_button.clicked.connect(self._on_action_select_all)
-        self.filter_layout.addWidget(self.select_all_button)
+        self.button_group.addButton(self.select_all_button)
         
         self.select_none_button = QPushButton("Deselect All")
         self.select_none_button.clicked.connect(self._on_action_deselect_all)
-        self.filter_layout.addWidget(self.select_none_button)
+        self.button_group.addButton(self.select_none_button)
+
+        self.filter_widget.addWidget(self.button_group)
         
         # Connect signals
         self.clicked.connect(self.on_item_clicked)
@@ -496,6 +555,7 @@ class DeviceTableView(QTableView):
         self.device_manager.group_added.connect(self.refresh_group_combo)
         self.device_manager.group_removed.connect(self.refresh_group_combo)
         self.device_manager.group_changed.connect(self.refresh_group_combo)
+        self.device_manager.selection_changed.connect(self.on_manager_selection_changed)
         
         # Register default context menu actions
         self.register_context_menu_action("Add Device", self._on_action_add_device, 10)
@@ -549,6 +609,18 @@ class DeviceTableView(QTableView):
             self.table_model.filter_by_group(None)
         else:
             group = self.group_combo.itemData(index)
+            self.table_model.filter_by_group(group)
+
+    def set_group_filter(self, group):
+        """Set the group filter programmatically"""
+        if group is None:
+            self.group_combo.setCurrentIndex(0)
+            self.table_model.filter_by_group(None)
+            return
+            
+        index = self.group_combo.findText(group.name)
+        if index >= 0:
+            self.group_combo.setCurrentIndex(index)
             self.table_model.filter_by_group(group)
             
     def show_column_selector(self):
@@ -2462,6 +2534,30 @@ class DeviceTableView(QTableView):
         
         # Update the device manager selection without triggering recursive updates
         self._sync_selection_to_device_manager(selected_devices)
+
+    @Slot(list)
+    def on_manager_selection_changed(self, devices):
+        """Sync device manager selection to the table view"""
+        if self._ignore_selection_changes:
+            return
+            
+        self._ignore_selection_changes = True
+        try:
+            self.clearSelection()
+            if not devices:
+                return
+                
+            # Map devices to rows in the proxy model
+            for row in range(self.proxy_model.rowCount()):
+                index = self.proxy_model.index(row, 0)
+                device = index.data(Qt.UserRole)
+                if device and device in devices:
+                    self.selectionModel().select(
+                        index,
+                        QItemSelectionModel.Select | QItemSelectionModel.Rows
+                    )
+        finally:
+            self._ignore_selection_changes = False
         
     def _sync_selection_to_device_manager(self, selected_devices):
         """Sync the UI selection to the device manager

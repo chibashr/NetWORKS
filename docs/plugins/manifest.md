@@ -1,6 +1,6 @@
 # Plugin Manifest
 
-Each NetWORKS plugin must include a manifest file that describes the plugin and its requirements. The manifest can be provided as either a `manifest.json` or a `plugin.json` file in the root directory of the plugin.
+Each NetWORKS plugin must include a manifest file that describes the plugin and its requirements. The manifest can be provided as `manifest.json`, `plugin.json`, or legacy `plugin.yaml` in the root directory of the plugin.
 
 ## Required Fields
 
@@ -31,7 +31,7 @@ The following fields are optional but recommended:
   "name": "Sample Plugin",
   "version": "1.0.0",
   "description": "A sample plugin to demonstrate the plugin system",
-  "author": "NetWORKS Team",
+  "author": "chibashr",
   "entry_point": "sample_plugin.py",
   "min_app_version": "0.2.0",
   "dependencies": [
@@ -63,7 +63,7 @@ The following fields are optional but recommended:
 
 ## Validation
 
-NetWORKS validates plugin manifests against a JSON schema to ensure they contain all required fields and follow the correct format. The schema is available at `docs/plugins/manifest_schema.json`.
+NetWORKS performs lightweight validation of the manifest and plugin structure (required fields, entry point file, and an API.md warning). The JSON schema in `docs/plugins/manifest_schema.json` is a reference for authors, but it is not enforced at runtime.
 
 ## Legacy Support
 
@@ -71,7 +71,7 @@ For backward compatibility, NetWORKS also supports the older `plugin.yaml` forma
 
 ## Plugin Dependencies
 
-The `dependencies` field specifies other plugins that must be enabled for this plugin to function. Each dependency includes:
+The `dependencies` field specifies other plugins that must be enabled for this plugin to function. Dependencies can be a list of plugin IDs or objects that include:
 
 - `id`: The plugin ID of the dependency
 - `version`: The required version range (using npm-style version specifiers)
@@ -80,58 +80,16 @@ The `dependencies` field specifies other plugins that must be enabled for this p
 
 The `requirements` field specifies external dependencies needed by the plugin:
 
-- `python`: A list of Python packages (in pip format) that will be automatically installed
+- `python`: A list of Python packages (in pip format) needed by the plugin
 - `system`: A list of system/OS dependencies that may need to be manually installed
 
 ### Python Requirements
 
-NetWORKS will automatically install Python package requirements when the plugin is enabled and remove them when the plugin is uninstalled, ensuring clean system management.
+NetWORKS checks for missing Python requirements and warns during validation, but it does not install packages automatically. You can also provide a `requirements.txt` in the plugin directory to list additional packages.
 
 ### System Requirements
 
-System requirements are external executables or libraries that must be installed on the operating system (e.g., `nmap`, `git`, `docker`). NetWORKS provides an **automatic installation assistant** for system dependencies:
-
-#### Automatic System Dependency Installation
-
-When you enable a plugin that requires system dependencies, NetWORKS will:
-
-1. **Check Availability**: Automatically check if the required system dependencies are installed and available in your system PATH
-2. **Offer Installation**: If dependencies are missing, show a dialog with platform-specific installation options:
-   - **Windows**: Opens download page for installers (e.g., nmap.org for nmap)
-   - **macOS**: Offers to install via Homebrew (e.g., `brew install nmap`)
-   - **Linux**: Detects your package manager and offers installation (apt, yum, dnf, pacman, zypper)
-3. **Verify Installation**: After installation, automatically re-checks to verify the dependency is now available
-4. **Graceful Degradation**: The plugin will still enable even if dependencies are missing, but features requiring those dependencies will be disabled with helpful messages
-
-#### Supported System Dependencies
-
-Currently, the following system dependencies are automatically detected and can be installed:
-
-- **nmap**: Network scanning tool (used by Network Scanner plugin)
-  - Windows: Opens nmap.org download page
-  - macOS: Runs `brew install nmap`
-  - Linux: Runs appropriate package manager command
-
-Additional system dependencies can be added to the core installer as needed. The system is extensible and can be enhanced to support more dependencies in the future.
-
-#### Example: Network Scanner Plugin
-
-The Network Scanner plugin requires `nmap` as a system dependency. When you enable it:
-
-1. NetWORKS checks if `nmap` is installed
-2. If missing, shows an installation dialog with platform-specific options
-3. After installation, verifies `nmap` is available
-4. Plugin enables successfully with full functionality
-
-#### Manual Installation
-
-You can always install system dependencies manually if you prefer:
-
-- **Windows**: Download and install from the official website
-- **macOS**: Use Homebrew: `brew install <package>`
-- **Linux**: Use your distribution's package manager: `sudo apt install <package>` (or equivalent)
-
-After manual installation, restart NetWORKS for the changes to take effect.
+System requirements are external executables or libraries that must be installed on the operating system (e.g., `nmap`, `git`, `docker`). NetWORKS records these for visibility and warns if they are missing, but installation is handled manually.
 
 ## Changelog
 

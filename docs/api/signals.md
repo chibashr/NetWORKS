@@ -173,7 +173,9 @@ def on_context_menu_requested(self, devices, menu):
 ### Device Tree View Signals
 
 ```python
-device_double_clicked: Signal(object) # Emitted when a device is double-clicked
+device_double_clicked: Signal(object)     # Emitted when a device is double-clicked
+group_selection_changed: Signal(list)     # Emitted when group selection changes
+group_filter_requested: Signal(object)    # Emitted when a group filter is requested
 ```
 
 ## Plugin Signals

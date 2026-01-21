@@ -6,7 +6,7 @@ Device tree model and view for NetWORKS
 """
 
 from loguru import logger
-from PySide6.QtCore import Qt, QAbstractItemModel, QModelIndex, Signal, Slot
+from PySide6.QtCore import Qt, QAbstractItemModel, QModelIndex, Signal, Slot, QSortFilterProxyModel, QTimer, QSize, QMimeData, QSettings, QItemSelectionModel
 from PySide6.QtWidgets import (QTreeView, QAbstractItemView, QMenu, QWidget,
                               QDialog, QVBoxLayout, QHBoxLayout, QTabWidget,
                               QFileDialog, QLabel, QPushButton, QTextEdit,
@@ -14,10 +14,12 @@ from PySide6.QtWidgets import (QTreeView, QAbstractItemView, QMenu, QWidget,
                               QHeaderView, QLineEdit, QFormLayout, QGroupBox,
                               QCheckBox, QWizard, QWizardPage, QMessageBox,
                               QDialogButtonBox, QInputDialog, QApplication,
-                              QButtonGroup, QRadioButton, QPlainTextEdit)
-from PySide6.QtGui import QIcon, QFont, QColor, QBrush
+                              QButtonGroup, QRadioButton, QPlainTextEdit,
+                              QToolButton, QDockWidget, QSizePolicy, QStyle)
+from PySide6.QtGui import QIcon, QFont, QColor, QBrush, QPainter, QPixmap
 from ..core.device_manager import Device
 import os
+import json
 
 # Try to import optional dependencies for icons
 try:
@@ -38,6 +40,8 @@ class DeviceTreeItem:
         self.child_items = []
         self.device = device
         self.group = group
+        self.device_ip = ""
+        self.group_device_count = 0
         
     def appendChild(self, item):
         """Add a child to this item"""
@@ -110,6 +114,9 @@ class DeviceTreeModel(QAbstractItemModel):
         super().__init__()
         
         self.device_manager = device_manager
+        self._device_items = {}
+        self._group_items = {}
+        self._status_icon_cache = {}
         
         # Create root item
         self.root_item = DeviceTreeItem(["Name", "ID"])
@@ -140,6 +147,8 @@ class DeviceTreeModel(QAbstractItemModel):
         """Reset the model data without reset signals"""
         # Clear existing structure
         self.root_item.removeAllChildren()
+        self._device_items = {}
+        self._group_items = {}
         
         # Add root group (All Devices)
         root_group = self.device_manager.root_group
@@ -148,7 +157,9 @@ class DeviceTreeModel(QAbstractItemModel):
     def add_group(self, group, parent_item):
         """Add a group to the tree"""
         group_item = DeviceTreeItem([group.name, ""], parent_item, group=group)
+        group_item.group_device_count = self._get_unique_device_count(group)
         parent_item.appendChild(group_item)
+        self._group_items[group.name] = group_item
         
         # Add devices in this group
         for device in group.devices:
@@ -164,13 +175,58 @@ class DeviceTreeModel(QAbstractItemModel):
         """Add a device to the tree"""
         # Display alias/hostname/IP in priority order
         display_name = device.get_property("alias", "") or device.get_property("hostname", "") or device.get_property("ip_address", "") or "Unnamed Device"
+        ip_address = device.get_property("ip_address", "")
+        if ip_address and display_name != ip_address:
+            display_name = f"{display_name} [{ip_address}]"
         device_item = DeviceTreeItem(
             [display_name, device.id],
             parent_item,
             device=device
         )
+        device_item.device_ip = ip_address
         parent_item.appendChild(device_item)
+        self._device_items.setdefault(device.id, []).append(device_item)
         return device_item
+
+    def _get_unique_device_count(self, group):
+        """Get a unique device count for a group including subgroups"""
+        device_ids = set()
+        for device in group.get_all_devices():
+            device_ids.add(device.id)
+        return len(device_ids)
+
+    def _status_icon(self, status):
+        """Return a cached status icon for the given status"""
+        if status in self._status_icon_cache:
+            return self._status_icon_cache[status]
+            
+        color_map = {
+            "online": QColor(46, 204, 113),
+            "up": QColor(46, 204, 113),
+            "active": QColor(46, 204, 113),
+            "offline": QColor(231, 76, 60),
+            "down": QColor(231, 76, 60),
+            "error": QColor(231, 76, 60),
+            "warning": QColor(241, 196, 15),
+            "degraded": QColor(241, 196, 15),
+            "unknown": QColor(149, 165, 166),
+        }
+        
+        color = color_map.get(status, QColor(149, 165, 166))
+        size = 10
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.transparent)
+        
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setBrush(color)
+        painter.setPen(Qt.NoPen)
+        painter.drawEllipse(1, 1, size - 2, size - 2)
+        painter.end()
+        
+        icon = QIcon(pixmap)
+        self._status_icon_cache[status] = icon
+        return icon
         
     def index(self, row, column, parent=QModelIndex()):
         """Create an index for an item"""
@@ -219,6 +275,9 @@ class DeviceTreeModel(QAbstractItemModel):
         item = self.get_item(index)
         
         if role == Qt.DisplayRole:
+            if item.group and index.column() == 0:
+                count = item.group_device_count or self._get_unique_device_count(item.group)
+                return f"{item.group.name} ({count})"
             return item.data(index.column())
         elif role == Qt.UserRole:
             # Return the device or group object
@@ -228,10 +287,26 @@ class DeviceTreeModel(QAbstractItemModel):
             font = QFont()
             font.setBold(True)
             return font
+        elif role == Qt.DecorationRole and item.device and index.column() == 0:
+            status = (item.device.get_property("status", "unknown") or "unknown").lower()
+            return self._status_icon(status)
         elif role == Qt.BackgroundRole and item.device:
             # Highlight selected devices
             if item.device in self.device_manager.get_selected_devices():
                 return QBrush(QColor(240, 248, 255))  # Light blue
+        elif role == Qt.ToolTipRole:
+            if item.group:
+                return item.group.description or f"Group: {item.group.name}"
+            if item.device:
+                alias = item.device.get_property("alias", "Unnamed Device")
+                ip_address = item.device.get_property("ip_address", "")
+                status = item.device.get_property("status", "unknown")
+                details = [alias]
+                if ip_address:
+                    details.append(f"IP: {ip_address}")
+                if status:
+                    details.append(f"Status: {status}")
+                return " | ".join(details)
                 
         return None
         
@@ -240,6 +315,28 @@ class DeviceTreeModel(QAbstractItemModel):
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
             return self.root_item.data(section)
         return None
+
+    def setData(self, index, value, role=Qt.EditRole):
+        """Update data for inline edits"""
+        if role != Qt.EditRole or not index.isValid():
+            return False
+            
+        item = self.get_item(index)
+        if item.group and index.column() == 0:
+            new_name = str(value).strip()
+            if not new_name:
+                return False
+                
+            old_name = item.group.name
+            if self.device_manager.rename_group(item.group, new_name):
+                # Update group item mapping
+                if old_name in self._group_items:
+                    del self._group_items[old_name]
+                self._group_items[item.group.name] = item
+                item.item_data[0] = item.group.name
+                self.dataChanged.emit(index, index)
+                return True
+        return False
         
     def flags(self, index):
         """Get flags for an index"""
@@ -247,12 +344,109 @@ class DeviceTreeModel(QAbstractItemModel):
             return Qt.NoItemFlags
             
         item = self.get_item(index)
-        
-        # Groups are not selectable
         if item.group:
-            return Qt.ItemIsEnabled
+            return (
+                Qt.ItemIsEnabled
+                | Qt.ItemIsSelectable
+                | Qt.ItemIsEditable
+                | Qt.ItemIsDropEnabled
+            )
             
-        return Qt.ItemIsEnabled | Qt.ItemIsSelectable
+        return Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled
+
+    def mimeTypes(self):
+        """Supported MIME types for drag and drop"""
+        return ["application/x-networks-tree-item"]
+
+    def mimeData(self, indexes):
+        """Create MIME data for dragged items"""
+        mime_data = QMimeData()
+        items = []
+        
+        for index in indexes:
+            if not index.isValid() or index.column() != 0:
+                continue
+            item = self.get_item(index)
+            if item.device:
+                source_group = item.parent_item.group if item.parent_item else None
+                items.append({
+                    "type": "device",
+                    "id": item.device.id,
+                    "source_group": source_group.name if source_group else None
+                })
+            elif item.group and item.group != self.device_manager.root_group:
+                items.append({
+                    "type": "group",
+                    "name": item.group.name
+                })
+        
+        if items:
+            payload = json.dumps(items)
+            mime_data.setData("application/x-networks-tree-item", payload.encode("utf-8"))
+        
+        return mime_data
+
+    def supportedDropActions(self):
+        """Supported drop actions"""
+        return Qt.MoveAction | Qt.CopyAction
+
+    def canDropMimeData(self, data, action, row, column, parent):
+        """Validate drop targets"""
+        if not data.hasFormat("application/x-networks-tree-item"):
+            return False
+            
+        if not parent.isValid():
+            # Allow dropping on the root to move groups to root
+            return True
+            
+        parent_item = self.get_item(parent)
+        if parent_item.group:
+            return True
+            
+        return False
+
+    def dropMimeData(self, data, action, row, column, parent):
+        """Handle dropped items to move devices or groups"""
+        if not data.hasFormat("application/x-networks-tree-item"):
+            return False
+            
+        payload = data.data("application/x-networks-tree-item").data().decode("utf-8")
+        try:
+            items = json.loads(payload)
+        except json.JSONDecodeError:
+            return False
+            
+        target_group = None
+        if parent.isValid():
+            parent_item = self.get_item(parent)
+            target_group = parent_item.group
+        else:
+            target_group = self.device_manager.root_group
+            
+        changed = False
+        
+        for item in items:
+            if item.get("type") == "device":
+                device = self.device_manager.get_device(item.get("id"))
+                if not device or not target_group:
+                    continue
+                    
+                source_group_name = item.get("source_group")
+                source_group = self.device_manager.get_group(source_group_name) if source_group_name else None
+                
+                if source_group and source_group != self.device_manager.root_group and source_group != target_group:
+                    self.device_manager.remove_device_from_group(device, source_group)
+                    
+                if target_group != self.device_manager.root_group:
+                    self.device_manager.add_device_to_group(device, target_group)
+                    changed = True
+            elif item.get("type") == "group":
+                group = self.device_manager.get_group(item.get("name"))
+                if group and target_group and group != target_group:
+                    if self.device_manager.move_group(group, target_group):
+                        changed = True
+        
+        return changed
         
     def get_item(self, index):
         """Get item for an index"""
@@ -262,6 +456,14 @@ class DeviceTreeModel(QAbstractItemModel):
                 return item
                 
         return self.root_item
+
+    def get_group_item(self, group_name):
+        """Get the tree item for a group name"""
+        return self._group_items.get(group_name)
+
+    def get_device_items(self, device_id):
+        """Get all tree items for a device ID"""
+        return self._device_items.get(device_id, [])
         
     @Slot(object)
     def on_device_added(self, device):
@@ -301,7 +503,11 @@ class DeviceTreeModel(QAbstractItemModel):
             if child.device and child.device.id == device.id:
                 # Update the display name in the data array
                 display_name = device.get_property("alias", "") or device.get_property("hostname", "") or device.get_property("ip_address", "") or "Unnamed Device"
+                ip_address = device.get_property("ip_address", "")
+                if ip_address and display_name != ip_address:
+                    display_name = f"{display_name} [{ip_address}]"
                 child.item_data[0] = display_name
+                child.device_ip = ip_address
                 
                 # Get the model index for this item
                 row = child.row()
@@ -340,41 +546,296 @@ class DeviceTreeModel(QAbstractItemModel):
         self.endResetModel()
 
 
+class DeviceTreeFilterProxyModel(QSortFilterProxyModel):
+    """Filter proxy for the device tree"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._filter_text = ""
+        self.setFilterCaseSensitivity(Qt.CaseInsensitive)
+        self.setFilterKeyColumn(0)
+        
+    def set_filter_text(self, text):
+        self._filter_text = (text or "").strip()
+        self.invalidateFilter()
+        
+    def filterAcceptsRow(self, source_row, source_parent):
+        if not self._filter_text:
+            return True
+            
+        model = self.sourceModel()
+        index = model.index(source_row, 0, source_parent)
+        if not index.isValid():
+            return False
+            
+        if self._row_matches(index):
+            return True
+            
+        # Keep parents if any child matches
+        child_count = model.rowCount(index)
+        for row in range(child_count):
+            if self.filterAcceptsRow(row, index):
+                return True
+                
+        return False
+        
+    def _row_matches(self, index):
+        text = index.data(Qt.DisplayRole) or ""
+        if self._filter_text.lower() in str(text).lower():
+            return True
+            
+        item = index.data(Qt.UserRole)
+        if hasattr(item, "name"):
+            return self._filter_text.lower() in item.name.lower()
+        if hasattr(item, "get_property"):
+            alias = item.get_property("alias", "")
+            hostname = item.get_property("hostname", "")
+            ip_address = item.get_property("ip_address", "")
+            haystack = " ".join([alias, hostname, ip_address]).lower()
+            return self._filter_text.lower() in haystack
+            
+        return False
+
+
 class DeviceTreeView(QTreeView):
     """Custom tree view for devices"""
     
     device_double_clicked = Signal(object)
+    group_selection_changed = Signal(list)
+    group_filter_requested = Signal(object)
     
     def __init__(self, device_manager):
         """Initialize the view"""
         super().__init__()
         
         self.device_manager = device_manager
+        self._proxy_model = None
+        self._source_model = None
+        self._ignore_selection_sync = False
+        self._filter_table_on_group_select = False
+        self._compact_mode = False
+        self._pending_state = None
         
         # Configure view
         self.setHeaderHidden(True)
-        self.setExpandsOnDoubleClick(True)
+        self.setExpandsOnDoubleClick(False)
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+        self.setDragDropMode(QAbstractItemView.DragDrop)
+        self.setEditTriggers(QAbstractItemView.EditKeyPressed)
         
         # Connect signals
         self.clicked.connect(self.on_item_clicked)
         self.doubleClicked.connect(self.on_item_double_clicked)
         self.customContextMenuRequested.connect(self.on_context_menu)
+        self.device_manager.selection_changed.connect(self.on_manager_selection_changed)
         
         # Expand root item
         self.expandToDepth(0)
+
+    def setModel(self, model):
+        """Track proxy/source models for filtering and selection sync"""
+        self._proxy_model = None
+        self._source_model = None
+        
+        if isinstance(model, QSortFilterProxyModel):
+            self._proxy_model = model
+            self._source_model = model.sourceModel()
+        else:
+            self._source_model = model
+            
+        super().setModel(model)
+        
+        # Connect model reset signals for state preservation
+        if self._source_model:
+            self._source_model.modelAboutToBeReset.connect(self._capture_view_state)
+            self._source_model.modelReset.connect(self._restore_view_state_from_capture)
         
     def refresh(self):
         """Refresh the device tree view to reflect current data"""
         # Get the model and reset its data
-        model = self.model()
+        model = self._source_model or self.model()
+        self._capture_view_state()
         if model and hasattr(model, 'setup_model_data'):
             model.setup_model_data()
-        # Clear any selection
-        self.clearSelection()
-        # Re-expand root item
-        self.expandToDepth(0)
+
+    def set_filter_table_on_group_select(self, enabled):
+        """Toggle filtering the device table when selecting a group"""
+        self._filter_table_on_group_select = bool(enabled)
+
+    def set_compact_mode(self, enabled):
+        """Toggle compact layout for the tree"""
+        self._compact_mode = bool(enabled)
+        if self._compact_mode:
+            self.setIndentation(12)
+            self.setIconSize(QSize(10, 10))
+            self.setStyleSheet("QTreeView::item { padding: 1px 2px; }")
+        else:
+            self.setIndentation(20)
+            self.setIconSize(QSize(14, 14))
+            self.setStyleSheet("")
+
+    def _capture_view_state(self):
+        """Capture current expanded and selection state"""
+        if not self._source_model:
+            return
+            
+        expanded_groups = []
+        selected_groups = []
+        selected_devices = []
+        
+        def walk(item):
+            for child in item.child_items:
+                if child.group:
+                    index = self._index_for_item(child)
+                    if index.isValid() and self.isExpanded(index):
+                        expanded_groups.append(child.group.name)
+                if child.device and self.selectionModel():
+                    index = self._index_for_item(child)
+                    if index.isValid() and self.selectionModel().isSelected(index):
+                        selected_devices.append(child.device.id)
+                if child.group:
+                    walk(child)
+                    
+        walk(self._source_model.root_item)
+        
+        # Capture group selection separately
+        if self.selectionModel():
+            for index in self.selectionModel().selectedRows():
+                item = index.data(Qt.UserRole)
+                if hasattr(item, "name"):
+                    selected_groups.append(item.name)
+        
+        self._pending_state = {
+            "expanded_groups": expanded_groups,
+            "selected_devices": selected_devices,
+            "selected_groups": selected_groups,
+        }
+
+    def _restore_view_state_from_capture(self):
+        """Restore view state after a model reset"""
+        if not self._pending_state:
+            self.restore_state()
+            return
+            
+        state = self._pending_state
+        self._pending_state = None
+        self._apply_view_state(state)
+
+    def save_state(self):
+        """Persist tree state for the current workspace"""
+        state = self._build_view_state()
+        settings = self._get_workspace_settings()
+        settings.setValue("expanded_groups", state.get("expanded_groups", []))
+        settings.setValue("selected_devices", state.get("selected_devices", []))
+        settings.setValue("selected_groups", state.get("selected_groups", []))
+        settings.setValue("compact_mode", self._compact_mode)
+        settings.setValue("filter_table_on_group_select", self._filter_table_on_group_select)
+
+    def restore_state(self):
+        """Restore tree state for the current workspace"""
+        settings = self._get_workspace_settings()
+        expanded_groups = settings.value("expanded_groups", [])
+        selected_devices = settings.value("selected_devices", [])
+        selected_groups = settings.value("selected_groups", [])
+        
+        # Handle None values from QSettings (can happen if setting doesn't exist)
+        if expanded_groups is None:
+            expanded_groups = []
+        if selected_devices is None:
+            selected_devices = []
+        if selected_groups is None:
+            selected_groups = []
+        
+        if isinstance(expanded_groups, str):
+            expanded_groups = [expanded_groups]
+        if isinstance(selected_devices, str):
+            selected_devices = [selected_devices]
+        if isinstance(selected_groups, str):
+            selected_groups = [selected_groups]
+        
+        self.set_compact_mode(settings.value("compact_mode", False, type=bool))
+        self.set_filter_table_on_group_select(
+            settings.value("filter_table_on_group_select", False, type=bool)
+        )
+        
+        self._apply_view_state({
+            "expanded_groups": expanded_groups,
+            "selected_devices": selected_devices,
+            "selected_groups": selected_groups,
+        })
+
+    def _build_view_state(self):
+        """Build a state snapshot without persisting it"""
+        self._capture_view_state()
+        state = self._pending_state or {}
+        self._pending_state = None
+        return state
+
+    def _apply_view_state(self, state):
+        """Apply expanded and selected state"""
+        if not self._source_model:
+            return
+        
+        # Ensure state is a dictionary
+        if not isinstance(state, dict):
+            return
+            
+        self._ignore_selection_sync = True
+        try:
+            self.clearSelection()
+            
+            # Restore expansions - handle None values defensively
+            expanded_groups = state.get("expanded_groups", []) or []
+            for group_name in expanded_groups:
+                item = self._source_model.get_group_item(group_name)
+                if item:
+                    index = self._index_for_item(item)
+                    if index.isValid():
+                        self.expand(index)
+            
+            # Restore device selections - handle None values defensively
+            selection = self.selectionModel()
+            if selection:
+                selected_devices = state.get("selected_devices", []) or []
+                for device_id in selected_devices:
+                    for item in self._source_model.get_device_items(device_id):
+                        index = self._index_for_item(item)
+                        if index.isValid():
+                            selection.select(index, QItemSelectionModel.Select | QItemSelectionModel.Rows)
+                            
+            # Restore group selections if no devices selected - handle None values defensively
+            if selection and not selection.selectedRows():
+                selected_groups = state.get("selected_groups", []) or []
+                for group_name in selected_groups:
+                    item = self._source_model.get_group_item(group_name)
+                    if item:
+                        index = self._index_for_item(item)
+                        if index.isValid():
+                            selection.select(index, QItemSelectionModel.Select | QItemSelectionModel.Rows)
+        finally:
+            self._ignore_selection_sync = False
+
+    def _index_for_item(self, item):
+        """Return the proxy index for a given source item"""
+        if not self._source_model or not item:
+            return QModelIndex()
+            
+        source_index = self._source_model.createIndex(item.row(), 0, item)
+        if self._proxy_model:
+            return self._proxy_model.mapFromSource(source_index)
+        return source_index
+
+    def _get_workspace_settings(self):
+        """Get QSettings for the current workspace device tree state"""
+        workspace_name = self.device_manager.current_workspace
+        workspace_dir = os.path.join(self.device_manager.workspaces_dir, workspace_name)
+        settings_dir = os.path.join(workspace_dir, "settings")
+        os.makedirs(settings_dir, exist_ok=True)
+        return QSettings(os.path.join(settings_dir, "device_tree.ini"), QSettings.IniFormat)
         
     def on_item_clicked(self, index):
         """Handle item clicked"""
@@ -391,23 +852,51 @@ class DeviceTreeView(QTreeView):
         if not selected_indexes:
             return
             
-        # Get selected devices
+        # Get selected devices and groups
         selected_devices = []
+        selected_groups = []
         for idx in selected_indexes:
             item = idx.data(Qt.UserRole)
             if hasattr(item, 'id'):  # It's a device
                 selected_devices.append(item)
+            elif hasattr(item, 'name'):  # It's a group
+                selected_groups.append(item)
                 
-        # Update device selection
         if selected_devices:
+            # Update device selection
             modifiers = QApplication.keyboardModifiers()
             exclusive = modifiers != Qt.ControlModifier
             
-            if exclusive:
-                self.device_manager.clear_selection()
+            self._ignore_selection_sync = True
+            try:
+                if exclusive:
+                    self.device_manager.clear_selection()
+                    
+                for device in selected_devices:
+                    self.device_manager.select_device(device, exclusive=False)
+            finally:
+                self._ignore_selection_sync = False
                 
-            for device in selected_devices:
-                self.device_manager.select_device(device, exclusive=False)
+            self.group_selection_changed.emit([])
+        elif selected_groups:
+            # Expand selected groups on click
+            for idx in selected_indexes:
+                item = idx.data(Qt.UserRole)
+                if hasattr(item, 'name') and not self.isExpanded(idx):
+                    self.expand(idx)
+                    
+            self._ignore_selection_sync = True
+            try:
+                self.device_manager.clear_selection()
+            finally:
+                self._ignore_selection_sync = False
+                
+            self.group_selection_changed.emit(selected_groups)
+            if self._filter_table_on_group_select:
+                if len(selected_groups) == 1:
+                    self.group_filter_requested.emit(selected_groups[0])
+                else:
+                    self.group_filter_requested.emit(None)
             
     def on_item_double_clicked(self, index):
         """Handle item double clicked"""
@@ -419,7 +908,28 @@ class DeviceTreeView(QTreeView):
         if hasattr(item, 'id'):  # It's a device
             self.device_double_clicked.emit(item)
         else:  # It's a group
-            self._show_group_manager_dialog(item)
+            self.edit(index)
+
+    @Slot(list)
+    def on_manager_selection_changed(self, devices):
+        """Sync device manager selection back into the tree view"""
+        if self._ignore_selection_sync or not self._source_model:
+            return
+            
+        selection = self.selectionModel()
+        if not selection:
+            return
+            
+        self._ignore_selection_sync = True
+        try:
+            self.clearSelection()
+            for device in devices:
+                for item in self._source_model.get_device_items(device.id):
+                    index = self._index_for_item(item)
+                    if index.isValid():
+                        selection.select(index, QItemSelectionModel.Select | QItemSelectionModel.Rows)
+        finally:
+            self._ignore_selection_sync = False
             
     def on_context_menu(self, position):
         """Handle context menu request"""
@@ -434,6 +944,23 @@ class DeviceTreeView(QTreeView):
             if hasattr(item, 'id'):  # It's a device
                 # Device context menu
                 action_properties = menu.addAction("Properties")
+                menu.addSeparator()
+                
+                # Add-to-group submenu
+                add_to_group_menu = menu.addMenu("Add to Group")
+                self._populate_group_menu(add_to_group_menu, item, add_only=True)
+                
+                # Move-to-group submenu
+                move_to_group_menu = menu.addMenu("Move to Group")
+                self._populate_group_menu(move_to_group_menu, item, add_only=False, source_index=index)
+                
+                # Remove from current group
+                parent_item = index.parent().data(Qt.UserRole)
+                action_remove_from_group = None
+                if hasattr(parent_item, "name") and parent_item != self.device_manager.root_group:
+                    action_remove_from_group = menu.addAction(f"Remove from '{parent_item.name}'")
+                
+                menu.addSeparator()
                 action_delete = menu.addAction("Delete")
                 
                 # Show menu and handle result
@@ -443,22 +970,38 @@ class DeviceTreeView(QTreeView):
                     self.device_double_clicked.emit(item)
                 elif action == action_delete:
                     self.device_manager.remove_device(item)
+                elif action_remove_from_group and action == action_remove_from_group:
+                    parent_group = parent_item
+                    if parent_group and parent_group != self.device_manager.root_group:
+                        self.device_manager.remove_device_from_group(item, parent_group)
                     
             else:  # It's a group
                 # Group context menu
+                action_rename = menu.addAction("Rename")
+                action_manage = menu.addAction("Manage Group...")
+                menu.addSeparator()
                 action_new_device = menu.addAction("New Device")
-                action_new_group = menu.addAction("New Group")
+                action_new_group = menu.addAction("New Subgroup")
+                menu.addSeparator()
+                action_filter_group = menu.addAction("Filter Table by This Group")
+                menu.addSeparator()
                 action_delete = menu.addAction("Delete Group")
                 
                 # Show menu and handle result
                 action = menu.exec_(self.viewport().mapToGlobal(position))
                 
-                if action == action_new_device:
+                if action == action_rename:
+                    self.edit(index)
+                elif action == action_manage:
+                    self._show_group_manager_dialog(item)
+                elif action == action_new_device:
                     device = Device(name="New Device")
                     self.device_manager.add_device(device)
                     self.device_manager.add_device_to_group(device, item)
                 elif action == action_new_group:
                     self.device_manager.create_group("New Group", parent_group=item)
+                elif action == action_filter_group:
+                    self.group_filter_requested.emit(item)
                 elif action == action_delete:
                     self.device_manager.remove_group(item)
         else:
@@ -473,6 +1016,32 @@ class DeviceTreeView(QTreeView):
                 self.device_manager.create_group("New Group")
             elif action == action_import_devices:
                 self._show_import_dialog()
+
+    def _populate_group_menu(self, menu, device, add_only=True, source_index=None):
+        """Populate a group submenu for a device"""
+        groups = [g for g in self.device_manager.get_groups() if g != self.device_manager.root_group]
+        if not groups:
+            action = menu.addAction("No Groups Available")
+            action.setEnabled(False)
+            return
+            
+        source_group = None
+        if source_index:
+            source_group = source_index.parent().data(Qt.UserRole)
+            
+        for group in groups:
+            action = menu.addAction(group.name)
+            
+            def on_triggered(checked=False, target_group=group):
+                if add_only:
+                    self.device_manager.add_device_to_group(device, target_group)
+                    return
+                    
+                if source_group and source_group != self.device_manager.root_group and source_group != target_group:
+                    self.device_manager.remove_device_from_group(device, source_group)
+                self.device_manager.add_device_to_group(device, target_group)
+                
+            action.triggered.connect(on_triggered)
 
     def _show_import_dialog(self):
         """Show dialog for importing devices"""
@@ -856,3 +1425,123 @@ class DeviceTreeView(QTreeView):
                 
             # Notify of changes
             self.device_manager.group_changed.emit(group)
+
+
+class DeviceTreePanel(QWidget):
+    """Panel combining tree controls and the device tree view"""
+    
+    def __init__(self, device_manager, parent=None):
+        super().__init__(parent)
+        self.device_manager = device_manager
+        self.setMinimumWidth(240)
+        
+        self.model = DeviceTreeModel(self.device_manager)
+        self.proxy_model = DeviceTreeFilterProxyModel()
+        self.proxy_model.setSourceModel(self.model)
+        
+        self.view = DeviceTreeView(self.device_manager)
+        self.view.setModel(self.proxy_model)
+        
+        self._create_ui()
+        self.restore_state()
+        
+    def _create_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
+        
+        # Search row
+        search_layout = QHBoxLayout()
+        search_label = QLabel("Search:")
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Search groups or devices...")
+        clear_button = QToolButton()
+        clear_button.setAutoRaise(True)
+        clear_button.setIcon(self.style().standardIcon(QStyle.SP_DialogResetButton))
+        clear_button.setToolTip("Clear search text")
+        clear_button.clicked.connect(self._clear_search)
+        
+        search_layout.addWidget(search_label)
+        search_layout.addWidget(self.search_edit, 1)
+        search_layout.addWidget(clear_button)
+        
+        # Toolbar row
+        toolbar_layout = QHBoxLayout()
+        self.compact_toggle = QCheckBox("Compact")
+        self.filter_toggle = QCheckBox("Filter Table")
+        expand_button = QToolButton()
+        expand_button.setAutoRaise(True)
+        expand_button.setIcon(self.style().standardIcon(QStyle.SP_ArrowDown))
+        expand_button.setToolTip("Expand all groups")
+        collapse_button = QToolButton()
+        collapse_button.setAutoRaise(True)
+        collapse_button.setIcon(self.style().standardIcon(QStyle.SP_ArrowUp))
+        collapse_button.setToolTip("Collapse all groups")
+        
+        width_button = QToolButton()
+        width_button.setAutoRaise(True)
+        width_button.setIcon(self.style().standardIcon(QStyle.SP_TitleBarMaxButton))
+        width_button.setToolTip("Set a width preset for the device tree")
+        width_button.setPopupMode(QToolButton.InstantPopup)
+        width_menu = QMenu(self)
+        width_menu.addAction("Narrow", lambda: self._apply_width_preset(260))
+        width_menu.addAction("Medium", lambda: self._apply_width_preset(320))
+        width_menu.addAction("Wide", lambda: self._apply_width_preset(420))
+        width_button.setMenu(width_menu)
+        
+        toolbar_layout.addWidget(self.compact_toggle)
+        toolbar_layout.addWidget(self.filter_toggle)
+        toolbar_layout.addWidget(expand_button)
+        toolbar_layout.addWidget(collapse_button)
+        toolbar_layout.addWidget(width_button)
+        toolbar_layout.addStretch(1)
+        
+        layout.addLayout(search_layout)
+        layout.addLayout(toolbar_layout)
+        layout.addWidget(self.view, 1)
+        
+        # Wire up actions
+        self.search_edit.textChanged.connect(self.proxy_model.set_filter_text)
+        self.compact_toggle.toggled.connect(self.view.set_compact_mode)
+        self.filter_toggle.toggled.connect(self.view.set_filter_table_on_group_select)
+        expand_button.clicked.connect(self.view.expandAll)
+        collapse_button.clicked.connect(self.view.collapseAll)
+        
+    def _clear_search(self):
+        self.search_edit.clear()
+        
+    def _apply_width_preset(self, width):
+        dock = self._find_dock_widget()
+        if dock:
+            dock.setMinimumWidth(width)
+            dock.resize(width, dock.height())
+            self._save_width_preset(width)
+        
+    def _find_dock_widget(self):
+        parent = self.parentWidget()
+        while parent:
+            if isinstance(parent, QDockWidget):
+                return parent
+            parent = parent.parentWidget()
+        return None
+        
+    def _save_width_preset(self, width):
+        settings = self.view._get_workspace_settings()
+        settings.setValue("width_preset", width)
+        
+    def restore_state(self):
+        """Restore UI state from workspace settings"""
+        self.view.restore_state()
+        self.compact_toggle.setChecked(self.view._compact_mode)
+        self.filter_toggle.setChecked(self.view._filter_table_on_group_select)
+        settings = self.view._get_workspace_settings()
+        preset = settings.value("width_preset", None)
+        if preset:
+            try:
+                self._apply_width_preset(int(preset))
+            except (TypeError, ValueError):
+                pass
+        
+    def save_state(self):
+        """Persist UI state to workspace settings"""
+        self.view.save_state()

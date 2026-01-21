@@ -7,7 +7,7 @@ Welcome to NetWORKS, an extensible device management platform. This guide will h
 When you first launch NetWORKS, you'll see the main application window with the following components:
 
 1. **Toolbar**: Quick access to common actions
-2. **Device Tree** (left panel): Hierarchical view of devices and groups
+2. **Device Tree** (left panel): Hierarchical view of devices and groups with search and quick actions
 3. **Device Table** (center): List of devices with their properties
 4. **Properties Panel** (right panel): Details of selected devices
 5. **Log Panel** (bottom panel): Activity log
@@ -25,8 +25,15 @@ When you first launch NetWORKS, you'll see the main application window with the 
 ### Managing Groups
 
 - **Create a Group**: Click "New Group" in the toolbar or File menu
+- **Rename a Group**: Select the group and press F2 or use "Rename" from the context menu
 - **Add Devices to Group**: Drag devices to a group in the tree, or use the context menu
 - **Remove from Group**: Use the context menu on a device in a group
+
+### Navigating the Device Tree
+
+- **Search**: Use the search box to filter devices and groups
+- **Expand/Collapse**: Use the expand/collapse buttons for quick navigation
+- **Compact Mode**: Toggle compact mode to fit more items in the list
 
 ### Saving and Loading
 

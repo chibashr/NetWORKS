@@ -7,6 +7,7 @@ This document provides detailed information about the UI components of NetWORKS 
 - [Main Window](#main-window)
 - [Device Table](#device-table)
 - [Device Tree](#device-tree)
+- [Log Panel](#log-panel)
 - [UI Extension Points](#ui-extension-points)
 
 ## Main Window
@@ -41,6 +42,19 @@ class MainWindow:
     def remove_plugin_ui_components(self, plugin_info)  # Remove UI components from a plugin
 ```
 
+### Layout Persistence
+
+`MainWindow` persists its dock layout and geometry in two places:
+
+- Per-workspace layout is saved to `workspaces/<workspace>/settings/window_layout.ini` when closing or switching workspaces, and restored first when the workspace loads.
+- Application-wide layout is used as a fallback when no workspace-specific layout exists.
+
+This keeps dock positions, visibility, and sizes consistent within each workspace.
+
+### Properties Panel Responsiveness
+
+The Properties panel toolbar in the Details tab uses a responsive wrapper that keeps the layout horizontal at normal widths, and stacks the filter and export controls vertically when the panel is narrow. This prevents overlapping controls while preserving the standard look at typical sizes.
+
 ## Device Table
 
 The `DeviceTableModel` and `DeviceTableView` classes provide the device table functionality.
@@ -59,15 +73,26 @@ class DeviceTableView:
     double_clicked: Signal(object)      # Emitted when a device is double-clicked
 ```
 
+The device table view uses uniform row heights, when supported by the Qt binding, to improve resize performance on large datasets.
+
+The device table filter controls are wrapped in a responsive container. When the main window is narrow, the filter and action buttons stack vertically instead of overlapping.
+
 ## Device Tree
 
-The `DeviceTreeModel` and `DeviceTreeView` classes provide the device tree functionality.
+The device tree uses `DeviceTreeModel`, `DeviceTreeView`, and `DeviceTreePanel`.
+`DeviceTreePanel` wraps the view with search, compact mode, and filter controls.
 
 ```python
 class DeviceTreeView:
     # Signals
-    device_double_clicked: Signal(object)  # Emitted when a device is double-clicked
+    device_double_clicked: Signal(object)     # Emitted when a device is double-clicked
+    group_selection_changed: Signal(list)    # Emitted when group selection changes
+    group_filter_requested: Signal(object)   # Emitted when table filter is requested
 ```
+
+## Log Panel
+
+The log panel control row uses a responsive container to keep filters and buttons readable on narrow windows. When width is constrained, the control groups stack vertically to avoid overlapping the log content.
 
 ## UI Extension Points
 

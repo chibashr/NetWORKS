@@ -8,7 +8,7 @@ Main window for NetWORKS
 import os
 from loguru import logger
 from PySide6.QtWidgets import (
-    QMainWindow, QDockWidget, QToolBar, QStatusBar, QMenuBar, QMenu, 
+    QMainWindow, QDockWidget, QToolBar, QStatusBar, QMenuBar, QMenu,
     QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTreeView, QFrame, QLabel, QToolButton, QPushButton, QTableView,
     QHeaderView, QAbstractItemView, QSizePolicy, QInputDialog, QLineEdit, QMessageBox, QDialog, QListWidget, QTableWidget, QTableWidgetItem, QTextBrowser,
@@ -21,9 +21,10 @@ import html
 import re
 
 from .device_table import DeviceTableModel, DeviceTableView, QAbstractItemView
-from .device_tree import DeviceTreeModel, DeviceTreeView
+from .device_tree import DeviceTreeModel, DeviceTreeView, DeviceTreePanel
 from .plugin_manager_dialog import PluginManagerDialog
 from .log_panel import LogPanel
+from .responsive_toolbar import ResponsiveToolbar
 
 
 class MainWindow(QMainWindow):
@@ -38,6 +39,17 @@ class MainWindow(QMainWindow):
         self.device_manager = app.device_manager
         self.plugin_manager = app.plugin_manager
         self.config = app.config
+        
+        # Track plugin loading for layout restoration
+        self._pending_plugin_layout_restore = False
+        self._layout_restore_timer = QTimer(self)
+        self._layout_restore_timer.setSingleShot(True)
+        self._layout_restore_timer.timeout.connect(self._restore_plugin_layout_after_load)
+        
+        # Debounced layout save timer (save 500ms after last change)
+        self._layout_save_timer = QTimer(self)
+        self._layout_save_timer.setSingleShot(True)
+        self._layout_save_timer.timeout.connect(self._save_workspace_layout)
         
         # Set window properties
         self.updateWindowTitle()
@@ -93,12 +105,27 @@ class MainWindow(QMainWindow):
         # Refresh device tree
         if hasattr(self, "device_tree"):
             self.device_tree.refresh()
+        if hasattr(self, "device_tree_panel"):
+            self.device_tree_panel.restore_state()
             
         # Update device count in status bar
         self.update_status_bar()
         
         # Restore the UI layout for this workspace
         self._restore_window_state()
+        
+        # Check if there are any enabled plugins that might be loading
+        # If plugins are already loaded or none are enabled, restore layout immediately
+        enabled_plugins = [p for p in self.plugin_manager.plugins.values() 
+                         if p.state.is_enabled and not p.state.is_loaded]
+        
+        if enabled_plugins:
+            # Mark that we need to restore plugin layouts after plugins are loaded
+            self._pending_plugin_layout_restore = True
+            logger.debug(f"Waiting for {len(enabled_plugins)} plugins to load before restoring layout")
+        else:
+            # All plugins are already loaded or none enabled, restore layout now
+            self._restore_plugin_layout_after_load()
         
         logger.debug("UI refresh complete")
         
@@ -320,17 +347,22 @@ class MainWindow(QMainWindow):
         self.dock_device_tree = QDockWidget("Devices", self)
         self.dock_device_tree.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
         
-        # Create device tree
-        self.device_tree_model = DeviceTreeModel(self.device_manager)
-        self.device_tree = DeviceTreeView(self.device_manager)
-        self.device_tree.setModel(self.device_tree_model)
+        # Create device tree panel
+        self.device_tree_panel = DeviceTreePanel(self.device_manager)
+        self.device_tree = self.device_tree_panel.view
+        self.device_tree_model = self.device_tree_panel.model
         
-        self.dock_device_tree.setWidget(self.device_tree)
+        self.dock_device_tree.setWidget(self.device_tree_panel)
+        self.dock_device_tree.setObjectName("DeviceTreeDock")
         self.addDockWidget(Qt.LeftDockWidgetArea, self.dock_device_tree)
+        # Connect signals to save layout when dock widget changes
+        self.dock_device_tree.topLevelChanged.connect(self._on_dock_widget_changed)
+        self.dock_device_tree.dockLocationChanged.connect(self._on_dock_widget_changed)
         
         # Properties dock widget (right panel)
         self.dock_properties = QDockWidget("Properties", self)
         self.dock_properties.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        self.dock_properties.setObjectName("PropertiesDock")
         
         # Create properties panel
         self.properties_widget = QTabWidget()
@@ -347,11 +379,13 @@ class MainWindow(QMainWindow):
         self.properties_table = QTableWidget()
         self.properties_table.setColumnCount(2)
         self.properties_table.setHorizontalHeaderLabels(["Property", "Value"])
-        self.properties_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.properties_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Interactive)
         self.properties_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.properties_table.setColumnWidth(0, 180)
         self.properties_table.setAlternatingRowColors(True)
         self.properties_table.verticalHeader().setVisible(False)
         self.properties_table.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.properties_table.setWordWrap(False)
         self.properties_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.properties_table.customContextMenuRequested.connect(self._show_property_context_menu)
         # Add double click handler
@@ -382,22 +416,24 @@ class MainWindow(QMainWindow):
         """)
         
         # Toolbar for property actions
-        toolbar_layout = QHBoxLayout()
-        toolbar_layout.setContentsMargins(0, 0, 0, 4)
-        
+        toolbar_container = ResponsiveToolbar()
+        toolbar_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
         export_btn = QPushButton("Export")
         export_btn.setToolTip("Export properties to clipboard or file")
         export_btn.clicked.connect(self._export_properties)
+        export_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         
         filter_edit = QLineEdit()
         filter_edit.setPlaceholderText("Filter properties...")
         filter_edit.textChanged.connect(self._filter_properties)
         filter_edit.setClearButtonEnabled(True)
+        filter_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         
-        toolbar_layout.addWidget(filter_edit)
-        toolbar_layout.addWidget(export_btn)
+        toolbar_container.addWidget(filter_edit, 1)
+        toolbar_container.addWidget(export_btn)
         
-        self.details_layout.addLayout(toolbar_layout)
+        self.details_layout.addWidget(toolbar_container)
         self.details_layout.addWidget(self.properties_table)
         
         self.properties_widget.addTab(self.details_tab, "Details")
@@ -406,15 +442,22 @@ class MainWindow(QMainWindow):
         
         self.dock_properties.setWidget(self.properties_widget)
         self.addDockWidget(Qt.RightDockWidgetArea, self.dock_properties)
+        # Connect signals to save layout when dock widget changes
+        self.dock_properties.topLevelChanged.connect(self._on_dock_widget_changed)
+        self.dock_properties.dockLocationChanged.connect(self._on_dock_widget_changed)
         
         # Log dock widget (bottom panel)
         self.dock_log = QDockWidget("Log", self)
         self.dock_log.setAllowedAreas(Qt.BottomDockWidgetArea | Qt.TopDockWidgetArea)
+        self.dock_log.setObjectName("LogDock")
         
         # Use LogPanel in the dock widget
         self.log_panel = LogPanel()
         self.dock_log.setWidget(self.log_panel)
         self.addDockWidget(Qt.BottomDockWidgetArea, self.dock_log)
+        # Connect signals to save layout when dock widget changes
+        self.dock_log.topLevelChanged.connect(self._on_dock_widget_changed)
+        self.dock_log.dockLocationChanged.connect(self._on_dock_widget_changed)
         
     def _connect_signals(self):
         """Connect signals from device manager and plugin manager"""
@@ -425,6 +468,10 @@ class MainWindow(QMainWindow):
         self.device_manager.group_added.connect(self.on_group_added)
         self.device_manager.group_removed.connect(self.on_group_removed)
         self.device_manager.selection_changed.connect(self.on_selection_changed)
+        
+        if hasattr(self, "device_tree"):
+            self.device_tree.group_selection_changed.connect(self.on_group_selection_changed)
+            self.device_tree.group_filter_requested.connect(self.on_group_filter_requested)
         
         # Plugin manager signals
         self.plugin_manager.plugin_loaded.connect(self.on_plugin_loaded)
@@ -496,9 +543,23 @@ class MainWindow(QMainWindow):
         # Add dock widgets
         dock_widgets = plugin.get_dock_widgets()
         for widget_name, widget, area in dock_widgets:
-            dock = QDockWidget(widget_name, self)
-            dock.setWidget(widget)
+            # If widget is already a QDockWidget, use it directly
+            if isinstance(widget, QDockWidget):
+                dock = widget
+            else:
+                dock = QDockWidget(widget_name, self)
+                dock.setWidget(widget)
+            
+            # Set unique object name for proper layout restoration
+            if not dock.objectName():
+                dock.setObjectName(f"{plugin_info.id}_{widget_name.replace(' ', '_')}_Dock")
+            
             self.addDockWidget(area, dock)
+            
+            # Connect signals to save layout when dock widget changes
+            dock.topLevelChanged.connect(self._on_dock_widget_changed)
+            dock.dockLocationChanged.connect(self._on_dock_widget_changed)
+            
             # Store for later removal
             if not hasattr(plugin_info, 'ui_components'):
                 plugin_info.ui_components = {}
@@ -721,6 +782,47 @@ class MainWindow(QMainWindow):
                         self._add_property_row(key, values, "<Multiple values>")
                     
         # Resize rows to contents
+        self.properties_table.resizeRowsToContents()
+
+    def update_group_panel(self, groups=None):
+        """Update property panel with group info"""
+        self.properties_table.setRowCount(0)
+        
+        if groups and not isinstance(groups, list):
+            groups = [groups]
+            
+        if not groups:
+            self.properties_table.setRowCount(1)
+            item = QTableWidgetItem("No groups selected")
+            item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+            item.setTextAlignment(Qt.AlignCenter)
+            self.properties_table.setSpan(0, 0, 1, 2)
+            self.properties_table.setItem(0, 0, item)
+            return
+            
+        if len(groups) == 1:
+            group = groups[0]
+            self._add_separator_row(f"Group: {group.name}")
+            self._add_property_row("Name", group.name, group.name)
+            self._add_property_row("Description", group.description, group.description or "")
+            self._add_property_row("Devices (Direct)", len(group.devices), str(len(group.devices)))
+            all_devices = group.get_all_devices()
+            unique_devices = {d.id for d in all_devices}
+            self._add_property_row("Devices (Total)", len(unique_devices), str(len(unique_devices)))
+            self._add_property_row("Subgroups", len(group.subgroups), str(len(group.subgroups)))
+        else:
+            unique_devices = set()
+            subgroup_count = 0
+            for group in groups:
+                subgroup_count += len(group.subgroups)
+                for device in group.get_all_devices():
+                    unique_devices.add(device.id)
+            
+            self._add_separator_row(f"{len(groups)} Groups Selected")
+            self._add_property_row("Groups", len(groups), str(len(groups)))
+            self._add_property_row("Unique Devices", len(unique_devices), str(len(unique_devices)))
+            self._add_property_row("Total Subgroups", subgroup_count, str(subgroup_count))
+        
         self.properties_table.resizeRowsToContents()
     
     def _add_property_row(self, key, raw_value, formatted_value):
@@ -1654,12 +1756,32 @@ class MainWindow(QMainWindow):
         
         # Pass all selected devices to the property panel
         self.update_property_panel(devices)
+
+    @Slot(list)
+    def on_group_selection_changed(self, groups):
+        """Handle group selection from the device tree"""
+        if not groups:
+            return
+            
+        self.update_group_panel(groups)
+
+    @Slot(object)
+    def on_group_filter_requested(self, group):
+        """Apply a group filter to the device table"""
+        if hasattr(self, "device_table"):
+            self.device_table.set_group_filter(group)
         
     @Slot(object)
     def on_plugin_loaded(self, plugin_info):
         """Handle plugin loaded signal"""
         logger.debug(f"Plugin loaded: {plugin_info}")
         self.add_plugin_ui_components(plugin_info)
+        
+        # If we're waiting to restore plugin layouts, schedule a restore
+        # Use a timer to allow all plugins to finish loading
+        if self._pending_plugin_layout_restore:
+            self._layout_restore_timer.stop()  # Reset timer
+            self._layout_restore_timer.start(500)  # Wait 500ms for other plugins to load
         
     @Slot(object)
     def on_plugin_unloaded(self, plugin_info):
@@ -1705,6 +1827,47 @@ class MainWindow(QMainWindow):
         settings.setValue("size", self.size())
         settings.setValue("pos", self.pos())
         logger.debug(f"Saved window layout for workspace: {workspace_name}")
+        
+        if hasattr(self, "device_tree_panel"):
+            self.device_tree_panel.save_state()
+    
+    def _on_dock_widget_changed(self):
+        """Handle dock widget changes (moved, resized, etc.)"""
+        # Debounce layout saving to avoid excessive file writes
+        # Reset timer - will save 500ms after last change
+        if hasattr(self, 'device_manager') and hasattr(self.device_manager, 'current_workspace'):
+            self._layout_save_timer.stop()
+            self._layout_save_timer.start(500)
+    
+    def _restore_plugin_layout_after_load(self):
+        """Restore plugin dock widget layouts after plugins are loaded"""
+        if not self._pending_plugin_layout_restore:
+            return
+        
+        try:
+            workspace_name = self.device_manager.current_workspace
+            workspace_dir = os.path.join(self.device_manager.workspaces_dir, workspace_name)
+            settings_dir = os.path.join(workspace_dir, "settings")
+            layout_file = os.path.join(settings_dir, "window_layout.ini")
+            
+            if os.path.exists(layout_file):
+                logger.debug(f"Restoring plugin dock widget layouts for workspace: {workspace_name}")
+                settings = QSettings(layout_file, QSettings.IniFormat)
+                
+                if settings.contains("windowState"):
+                    # Ensure we have the correct type (QByteArray)
+                    state_value = settings.value("windowState")
+                    if not isinstance(state_value, QByteArray):
+                        state_value = QByteArray(state_value)
+                    
+                    # Restore state again now that plugin dock widgets exist
+                    self.restoreState(state_value)
+                    logger.debug("Plugin dock widget layouts restored")
+            
+            self._pending_plugin_layout_restore = False
+        except Exception as e:
+            logger.error(f"Failed to restore plugin layout: {e}", exc_info=True)
+            self._pending_plugin_layout_restore = False
         
     def _restore_window_state(self):
         """Restore window state from settings"""

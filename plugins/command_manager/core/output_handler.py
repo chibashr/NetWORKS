@@ -9,6 +9,7 @@ import os
 import json
 import datetime
 from pathlib import Path
+from collections import Counter
 from loguru import logger
 
 from PySide6.QtCore import Qt
@@ -363,6 +364,7 @@ class OutputHandler:
         table_view_toggle.setCheckable(True)
         table_view_toggle.setProperty("is_table_view", False)
         table_view_toggle.setEnabled(False)  # Initially disabled until we have selectable content
+        table_view_toggle.setToolTip("Toggle between text and table view (only available for tabular output)")
         
         display_options.addWidget(output_label)
         display_options.addStretch()
@@ -476,6 +478,7 @@ class OutputHandler:
             table_output.setRowCount(0)
             table_output.setColumnCount(0)
             table_view_toggle.setEnabled(False)
+            table_view_toggle.setChecked(False)
             return
             
         # Get the first selected row
@@ -494,19 +497,26 @@ class OutputHandler:
         # Get the output
         output_text = data.get("output", "")
         
-        # Show raw output first
-        raw_output.setPlainText(output_text)
-        output_stack.setCurrentWidget(raw_output)
-        
-        # Reset table view toggle button state
-        table_view_toggle.setChecked(False)
+        # Store output text for later use
+        raw_output.setProperty("current_output", output_text)
         
         # Check if output can be displayed as a table
         can_be_table = self._can_display_as_table(output_text)
         table_view_toggle.setEnabled(can_be_table)
         
-        # Store output text for later use
-        raw_output.setProperty("current_output", output_text)
+        # Check if we should maintain table view (if it was previously enabled and new output supports it)
+        was_table_view = table_view_toggle.isChecked() and can_be_table
+        
+        if was_table_view:
+            # Parse and show as table
+            self._parse_output_to_table(output_text, table_output)
+            output_stack.setCurrentWidget(table_output)
+            table_view_toggle.setChecked(True)
+        else:
+            # Show raw output
+            raw_output.setPlainText(output_text)
+            output_stack.setCurrentWidget(raw_output)
+            table_view_toggle.setChecked(False)
             
     def _toggle_output_format(self, command_list, output_stack, raw_output, table_output, is_table_view):
         """Toggle between raw and table output formats
@@ -663,6 +673,13 @@ class OutputHandler:
         individual_files_cb.setChecked(True)
         export_options_layout.addWidget(individual_files_cb)
         
+        # Export format selection
+        format_label = QLabel("Export Format:")
+        export_format_combo = QComboBox()
+        export_format_combo.addItems(["Auto (Text/Table)", "Text", "CSV (Table)", "HTML"])
+        export_options_layout.addWidget(format_label)
+        export_options_layout.addWidget(export_format_combo)
+        
         # Filename template settings
         template_group = QGroupBox("Filename Template")
         template_layout = QFormLayout(template_group)
@@ -807,6 +824,9 @@ class OutputHandler:
         temp_plugin = TempPlugin()
         temp_handler = OutputHandler(temp_plugin)
         
+        # Get export format
+        export_format = export_format_combo.currentText()
+        
         # Handle export to individual files or a single file
         if individual_files_cb.isChecked():
             # Ask for directory to save files
@@ -829,10 +849,23 @@ class OutputHandler:
                     output_data = all_outputs[cmd_id][timestamp]
                     output = output_data.get("output", "")
                     
+                    # Determine file extension and format
+                    file_ext = ".txt"
+                    if export_format == "CSV (Table)":
+                        file_ext = ".csv"
+                    elif export_format == "HTML":
+                        file_ext = ".html"
+                    elif export_format == "Auto (Text/Table)":
+                        # Check if output can be displayed as table
+                        if self._can_display_as_table(output):
+                            file_ext = ".csv"
+                    
                     # Generate filename based on template
                     filename = temp_handler.generate_export_filename(device, cmd_id, cmd_text)
-                    if not filename.lower().endswith('.txt'):
-                        filename += ".txt"
+                    # Remove existing extension if present
+                    if '.' in filename:
+                        filename = os.path.splitext(filename)[0]
+                    filename += file_ext
                         
                     # Full path
                     file_path = os.path.join(export_dir, filename)
@@ -845,13 +878,19 @@ class OutputHandler:
                         file_path = f"{file_name}_{counter}{file_ext}"
                         counter += 1
                     
-                    # Export to file
-                    with open(file_path, "w") as f:
-                        f.write(f"Device: {device.get_property('alias', 'Device')}\n")
-                        f.write(f"Command: {cmd_text}\n")
-                        f.write(f"Date/Time: {datetime.datetime.fromisoformat(timestamp).strftime('%Y-%m-%d %H:%M:%S')}\n")
-                        f.write("-" * 50 + "\n")
-                        f.write(output)
+                    # Export to file based on format
+                    if file_ext == ".csv":
+                        self._export_table_to_csv(file_path, output, device, cmd_text, timestamp)
+                    elif file_ext == ".html":
+                        self._export_to_html(file_path, output, device, cmd_text, timestamp)
+                    else:
+                        # Text export
+                        with open(file_path, "w", encoding='utf-8') as f:
+                            f.write(f"Device: {device.get_property('alias', 'Device')}\n")
+                            f.write(f"Command: {cmd_text}\n")
+                            f.write(f"Date/Time: {datetime.datetime.fromisoformat(timestamp).strftime('%Y-%m-%d %H:%M:%S')}\n")
+                            f.write("-" * 50 + "\n")
+                            f.write(output)
                     
                     exported_count += 1
                     exported_files.append(os.path.basename(file_path))
@@ -879,22 +918,33 @@ class OutputHandler:
             
         else:
             # Export all to a single file
+            # Determine file filter based on export format
+            if export_format == "CSV (Table)":
+                file_filter = "CSV Files (*.csv);;All Files (*.*)"
+            elif export_format == "HTML":
+                file_filter = "HTML Files (*.html);;All Files (*.*)"
+            else:
+                file_filter = "Text Files (*.txt);;CSV Files (*.csv);;HTML Files (*.html);;All Files (*.*)"
+            
             # Ask for file to save to
             file_path, _ = QFileDialog.getSaveFileName(
                 self.plugin.main_window,
                 "Export Command Outputs",
                 "",
-                "Text Files (*.txt);;HTML Files (*.html);;All Files (*.*)"
+                file_filter
             )
             
             if not file_path:
                 return
                 
             try:
-                # Determine export format
-                if file_path.lower().endswith(".html"):
+                # Determine export format from file extension or selection
+                if file_path.lower().endswith(".csv") or export_format == "CSV (Table)":
+                    # CSV export - export each command as a separate sheet or combine
+                    self._export_multiple_tables_to_csv(file_path, selected_commands, all_outputs, device)
+                elif file_path.lower().endswith(".html") or export_format == "HTML":
                     # HTML export
-                    with open(file_path, "w") as f:
+                    with open(file_path, "w", encoding='utf-8') as f:
                         f.write("<html><head><title>Command Outputs</title></head><body>\n")
                         f.write(f"<h1>Command Outputs for {device.get_property('alias', 'Device')}</h1>\n")
                         
@@ -905,15 +955,21 @@ class OutputHandler:
                             
                             f.write(f"<h2>{cmd_text}</h2>\n")
                             f.write(f"<p>Date/Time: {dt.strftime('%Y-%m-%d %H:%M:%S')}</p>\n")
-                            f.write("<pre>\n")
-                            f.write(output)
-                            f.write("\n</pre>\n")
+                            
+                            # Check if output can be displayed as table
+                            if export_format == "Auto (Text/Table)" and self._can_display_as_table(output):
+                                # Export as HTML table
+                                f.write(self._output_to_html_table(output))
+                            else:
+                                f.write("<pre>\n")
+                                f.write(output.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+                                f.write("\n</pre>\n")
                             f.write("<hr>\n")
                             
                         f.write("</body></html>")
                 else:
                     # Text export
-                    with open(file_path, "w") as f:
+                    with open(file_path, "w", encoding='utf-8') as f:
                         f.write(f"Command Outputs for {device.get_property('alias', 'Device')}\n")
                         f.write("=" * 50 + "\n\n")
                         
@@ -1151,6 +1207,7 @@ class OutputHandler:
         table_view_toggle.setCheckable(True)
         table_view_toggle.setProperty("is_table_view", False)
         table_view_toggle.setEnabled(False)  # Initially disabled until we have selectable content
+        table_view_toggle.setToolTip("Toggle between text and table view (only available for tabular output)")
         
         display_options.addWidget(output_label)
         display_options.addStretch()
@@ -1216,7 +1273,7 @@ class OutputHandler:
         if not text or len(text.strip()) == 0:
             return False
             
-        lines = text.strip().split('\n')
+        lines = [line.rstrip() for line in text.strip().split('\n') if line.strip()]
         if len(lines) < 2:  # Need at least header and one data row
             return False
             
@@ -1230,47 +1287,91 @@ class OutputHandler:
                 return False
                 
             # Check a sample of lines to ensure consistent format
-            for i in range(1, min(5, len(lines))):
-                if i < len(lines) and lines[i].count('|') != pipe_count:
-                    return False
-                    
-            return True
-            
-        # Check for space-aligned columns (at least 3 spaces between columns)
-        if '   ' in lines[0]:
-            # Look for patterns of multiple spaces that indicate columns
-            space_pattern = [pos for pos, char in enumerate(lines[0]) if char == ' ' and lines[0][pos-1:pos+2] == '   ']
-            if len(space_pattern) < 1:  # Need at least one column separator
-                return False
-                
-            # Check if subsequent lines have similar spacing
-            for i in range(1, min(5, len(lines))):
-                if i < len(lines) and len(lines[i]) > 10:  # Ignore short lines
-                    has_spaces = False
-                    for pos in space_pattern:
-                        if pos < len(lines[i]) and lines[i][pos] == ' ':
-                            has_spaces = True
-                            break
-                    if not has_spaces:
+            consistent_count = 0
+            for i in range(1, min(10, len(lines))):
+                if i < len(lines) and lines[i].strip():
+                    # Allow some variation (within 1 pipe difference for edge cases)
+                    if abs(lines[i].count('|') - pipe_count) <= 1:
+                        consistent_count += 1
+                    elif lines[i].count('|') == 0:
+                        # Empty line or separator line, skip
+                        continue
+                    else:
+                        # Too different, probably not a table
                         return False
                         
-            return True
+            # Need at least 2 consistent data rows
+            return consistent_count >= 1
             
-        # Check for commands that typically produce tabular output
-        command_line = lines[0].lower()
-        tabular_commands = [
-            "show ip interface brief",
-            "show interfaces status",
-            "show ip route",
-            "show vlan",
-            "show mac address-table",
-            "show cdp neighbors",
-            "show arp"
-        ]
-        
-        for cmd in tabular_commands:
-            if cmd in command_line:
+        # Check for space-aligned columns (at least 2 spaces between columns)
+        # Look for multiple consecutive spaces that indicate column separation
+        if '  ' in lines[0]:
+            # Count occurrences of 2+ spaces in header
+            header_spaces = len([i for i in range(len(lines[0]) - 1) 
+                                if lines[0][i:i+2] == '  '])
+            
+            if header_spaces >= 1:  # At least one column separator
+                # Check if subsequent lines have similar structure
+                consistent_rows = 0
+                for i in range(1, min(10, len(lines))):
+                    if not lines[i].strip():
+                        continue  # Skip empty lines
+                    if len(lines[i]) < 10:
+                        continue  # Skip very short lines
+                    
+                    # Check if line has similar spacing pattern
+                    line_spaces = len([j for j in range(len(lines[i]) - 1) 
+                                      if lines[i][j:j+2] == '  '])
+                    # Allow some variation
+                    if abs(line_spaces - header_spaces) <= 2:
+                        consistent_rows += 1
+                        
+                # Need at least 1 consistent data row
+                if consistent_rows >= 1:
+                    return True
+                    
+        # Check for tab-separated format
+        if '\t' in lines[0]:
+            tab_count = lines[0].count('\t')
+            if tab_count >= 1:
+                # Check consistency
+                consistent_count = 0
+                for i in range(1, min(10, len(lines))):
+                    if i < len(lines) and lines[i].strip():
+                        if abs(lines[i].count('\t') - tab_count) <= 1:
+                            consistent_count += 1
+                return consistent_count >= 1
+                
+        # Check for comma-separated format (CSV-like)
+        if ',' in lines[0] and lines[0].count(',') >= 2:
+            comma_count = lines[0].count(',')
+            consistent_count = 0
+            for i in range(1, min(10, len(lines))):
+                if i < len(lines) and lines[i].strip():
+                    if abs(lines[i].count(',') - comma_count) <= 2:
+                        consistent_count += 1
+            if consistent_count >= 1:
                 return True
+                
+        # Check if output looks structured (multiple words per line, consistent structure)
+        # This is a fallback for outputs that might be tables but don't match above patterns
+        if len(lines) >= 3:
+            # Check if first few lines have similar word counts (indicating columns)
+            word_counts = [len(line.split()) for line in lines[:5] if line.strip()]
+            if len(word_counts) >= 3:
+                # Check if word counts are similar (within 2 words)
+                min_words = min(word_counts)
+                max_words = max(word_counts)
+                # If all lines have similar word counts and at least 3 words, might be a table
+                if max_words - min_words <= 2 and min_words >= 3:
+                    # Additional check: see if lines have similar length
+                    line_lengths = [len(line) for line in lines[:5] if line.strip()]
+                    if len(line_lengths) >= 3:
+                        avg_length = sum(line_lengths) / len(line_lengths)
+                        # If lengths are reasonably consistent (within 50% of average)
+                        if all(abs(len(line) - avg_length) < avg_length * 0.5 
+                               for line in lines[:5] if line.strip()):
+                            return True
                 
         return False
     
@@ -1283,15 +1384,22 @@ class OutputHandler:
         """
         table_widget.clear()
         table_widget.setRowCount(0)
+        table_widget.setColumnCount(0)
         
-        lines = text.strip().split('\n')
+        lines = [line.rstrip() for line in text.strip().split('\n') if line.strip()]
         if len(lines) < 2:
             return
             
-        # Determine table format
+        # Determine table format and parse accordingly
         if '|' in lines[0]:
             # Pipe-separated format
             self._parse_pipe_separated_table(lines, table_widget)
+        elif '\t' in lines[0]:
+            # Tab-separated format
+            self._parse_tab_separated_table(lines, table_widget)
+        elif ',' in lines[0] and lines[0].count(',') >= 2:
+            # CSV-like format (comma-separated)
+            self._parse_csv_table(lines, table_widget)
         else:
             # Space-separated format
             self._parse_space_separated_table(lines, table_widget)
@@ -1303,8 +1411,18 @@ class OutputHandler:
             lines: List of text lines
             table_widget: The table widget to populate
         """
-        # Get headers (first line)
-        headers = [h.strip() for h in lines[0].split('|') if h.strip()]
+        # Get headers (first line) - include empty cells between pipes
+        header_parts = lines[0].split('|')
+        headers = [h.strip() for h in header_parts]
+        # Remove empty headers at start/end if they're just from leading/trailing pipes
+        if headers and not headers[0]:
+            headers = headers[1:]
+        if headers and not headers[-1]:
+            headers = headers[:-1]
+            
+        if not headers:
+            return
+            
         table_widget.setColumnCount(len(headers))
         table_widget.setHorizontalHeaderLabels(headers)
         
@@ -1314,27 +1432,42 @@ class OutputHandler:
                 col, QHeaderView.ResizeToContents if col < len(headers) - 1 else QHeaderView.Stretch
             )
         
-        # Skip any separator line after header (containing only dashes, plusses, pipes)
+        # Skip any separator line after header (containing only dashes, plusses, pipes, spaces)
         start_row = 1
-        if len(lines) > 1 and all(c in '-+|' for c in lines[1] if c.strip()):
-            start_row = 2
+        if len(lines) > 1:
+            separator_line = lines[1].strip()
+            if separator_line and all(c in '-+| ' for c in separator_line):
+                start_row = 2
             
         # Add data rows
         for i in range(start_row, len(lines)):
-            if not lines[i].strip() or '|' not in lines[i]:
+            if not lines[i].strip():
                 continue  # Skip empty lines
                 
-            row_data = [d.strip() for d in lines[i].split('|') if d.strip() or len(d.strip()) == 0]
+            # Split by pipe and include empty cells
+            row_parts = lines[i].split('|')
+            row_data = [d.strip() for d in row_parts]
+            # Remove empty cells at start/end if they're just from leading/trailing pipes
+            if row_data and not row_data[0]:
+                row_data = row_data[1:]
+            if row_data and not row_data[-1]:
+                row_data = row_data[:-1]
+                
             if not row_data:
                 continue
                 
             row_idx = table_widget.rowCount()
             table_widget.insertRow(row_idx)
             
+            # Pad row_data to match header count if needed
+            while len(row_data) < len(headers):
+                row_data.append("")
+            # Truncate if too long
+            row_data = row_data[:len(headers)]
+            
             for col, data in enumerate(row_data):
-                if col < len(headers):
-                    item = QTableWidgetItem(data)
-                    table_widget.setItem(row_idx, col, item)
+                item = QTableWidgetItem(data)
+                table_widget.setItem(row_idx, col, item)
         
     def _parse_space_separated_table(self, lines, table_widget):
         """Parse space-separated text into a table
@@ -1343,24 +1476,399 @@ class OutputHandler:
             lines: List of text lines
             table_widget: The table widget to populate
         """
-        # Find column positions by looking at spaces in the header line
-        header_line = lines[0]
-        col_positions = [0]  # Start of first column
-        in_space = False
+        if len(lines) < 2:
+            return
         
-        # Find column boundaries by looking for transitions between spaces and non-spaces
-        for i in range(1, len(header_line)):
-            # Transition from text to space
-            if not in_space and header_line[i] == ' ' and header_line[i-1] != ' ':
-                in_space = True
-            # Transition from space to text
-            elif in_space and header_line[i] != ' ' and header_line[i-1] == ' ':
-                in_space = False
-                col_positions.append(i)
+        header_line = lines[0]
+        
+        # Method 1: Use header to determine column boundaries
+        # Find where each header word starts and ends
+        header_words = header_line.split()
+        if len(header_words) < 2:
+            return
+        
+        # Find the start position of each header word in the original string
+        word_positions = []
+        search_start = 0
+        for word in header_words:
+            pos = header_line.find(word, search_start)
+            if pos == -1:
+                break
+            word_positions.append((pos, pos + len(word), word))
+            search_start = pos + len(word)
+        
+        if len(word_positions) < 2:
+            return
+        
+        # Determine column boundaries
+        # Each column starts where its header word starts
+        # But we need to find where the next column's data starts in data rows
+        col_boundaries = [0]  # First column always starts at 0
+        
+        # For each header word (except the last), find where the next column starts
+        # This is typically where the next header word starts, but we'll refine with data
+        for i in range(len(word_positions) - 1):
+            current_word_end = word_positions[i][1]
+            next_word_start = word_positions[i + 1][0]
+            # The boundary is typically where the next word starts
+            col_boundaries.append(next_word_start)
+        
+        # Verify and refine boundaries with data rows
+        refined_boundaries = self._refine_column_boundaries(col_boundaries, lines[:min(10, len(lines))])
+        
+        if len(refined_boundaries) >= len(header_words):
+            # Extract headers
+            headers = []
+            for i in range(len(refined_boundaries)):
+                start = refined_boundaries[i]
+                end = len(header_line) if i == len(refined_boundaries) - 1 else refined_boundaries[i + 1]
+                header = header_line[start:end].strip()
+                if header:
+                    headers.append(header)
+            
+            # Ensure we have the right number of headers
+            while len(headers) < len(header_words):
+                # Add missing headers from split
+                if len(headers) < len(header_words):
+                    headers.append(header_words[len(headers)])
+            headers = headers[:len(header_words)]
+            
+            if len(headers) >= 2:
+                table_widget.setColumnCount(len(headers))
+                table_widget.setHorizontalHeaderLabels(headers)
                 
-        if len(col_positions) <= 1:
-            # Fallback: split by multiple spaces
-            headers = [h for h in header_line.split('  ') if h.strip()]
+                # Set up header
+                for col in range(len(headers)):
+                    table_widget.horizontalHeader().setSectionResizeMode(
+                        col, QHeaderView.ResizeToContents if col < len(headers) - 1 else QHeaderView.Stretch
+                    )
+                    
+                # Add data rows
+                for i in range(1, len(lines)):
+                    if not lines[i].strip():
+                        continue
+                        
+                    row_data = []
+                    for j in range(len(refined_boundaries)):
+                        start = refined_boundaries[j]
+                        end = len(lines[i]) if j == len(refined_boundaries) - 1 else refined_boundaries[j + 1]
+                        if start < len(lines[i]):
+                            cell_data = lines[i][start:end].strip()
+                            row_data.append(cell_data)
+                        else:
+                            row_data.append("")
+                    
+                    # Pad or truncate to match header count
+                    while len(row_data) < len(headers):
+                        row_data.append("")
+                    row_data = row_data[:len(headers)]
+                            
+                    if not any(row_data):  # Skip empty rows
+                        continue
+                        
+                    row_idx = table_widget.rowCount()
+                    table_widget.insertRow(row_idx)
+                    
+                    for col, data in enumerate(row_data):
+                        item = QTableWidgetItem(data)
+                        table_widget.setItem(row_idx, col, item)
+                return
+        
+        # Method 2: Fallback - split by multiple spaces (2+ spaces)
+        header_line = lines[0]
+        # Try splitting by 2+ spaces first
+        headers = []
+        parts = header_line.split('  ')
+        for part in parts:
+            # Further split by single spaces if needed
+            subparts = [p.strip() for p in part.split() if p.strip()]
+            headers.extend(subparts)
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_headers = []
+        for h in headers:
+            if h not in seen:
+                seen.add(h)
+                unique_headers.append(h)
+        headers = unique_headers
+        
+        if len(headers) < 2:
+            # Last resort: split by any whitespace
+            headers = [h for h in header_line.split() if h.strip()]
+        
+        if not headers:
+            return
+            
+        table_widget.setColumnCount(len(headers))
+        table_widget.setHorizontalHeaderLabels(headers)
+        
+        # Set up header
+        for col in range(len(headers)):
+            table_widget.horizontalHeader().setSectionResizeMode(
+                col, QHeaderView.ResizeToContents if col < len(headers) - 1 else QHeaderView.Stretch
+            )
+            
+        # Add data rows - use smart splitting
+        for i in range(1, len(lines)):
+            if not lines[i].strip():
+                continue
+                
+            # Try to split intelligently
+            row_data = self._smart_split_row(lines[i], len(headers))
+            
+            if not row_data or not any(row_data):
+                continue
+                
+            # Pad or truncate to match header count
+            while len(row_data) < len(headers):
+                row_data.append("")
+            row_data = row_data[:len(headers)]
+                
+            row_idx = table_widget.rowCount()
+            table_widget.insertRow(row_idx)
+            
+            for col, data in enumerate(row_data):
+                item = QTableWidgetItem(data.strip())
+                table_widget.setItem(row_idx, col, item)
+    
+    def _refine_column_boundaries(self, initial_boundaries, sample_lines):
+        """Refine column boundaries by analyzing data rows
+        
+        Args:
+            initial_boundaries: Initial column boundary positions from header
+            sample_lines: Sample data lines to analyze
+            
+        Returns:
+            list: Refined column boundary positions
+        """
+        if len(initial_boundaries) < 2 or not sample_lines:
+            return initial_boundaries
+        
+        # For each boundary position, check if data rows consistently have
+        # text starting near that position
+        refined = [initial_boundaries[0]]  # First boundary is always 0
+        
+        for boundary_idx in range(1, len(initial_boundaries)):
+            boundary_pos = initial_boundaries[boundary_idx]
+            
+            # Check data rows to see where columns actually start
+            column_starts = []
+            for line in sample_lines[1:]:  # Skip header
+                if boundary_pos < len(line):
+                    # Look for where text starts near this boundary
+                    # Check positions around the boundary
+                    for offset in range(-2, 3):  # Check ±2 positions
+                        check_pos = boundary_pos + offset
+                        if 0 < check_pos < len(line):
+                            if check_pos > 0 and line[check_pos-1] == ' ' and line[check_pos] != ' ':
+                                column_starts.append(check_pos)
+            
+            # Use the most common start position
+            if column_starts:
+                # Count occurrences
+                pos_counts = Counter(column_starts)
+                most_common_pos = pos_counts.most_common(1)[0][0]
+                refined.append(most_common_pos)
+            else:
+                # Keep original boundary
+                refined.append(boundary_pos)
+        
+        return refined
+    
+    def _find_column_boundaries(self, lines):
+        """Find column boundary positions by analyzing multiple rows
+        
+        Args:
+            lines: List of text lines
+            
+        Returns:
+            list: List of column start positions
+        """
+        if len(lines) < 2:
+            return [0]
+        
+        # Strategy: Find positions where multiple rows have text starting after spaces
+        # This indicates column alignment
+        
+        # First, find the maximum line length to analyze
+        sample_lines = lines[:min(20, len(lines))]  # Analyze up to 20 rows
+        max_line_length = max(len(line) for line in sample_lines) if sample_lines else 0
+        
+        if max_line_length == 0:
+            return [0]
+        
+        # Track positions where columns start (space-to-text transitions)
+        # Count how many rows have a column start at each position
+        position_scores = {}
+        
+        for line in sample_lines:
+            if not line.strip():
+                continue
+                
+            # Find all positions where text starts (space before, non-space at)
+            for pos in range(1, len(line)):
+                if line[pos-1] == ' ' and line[pos] != ' ':
+                    # This is a potential column start
+                    # Check that there's at least one space before (not just a single space in a word)
+                    spaces_before = 0
+                    for i in range(max(0, pos-5), pos):
+                        if line[i] == ' ':
+                            spaces_before += 1
+                        elif line[i] != ' ':
+                            spaces_before = 0  # Reset if we hit non-space
+                    
+                    # If we have multiple spaces before, this is likely a column boundary
+                    if spaces_before >= 1:
+                        position_scores[pos] = position_scores.get(pos, 0) + 1
+        
+        # Also analyze the header line more carefully
+        # Headers often have clear word boundaries
+        header_line = lines[0]
+        header_word_starts = [0]
+        in_word = False
+        for i in range(1, len(header_line)):
+            if header_line[i-1] == ' ' and header_line[i] != ' ':
+                # Potential word start
+                if i - header_word_starts[-1] > 2:  # At least 2 chars from previous start
+                    header_word_starts.append(i)
+        
+        # Combine header analysis with data row analysis
+        # Positions that appear in both are very likely column boundaries
+        col_candidates = set([0])  # First column always starts at 0
+        
+        # Add positions that score highly (appear in many rows)
+        threshold = max(2, len(sample_lines) // 3)  # At least 1/3 of rows
+        for pos, score in position_scores.items():
+            if score >= threshold:
+                col_candidates.add(pos)
+        
+        # Also add header word starts that are confirmed by data rows
+        for pos in header_word_starts[1:]:  # Skip first (already added)
+            if pos in position_scores and position_scores[pos] >= 2:
+                col_candidates.add(pos)
+        
+        # Sort positions
+        col_positions = sorted(col_candidates)
+        
+        # Filter: remove positions that are too close together
+        # Use a dynamic threshold based on average column width
+        if len(col_positions) > 1:
+            avg_gap = (col_positions[-1] - col_positions[0]) / max(1, len(col_positions) - 1)
+            min_gap = max(2, avg_gap * 0.3)  # At least 30% of average gap
+            
+            filtered_positions = [col_positions[0]]
+            for pos in col_positions[1:]:
+                if pos - filtered_positions[-1] >= min_gap:
+                    filtered_positions.append(pos)
+            
+            # If we have a reasonable number of columns (2-20), return them
+            if 2 <= len(filtered_positions) <= 20:
+                return filtered_positions
+        
+        return [0]  # Fallback: couldn't determine columns
+    
+    def _smart_split_row(self, line, expected_columns):
+        """Split a row intelligently to extract columns
+        
+        Args:
+            line: The line to split
+            expected_columns: Expected number of columns
+            
+        Returns:
+            list: List of column values
+        """
+        # Strategy: look for patterns of spaces
+        # Multiple spaces (2+) likely indicate column boundaries
+        row_data = []
+        
+        # First, try splitting by 2+ spaces
+        parts = line.split('  ')
+        if len(parts) >= expected_columns:
+            # This might work, but need to handle cases where single spaces exist within values
+            result = []
+            for part in parts:
+                part = part.strip()
+                if part:
+                    # If part contains single spaces, it might be a single value
+                    # or multiple values separated by single spaces
+                    # For now, treat it as a single value
+                    result.append(part)
+            if len(result) >= expected_columns:
+                return result[:expected_columns]
+        
+        # Fallback: split by any whitespace and try to group
+        all_parts = line.split()
+        if len(all_parts) >= expected_columns:
+            return all_parts[:expected_columns]
+        elif len(all_parts) > 0:
+            # Pad with empty strings
+            return all_parts + [''] * (expected_columns - len(all_parts))
+        
+        return []
+    
+    def _parse_tab_separated_table(self, lines, table_widget):
+        """Parse tab-separated text into a table
+        
+        Args:
+            lines: List of text lines
+            table_widget: The table widget to populate
+        """
+        # Get headers (first line)
+        headers = [h.strip() for h in lines[0].split('\t') if h.strip() or True]  # Include empty cells
+        if not headers:
+            return
+            
+        table_widget.setColumnCount(len(headers))
+        table_widget.setHorizontalHeaderLabels(headers)
+        
+        # Set up header
+        for col in range(len(headers)):
+            table_widget.horizontalHeader().setSectionResizeMode(
+                col, QHeaderView.ResizeToContents if col < len(headers) - 1 else QHeaderView.Stretch
+            )
+        
+        # Add data rows
+        for i in range(1, len(lines)):
+            if not lines[i].strip():
+                continue
+                
+            row_data = [d.strip() for d in lines[i].split('\t')]
+            # Pad or truncate to match header count
+            while len(row_data) < len(headers):
+                row_data.append("")
+            row_data = row_data[:len(headers)]
+            
+            row_idx = table_widget.rowCount()
+            table_widget.insertRow(row_idx)
+            
+            for col, data in enumerate(row_data):
+                item = QTableWidgetItem(data)
+                table_widget.setItem(row_idx, col, item)
+    
+    def _parse_csv_table(self, lines, table_widget):
+        """Parse CSV-like (comma-separated) text into a table
+        
+        Args:
+            lines: List of text lines
+            table_widget: The table widget to populate
+        """
+        import csv
+        from io import StringIO
+        
+        # Try to parse as CSV
+        try:
+            csv_reader = csv.reader(StringIO('\n'.join(lines)))
+            rows = list(csv_reader)
+            
+            if not rows:
+                return
+                
+            # First row is headers
+            headers = [h.strip() for h in rows[0]]
+            if not headers:
+                return
+                
             table_widget.setColumnCount(len(headers))
             table_widget.setHorizontalHeaderLabels(headers)
             
@@ -1369,65 +1877,358 @@ class OutputHandler:
                 table_widget.horizontalHeader().setSectionResizeMode(
                     col, QHeaderView.ResizeToContents if col < len(headers) - 1 else QHeaderView.Stretch
                 )
-                
+            
             # Add data rows
-            for i in range(1, len(lines)):
-                if not lines[i].strip():
+            for row_data in rows[1:]:
+                if not any(row_data):  # Skip empty rows
                     continue
                     
-                row_data = [d for d in lines[i].split('  ') if d.strip()]
-                if not row_data:
-                    continue
-                    
+                # Pad or truncate to match header count
+                while len(row_data) < len(headers):
+                    row_data.append("")
+                row_data = row_data[:len(headers)]
+                
                 row_idx = table_widget.rowCount()
                 table_widget.insertRow(row_idx)
                 
                 for col, data in enumerate(row_data):
-                    if col < len(headers):
-                        item = QTableWidgetItem(data.strip())
-                        table_widget.setItem(row_idx, col, item)
-        else:
-            # Extract headers based on column positions
-            headers = []
-            for i in range(len(col_positions)):
-                start = col_positions[i]
-                end = len(header_line) if i == len(col_positions) - 1 else col_positions[i + 1]
-                header = header_line[start:end].strip()
-                headers.append(header)
+                    item = QTableWidgetItem(str(data).strip())
+                    table_widget.setItem(row_idx, col, item)
+        except Exception as e:
+            logger.warning(f"Failed to parse as CSV, trying simple split: {e}")
+            # Fallback to simple comma split
+            headers = [h.strip() for h in lines[0].split(',')]
+            if not headers:
+                return
                 
             table_widget.setColumnCount(len(headers))
             table_widget.setHorizontalHeaderLabels(headers)
             
-            # Set up header
             for col in range(len(headers)):
                 table_widget.horizontalHeader().setSectionResizeMode(
                     col, QHeaderView.ResizeToContents if col < len(headers) - 1 else QHeaderView.Stretch
                 )
-                
-            # Add data rows
+            
             for i in range(1, len(lines)):
                 if not lines[i].strip():
                     continue
                     
-                row_data = []
-                for j in range(len(col_positions)):
-                    start = col_positions[j]
-                    end = len(lines[i]) if j == len(col_positions) - 1 else col_positions[j + 1]
-                    if start < len(lines[i]):
-                        cell_data = lines[i][start:end].strip()
-                        row_data.append(cell_data)
-                    else:
-                        row_data.append("")
-                        
-                if not any(row_data):  # Skip empty rows
-                    continue
-                    
+                row_data = [d.strip() for d in lines[i].split(',')]
+                while len(row_data) < len(headers):
+                    row_data.append("")
+                row_data = row_data[:len(headers)]
+                
                 row_idx = table_widget.rowCount()
                 table_widget.insertRow(row_idx)
                 
                 for col, data in enumerate(row_data):
                     item = QTableWidgetItem(data)
                     table_widget.setItem(row_idx, col, item)
+    
+    def _export_table_to_csv(self, file_path, output_text, device, cmd_text, timestamp):
+        """Export a single table output to CSV file
+        
+        Args:
+            file_path: Path to save the CSV file
+            output_text: The output text to parse and export
+            device: The device object
+            cmd_text: The command text
+            timestamp: The timestamp string
+        """
+        import csv
+        
+        # Parse the output into a table structure
+        lines = [line.rstrip() for line in output_text.strip().split('\n') if line.strip()]
+        if len(lines) < 2:
+            # Not a table, export as text with metadata
+            with open(file_path, "w", encoding='utf-8', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(["Device", device.get_property('alias', 'Device')])
+                writer.writerow(["Command", cmd_text])
+                writer.writerow(["Date/Time", datetime.datetime.fromisoformat(timestamp).strftime('%Y-%m-%d %H:%M:%S')])
+                writer.writerow([])
+                writer.writerow(["Output"])
+                for line in lines:
+                    writer.writerow([line])
+            return
+        
+        # Determine table format and parse
+        headers = []
+        rows = []
+        
+        if '|' in lines[0]:
+            # Pipe-separated
+            header_parts = lines[0].split('|')
+            headers = [h.strip() for h in header_parts]
+            if headers and not headers[0]:
+                headers = headers[1:]
+            if headers and not headers[-1]:
+                headers = headers[:-1]
+            
+            start_row = 1
+            if len(lines) > 1:
+                separator_line = lines[1].strip()
+                if separator_line and all(c in '-+| ' for c in separator_line):
+                    start_row = 2
+            
+            for i in range(start_row, len(lines)):
+                if not lines[i].strip():
+                    continue
+                row_parts = lines[i].split('|')
+                row_data = [d.strip() for d in row_parts]
+                if row_data and not row_data[0]:
+                    row_data = row_data[1:]
+                if row_data and not row_data[-1]:
+                    row_data = row_data[:-1]
+                while len(row_data) < len(headers):
+                    row_data.append("")
+                row_data = row_data[:len(headers)]
+                rows.append(row_data)
+        elif '\t' in lines[0]:
+            # Tab-separated
+            headers = [h.strip() for h in lines[0].split('\t')]
+            for i in range(1, len(lines)):
+                if not lines[i].strip():
+                    continue
+                row_data = [d.strip() for d in lines[i].split('\t')]
+                while len(row_data) < len(headers):
+                    row_data.append("")
+                row_data = row_data[:len(headers)]
+                rows.append(row_data)
+        elif ',' in lines[0] and lines[0].count(',') >= 2:
+            # CSV-like
+            import csv as csv_module
+            from io import StringIO
+            try:
+                csv_reader = csv_module.reader(StringIO('\n'.join(lines)))
+                all_rows = list(csv_reader)
+                if all_rows:
+                    headers = [h.strip() for h in all_rows[0]]
+                    for row_data in all_rows[1:]:
+                        while len(row_data) < len(headers):
+                            row_data.append("")
+                        row_data = row_data[:len(headers)]
+                        rows.append(row_data)
+            except:
+                # Fallback to simple split
+                headers = [h.strip() for h in lines[0].split(',')]
+                for i in range(1, len(lines)):
+                    if not lines[i].strip():
+                        continue
+                    row_data = [d.strip() for d in lines[i].split(',')]
+                    while len(row_data) < len(headers):
+                        row_data.append("")
+                    row_data = row_data[:len(headers)]
+                    rows.append(row_data)
+        else:
+            # Space-separated - use simple split by multiple spaces
+            headers = [h for h in lines[0].split('  ') if h.strip()]
+            for i in range(1, len(lines)):
+                if not lines[i].strip():
+                    continue
+                row_data = [d.strip() for d in lines[i].split('  ') if d.strip()]
+                while len(row_data) < len(headers):
+                    row_data.append("")
+                row_data = row_data[:len(headers)]
+                rows.append(row_data)
+        
+        # Write to CSV
+        with open(file_path, "w", encoding='utf-8', newline='') as f:
+            writer = csv.writer(f)
+            # Write metadata
+            writer.writerow(["Device", device.get_property('alias', 'Device')])
+            writer.writerow(["Command", cmd_text])
+            writer.writerow(["Date/Time", datetime.datetime.fromisoformat(timestamp).strftime('%Y-%m-%d %H:%M:%S')])
+            writer.writerow([])
+            # Write headers
+            if headers:
+                writer.writerow(headers)
+            # Write data rows
+            for row in rows:
+                writer.writerow(row)
+    
+    def _export_multiple_tables_to_csv(self, file_path, selected_commands, all_outputs, device):
+        """Export multiple command outputs to a single CSV file
+        
+        Args:
+            file_path: Path to save the CSV file
+            selected_commands: List of (cmd_id, timestamp, cmd_text) tuples
+            all_outputs: Dictionary of all outputs
+            device: The device object
+        """
+        import csv
+        
+        with open(file_path, "w", encoding='utf-8', newline='') as f:
+            writer = csv.writer(f)
+            
+            for cmd_id, timestamp, cmd_text in selected_commands:
+                output_data = all_outputs[cmd_id][timestamp]
+                output = output_data.get("output", "")
+                
+                # Write command header
+                writer.writerow([])
+                writer.writerow(["Command", cmd_text])
+                writer.writerow(["Date/Time", datetime.datetime.fromisoformat(timestamp).strftime('%Y-%m-%d %H:%M:%S')])
+                writer.writerow([])
+                
+                # Check if output can be displayed as table
+                if self._can_display_as_table(output):
+                    # Parse and write as table
+                    lines = [line.rstrip() for line in output.strip().split('\n') if line.strip()]
+                    if len(lines) >= 2:
+                        # Determine format and parse (similar to _export_table_to_csv)
+                        if '|' in lines[0]:
+                            header_parts = lines[0].split('|')
+                            headers = [h.strip() for h in header_parts]
+                            if headers and not headers[0]:
+                                headers = headers[1:]
+                            if headers and not headers[-1]:
+                                headers = headers[:-1]
+                            
+                            start_row = 1
+                            if len(lines) > 1:
+                                separator_line = lines[1].strip()
+                                if separator_line and all(c in '-+| ' for c in separator_line):
+                                    start_row = 2
+                            
+                            if headers:
+                                writer.writerow(headers)
+                            for i in range(start_row, len(lines)):
+                                if not lines[i].strip():
+                                    continue
+                                row_parts = lines[i].split('|')
+                                row_data = [d.strip() for d in row_parts]
+                                if row_data and not row_data[0]:
+                                    row_data = row_data[1:]
+                                if row_data and not row_data[-1]:
+                                    row_data = row_data[:-1]
+                                while len(row_data) < len(headers):
+                                    row_data.append("")
+                                row_data = row_data[:len(headers)]
+                                writer.writerow(row_data)
+                        else:
+                            # Simple space-separated
+                            headers = [h for h in lines[0].split('  ') if h.strip()]
+                            if headers:
+                                writer.writerow(headers)
+                            for i in range(1, len(lines)):
+                                if not lines[i].strip():
+                                    continue
+                                row_data = [d.strip() for d in lines[i].split('  ') if d.strip()]
+                                while len(row_data) < len(headers):
+                                    row_data.append("")
+                                row_data = row_data[:len(headers)]
+                                writer.writerow(row_data)
+                else:
+                    # Write as text
+                    writer.writerow(["Output"])
+                    for line in output.split('\n'):
+                        writer.writerow([line])
+                
+                writer.writerow([])
+                writer.writerow(["=" * 80])
+    
+    def _export_to_html(self, file_path, output, device, cmd_text, timestamp):
+        """Export a single output to HTML file
+        
+        Args:
+            file_path: Path to save the HTML file
+            output: The output text
+            device: The device object
+            cmd_text: The command text
+            timestamp: The timestamp string
+        """
+        with open(file_path, "w", encoding='utf-8') as f:
+            f.write("<html><head><title>Command Output</title></head><body>\n")
+            f.write(f"<h1>Command Output</h1>\n")
+            f.write(f"<p><strong>Device:</strong> {device.get_property('alias', 'Device')}</p>\n")
+            f.write(f"<p><strong>Command:</strong> {cmd_text}</p>\n")
+            f.write(f"<p><strong>Date/Time:</strong> {datetime.datetime.fromisoformat(timestamp).strftime('%Y-%m-%d %H:%M:%S')}</p>\n")
+            
+            if self._can_display_as_table(output):
+                f.write(self._output_to_html_table(output))
+            else:
+                f.write("<pre>\n")
+                f.write(output.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+                f.write("\n</pre>\n")
+            
+            f.write("</body></html>")
+    
+    def _output_to_html_table(self, output_text):
+        """Convert table output to HTML table format
+        
+        Args:
+            output_text: The output text to convert
+            
+        Returns:
+            str: HTML table string
+        """
+        lines = [line.rstrip() for line in output_text.strip().split('\n') if line.strip()]
+        if len(lines) < 2:
+            return f"<pre>{output_text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}</pre>"
+        
+        html = "<table border='1' cellpadding='5' cellspacing='0'>\n"
+        
+        # Parse headers
+        if '|' in lines[0]:
+            header_parts = lines[0].split('|')
+            headers = [h.strip() for h in header_parts]
+            if headers and not headers[0]:
+                headers = headers[1:]
+            if headers and not headers[-1]:
+                headers = headers[:-1]
+            
+            start_row = 1
+            if len(lines) > 1:
+                separator_line = lines[1].strip()
+                if separator_line and all(c in '-+| ' for c in separator_line):
+                    start_row = 2
+            
+            html += "<thead><tr>"
+            for header in headers:
+                html += f"<th>{header.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}</th>"
+            html += "</tr></thead>\n<tbody>\n"
+            
+            for i in range(start_row, len(lines)):
+                if not lines[i].strip():
+                    continue
+                row_parts = lines[i].split('|')
+                row_data = [d.strip() for d in row_parts]
+                if row_data and not row_data[0]:
+                    row_data = row_data[1:]
+                if row_data and not row_data[-1]:
+                    row_data = row_data[:-1]
+                while len(row_data) < len(headers):
+                    row_data.append("")
+                row_data = row_data[:len(headers)]
+                
+                html += "<tr>"
+                for cell in row_data:
+                    html += f"<td>{cell.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}</td>"
+                html += "</tr>\n"
+        else:
+            # Space-separated
+            headers = [h for h in lines[0].split('  ') if h.strip()]
+            html += "<thead><tr>"
+            for header in headers:
+                html += f"<th>{header.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}</th>"
+            html += "</tr></thead>\n<tbody>\n"
+            
+            for i in range(1, len(lines)):
+                if not lines[i].strip():
+                    continue
+                row_data = [d.strip() for d in lines[i].split('  ') if d.strip()]
+                while len(row_data) < len(headers):
+                    row_data.append("")
+                row_data = row_data[:len(headers)]
+                
+                html += "<tr>"
+                for cell in row_data:
+                    html += f"<td>{cell.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')}</td>"
+                html += "</tr>\n"
+        
+        html += "</tbody></table>\n"
+        return html
         
     def generate_export_filename(self, device, command, command_text=None):
         """Generate a filename for exporting command output using template

@@ -9,13 +9,14 @@ import os
 import re
 from datetime import datetime
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, 
-    QLabel, QComboBox, QPushButton, QSplitter, 
+    QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
+    QLabel, QComboBox, QPushButton, QSplitter,
     QCheckBox, QGroupBox, QTabWidget, QLineEdit,
-    QToolButton, QFileDialog, QMenu, QScrollBar
+    QToolButton, QFileDialog, QMenu, QScrollBar, QSizePolicy
 )
 from PySide6.QtCore import Qt, Signal, Slot, QTimer
 from PySide6.QtGui import QTextCursor, QColor, QTextCharFormat, QFont
+from .responsive_toolbar import ResponsiveToolbar
 
 class LogPanel(QWidget):
     """Panel for viewing application logs"""
@@ -68,26 +69,27 @@ class LogPanel(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         
         # Control panel
-        control_panel = QWidget()
-        control_layout = QHBoxLayout(control_panel)
-        control_layout.setContentsMargins(5, 5, 5, 5)
+        control_panel = ResponsiveToolbar(breakpoint=900)
+        control_panel.setContentsMargins(5, 5, 5, 5)
+        control_panel.setSpacing(6)
         
         # File selector
         self.file_combo = QComboBox()
         self.file_combo.setMinimumWidth(200)
+        self.file_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.file_combo.currentIndexChanged.connect(self._on_file_changed)
-        control_layout.addWidget(QLabel("Log File:"))
-        control_layout.addWidget(self.file_combo)
+        control_panel.addWidget(QLabel("Log File:"))
+        control_panel.addWidget(self.file_combo)
         
         # Refresh button
         self.refresh_button = QPushButton("Refresh")
         self.refresh_button.clicked.connect(self._refresh_logs)
-        control_layout.addWidget(self.refresh_button)
+        control_panel.addWidget(self.refresh_button)
         
         # Save button
         self.save_button = QPushButton("Save As...")
         self.save_button.clicked.connect(self._save_logs)
-        control_layout.addWidget(self.save_button)
+        control_panel.addWidget(self.save_button)
         
         # Level filters
         level_group = QGroupBox("Log Levels")
@@ -101,7 +103,7 @@ class LogPanel(QWidget):
             self.level_checkboxes[level] = cb
             level_layout.addWidget(cb)
         
-        control_layout.addWidget(level_group)
+        control_panel.addWidget(level_group)
         
         # Search box
         self.search_box = QLineEdit()
@@ -114,7 +116,10 @@ class LogPanel(QWidget):
         search_layout = QHBoxLayout()
         search_layout.addWidget(self.search_box)
         search_layout.addWidget(self.search_button)
-        control_layout.addLayout(search_layout)
+        search_container = QWidget()
+        search_container.setLayout(search_layout)
+        search_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        control_panel.addWidget(search_container)
         
         # Options group
         options_group = QGroupBox("Options")
@@ -130,12 +135,12 @@ class LogPanel(QWidget):
         self.wrap_text_check.stateChanged.connect(self._on_wrap_text_changed)
         options_layout.addWidget(self.wrap_text_check)
         
-        control_layout.addWidget(options_group)
+        control_panel.addWidget(options_group)
         
         # Clear button
         self.clear_button = QPushButton("Clear")
         self.clear_button.clicked.connect(self._clear_log_view)
-        control_layout.addWidget(self.clear_button)
+        control_panel.addWidget(self.clear_button)
         
         # Add control panel to main layout
         main_layout.addWidget(control_panel)

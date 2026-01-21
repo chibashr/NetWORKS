@@ -155,6 +155,7 @@ class DeviceGroup(QObject):
         """Add a subgroup to this group"""
         if group not in self.subgroups:
             self.subgroups.append(group)
+            group.parent = self
             group.changed.connect(self.changed)
             self.changed.emit()
             
@@ -162,6 +163,8 @@ class DeviceGroup(QObject):
         """Remove a subgroup from this group"""
         if group in self.subgroups:
             self.subgroups.remove(group)
+            if group.parent == self:
+                group.parent = None
             group.changed.disconnect(self.changed)
             self.changed.emit()
             
@@ -541,17 +544,7 @@ class DeviceManager(QObject):
     def create_group(self, name, description="", parent_group=None):
         """Create a device group"""
         # Handle duplicate names by appending a number
-        original_name = name
-        counter = 1
-        
-        while name in self.groups:
-            # If the name already has a number at the end, increment it
-            if original_name.rstrip().endswith(")") and " (" in original_name:
-                base_name = original_name[:original_name.rindex(" (")]
-                name = f"{base_name} ({counter})"
-            else:
-                name = f"{original_name} ({counter})"
-            counter += 1
+        name = self._ensure_unique_group_name(name)
             
         logger.debug(f"Creating device group: {name}")
         group = DeviceGroup(name, description)
@@ -577,6 +570,93 @@ class DeviceManager(QObject):
         self.save_workspace()
         
         return group
+
+    def _ensure_unique_group_name(self, name):
+        """Ensure a group name is unique, appending a suffix if needed"""
+        original_name = name.strip() or "New Group"
+        name = original_name
+        counter = 1
+        
+        while name in self.groups:
+            # If the name already has a number at the end, increment it
+            if original_name.rstrip().endswith(")") and " (" in original_name:
+                base_name = original_name[:original_name.rindex(" (")]
+                name = f"{base_name} ({counter})"
+            else:
+                name = f"{original_name} ({counter})"
+            counter += 1
+            
+        return name
+
+    def rename_group(self, group, new_name):
+        """Rename a group and keep the group registry consistent"""
+        if isinstance(group, str):
+            group = self.groups.get(group)
+            
+        if not group or group == self.root_group:
+            return False
+            
+        new_name = new_name.strip()
+        if not new_name or new_name == group.name:
+            return False
+            
+        unique_name = self._ensure_unique_group_name(new_name)
+        
+        # Update registry key
+        if group.name in self.groups:
+            del self.groups[group.name]
+        group.name = unique_name
+        self.groups[unique_name] = group
+        
+        self.group_changed.emit(group)
+        self.save_workspace()
+        return True
+
+    def move_group(self, group, new_parent):
+        """Move a group under a new parent group"""
+        if isinstance(group, str):
+            group = self.groups.get(group)
+        if isinstance(new_parent, str):
+            new_parent = self.groups.get(new_parent)
+            
+        if not group or group == self.root_group:
+            return False
+            
+        if new_parent is None:
+            new_parent = self.root_group
+            
+        if group == new_parent:
+            return False
+            
+        if self._is_descendant(new_parent, group):
+            logger.warning("Cannot move a group into one of its descendants")
+            return False
+            
+        # Remove from current parent
+        if group.parent:
+            group.parent.remove_subgroup(group)
+        else:
+            # Fallback: find the parent in case the parent reference is missing
+            for potential_parent in self.groups.values():
+                if group in potential_parent.subgroups:
+                    potential_parent.remove_subgroup(group)
+                    break
+                    
+        # Add to new parent
+        new_parent.add_subgroup(group)
+        
+        self.group_changed.emit(group)
+        self.save_workspace()
+        return True
+
+    def _is_descendant(self, group, potential_ancestor):
+        """Return True if group is inside potential_ancestor subtree"""
+        parent = group.parent
+        while parent:
+            if parent == potential_ancestor:
+                return True
+            parent = parent.parent
+        return False
     
     def remove_group(self, group):
         """Remove a device group"""

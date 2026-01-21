@@ -335,9 +335,8 @@ class Application(QApplication):
         """Initialize application components"""
         self.logger.info("Initializing application")
         
-        # Show splash screen
-        splash = SplashScreen()
-        splash.show()
+        # Use the splash screen created in __init__
+        splash = self.splash
         
         # Check environment for data directories
         self._ensure_data_directories()
@@ -383,12 +382,13 @@ class Application(QApplication):
         splash.update_progress(90, "Creating main window...")
         self.main_window = MainWindow(self)
         
+        # Show workspace selection dialog before displaying the main window
+        splash.update_progress(95, "Preparing workspace...")
+        self.show_workspace_selection()
+        
         # Complete progress and close splash screen
         splash.update_progress(100, "Startup complete...")
         splash.close()
-        
-        # Show workspace selection dialog before displaying the main window
-        self.show_workspace_selection()
         
         # Now display the main window
         self.main_window.show()

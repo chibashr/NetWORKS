@@ -29,8 +29,10 @@ If a group with the name "New Group" already exists, NetWORKS will automatically
 
 You can perform the following operations on groups:
 
-- **Add devices to a group**: Right-click on a group and select "New Device"
-- **Create a subgroup**: Right-click on a group and select "New Group"
+- **Rename a group**: Select a group and press F2 or use "Rename"
+- **Add devices to a group**: Drag devices onto a group or use "Add to Group"
+- **Create a subgroup**: Right-click on a group and select "New Subgroup"
+- **Move a group**: Drag a group onto another group to change its parent
 - **Delete a group**: Right-click on a group and select "Delete Group"
 
 ## Importing Devices

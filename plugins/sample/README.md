@@ -97,3 +97,18 @@ This plugin is primarily meant as a reference, but it also provides useful testi
 2. **Signal Monitoring**: Monitor application signals for debugging
 3. **Device Testing**: Test device properties and operations
 4. **Sample Properties**: Demonstrate custom device property management 
+
+## Settings and Configuration
+
+The Sample plugin exposes settings in the Plugin Manager dialog to demonstrate:
+- Log level changes
+- Automatic sample property creation
+- Testing mode configuration
+- Signal monitoring defaults
+
+Use these settings to explore how plugin configuration is presented and applied.
+
+## Documentation and References
+
+- `API.md` documents the plugin's public API, signals, and UI components.
+- The plugin source is intended as a reference for building new plugins and testing extension points.

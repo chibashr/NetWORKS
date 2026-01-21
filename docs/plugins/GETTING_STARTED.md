@@ -17,7 +17,7 @@ Create a new directory for your plugin inside the NetWORKS `plugins` directory:
 ```
 plugins/
 └── my_first_plugin/         # Your plugin directory
-    ├── __init__.py          # Plugin entry point
+    ├── __init__.py          # Plugin entry point (set in entry_point)
     ├── manifest.json        # Plugin metadata
     ├── API.md               # API documentation
     └── resources/           # Optional resources directory
@@ -34,9 +34,8 @@ Create a file called `manifest.json` in your plugin directory with the following
   "name": "My First Plugin",
   "version": "0.1.0",
   "description": "A simple plugin for NetWORKS",
-  "author": "Your Name",
-  "license": "MIT",
-  "main": "__init__.py",
+  "author": "chibashr",
+  "entry_point": "__init__.py",
   "min_app_version": "0.5.0",
   "dependencies": []
 }
@@ -55,16 +54,12 @@ from src.core.plugin_interface import PluginInterface
 
 
 class MyFirstPlugin(PluginInterface):
-    def __init__(self, app):
-        """Initialize the plugin
+    def __init__(self):
+        """Initialize the plugin"""
+        super().__init__()
+        logger.info("My First Plugin constructed")
         
-        Args:
-            app: Application instance
-        """
-        super().__init__(app)
-        logger.info("My First Plugin initialized")
-        
-    def initialize(self):
+    def initialize(self, app, plugin_info):
         """Initialize the plugin
         
         Called when the plugin is loaded and ready to be initialized.
@@ -72,13 +67,20 @@ class MyFirstPlugin(PluginInterface):
         """
         logger.info("Initializing My First Plugin")
         
+        # Store app references
+        self.app = app
+        self.device_manager = app.device_manager
+        self.main_window = app.main_window
+        self.config = app.config
+        self.plugin_info = plugin_info
+
         # Connect to device manager signals
         self.device_manager.device_added.connect(self.on_device_added)
         self.device_manager.device_removed.connect(self.on_device_removed)
         self.device_manager.selection_changed.connect(self.on_selection_changed)
         
         # Complete initialization
-        super().initialize()
+        self._initialized = True
         return True
         
     def cleanup(self):

@@ -9,15 +9,38 @@ This guide provides comprehensive information for developing plugins for the Net
 - [Plugin Development Lifecycle](#plugin-development-lifecycle)
 - [Creating Your First Plugin](#creating-your-first-plugin)
 - [Plugin API Documentation](#plugin-api-documentation)
+- [Communication and Integration](#communication-and-integration)
 - [Extension Points](#extension-points)
 - [Best Practices](#best-practices)
 - [Advanced Topics](#advanced-topics)
-- [Troubleshooting](#troubleshooting)
 - [Example Plugins](#example-plugins)
+- [Diagnostics and Validation](#diagnostics-and-validation)
+- [Troubleshooting](#troubleshooting)
+- [Device Properties](#device-properties)
 
 ## Quick Start
 
 For a step-by-step tutorial on creating your first plugin, see the [Getting Started Guide](GETTING_STARTED.md).
+
+## Plugin Quick Checklist
+
+Use this list to mirror what the plugin manager expects during discovery and load:
+
+- `manifest.json` or `plugin.json` (preferred), or `plugin.yaml` (legacy)
+- Required manifest fields: `id`, `name`, `version`, `entry_point`
+- Entry point file exists and is valid Python
+- Plugin class is in the entry point module and implements `initialize(app, plugin_info)`
+- `API.md` present (recommended; missing docs trigger a warning)
+- Optional: `requirements.txt` for Python package hints
+
+## Documentation Standards
+
+Each plugin should document itself in its own folder:
+- `README.md`: Operational overview, usage, and configuration.
+- `API.md`: Public API for other plugins and integration points.
+- `docs/` (optional): Additional guides and troubleshooting notes.
+
+The documentation hub loads plugin documentation dynamically when a plugin is loaded, so keep these files up to date.
 
 ## Plugin System Overview
 
@@ -25,8 +48,8 @@ The NetWORKS plugin system is designed to be:
 
 - **Flexible**: Plugins can extend almost any part of the application
 - **Modular**: Plugins can be enabled, disabled, or uninstalled independently
-- **Discoverable**: Plugins are automatically discovered on application startup
-- **Safe**: Plugins run in a controlled environment to prevent system damage
+- **Discoverable**: Plugins are discovered from internal/external plugin directories at startup, and workspace plugins are discovered when a workspace loads
+- **Transparent**: Plugins run in-process with the application, so only install plugins you trust
 
 Plugins can extend NetWORKS by:
 
@@ -43,8 +66,8 @@ A NetWORKS plugin is a directory containing the following components:
 
 ```
 my_plugin/
-├── API.md              # API documentation (required)
-├── plugin.yaml         # Plugin metadata (required)
+├── API.md              # API documentation (expected)
+├── manifest.json       # Plugin metadata (required, preferred)
 ├── my_plugin.py        # Main plugin file (specified in entry_point)
 ├── resources/          # Resources directory (optional)
 │   ├── icons/          # Plugin icons
@@ -57,22 +80,23 @@ my_plugin/
 
 ### Required Files
 
-#### plugin.yaml
+#### manifest.json / plugin.json / plugin.yaml (legacy)
 
-This file contains plugin metadata:
+This file contains plugin metadata. NetWORKS reads `manifest.json` or `plugin.json` first, and falls back to `plugin.yaml` for legacy plugins.
 
-```yaml
-id: my_plugin               # Unique identifier for the plugin
-name: My Plugin             # Human-readable name
-version: 1.0.0              # Plugin version (semantic versioning recommended)
-description: >              # Description of what the plugin does
-  A comprehensive description of the plugin's functionality.
-  Can span multiple lines.
-author: Your Name           # Author name or organization
-entry_point: my_plugin.py   # Main plugin file
-min_app_version: 0.1.0      # Minimum compatible application version (optional)
-dependencies:               # Other plugins this plugin depends on (optional)
-  - other_plugin: ">=1.0.0"
+```json
+{
+  "id": "my_plugin",
+  "name": "My Plugin",
+  "version": "1.0.0",
+  "description": "A comprehensive description of the plugin's functionality.",
+  "author": "chibashr",
+  "entry_point": "my_plugin.py",
+  "min_app_version": "0.1.0",
+  "dependencies": [
+    { "id": "other_plugin", "version": ">=1.0.0" }
+  ]
+}
 ```
 
 #### API.md
@@ -87,7 +111,7 @@ This file documents the public API your plugin exposes to other plugins. It shou
 6. Integration examples
 7. Available settings and configuration options
 
-The API.md file is **required** for all plugins. Without this file, the plugin will not be properly documented, and users will not know how to use your plugin's features.
+The API.md file is expected for all plugins. NetWORKS will warn if it is missing, and the documentation hub cannot surface plugin docs without it.
 
 Here's a recommended structure for your API.md file:
 
@@ -150,15 +174,25 @@ Version history and changes.
 
 #### Main Plugin File
 
-This is the entry point specified in `plugin.yaml`. It must contain a class that inherits from `PluginInterface`:
+This is the entry point specified in your manifest file. It should contain a class that inherits from `PluginInterface` and implements `initialize(app, plugin_info)`:
 
 ```python
 from src.core.plugin_interface import PluginInterface
 
 class MyPlugin(PluginInterface):
-    def initialize(self):
+    def __init__(self):
+        super().__init__()
+
+    def initialize(self, app, plugin_info):
+        # Store references provided by the app
+        self.app = app
+        self.device_manager = app.device_manager
+        self.main_window = app.main_window
+        self.config = app.config
+        self.plugin_info = plugin_info
+
         # Plugin initialization code
-        super().initialize()
+        self._initialized = True
         return True
         
     def cleanup(self):
@@ -183,6 +217,92 @@ The lifecycle of a plugin includes the following stages:
 5. **Operation**: The plugin runs and responds to events
 6. **Cleanup**: When unloading, the plugin's `cleanup()` method is called
 
+NetWORKS calls `initialize(app, plugin_info)` during load. The optional `start()` and `stop()` hooks are available for plugin-managed workflows, but they are not invoked automatically by the plugin manager.
+
+## Communication and Integration
+
+Use these patterns to keep plugins interoperable and predictable.
+
+### Core References
+
+Plugins receive these references in `initialize(app, plugin_info)`:
+
+- `app`: The application instance
+- `device_manager`: Device and group operations + signals
+- `main_window`: UI integration surface
+- `config`: Application configuration access
+- `plugin_info`: Metadata and state for the current plugin
+
+Keep these as attributes so other methods can use them safely.
+
+### Signals to Listen To
+
+Common signals that enable cross-plugin awareness:
+
+- `device_manager.device_added(device)`
+- `device_manager.device_removed(device)`
+- `device_manager.device_changed(device)`
+- `device_manager.selection_changed(devices)`
+- `plugin_manager.plugin_loaded(plugin_info)`
+- `plugin_manager.plugin_unloaded(plugin_info)`
+- `plugin_manager.plugin_enabled(plugin_info)`
+- `plugin_manager.plugin_disabled(plugin_info)`
+- `plugin_manager.plugin_state_changed(plugin_info)`
+- `plugin_manager.plugin_status_changed(plugin_info, status_message)`
+
+Connect during `initialize()` and disconnect during `cleanup()` to avoid leaked connections.
+
+### Signals You Can Emit
+
+`PluginInterface` defines lifecycle signals you can emit to communicate status:
+
+- `plugin_initialized`
+- `plugin_starting`
+- `plugin_running`
+- `plugin_stopping`
+- `plugin_cleaned_up`
+- `plugin_error(message)`
+
+Emit these when meaningful so other plugins and diagnostics can react.
+
+### Interacting With Other Plugins
+
+Plugins can query other plugins through the plugin manager:
+
+```python
+plugin_manager = self.plugin_manager
+other_plugin_info = plugin_manager.get_plugin("other_plugin_id")
+if other_plugin_info and other_plugin_info.loaded:
+    other_plugin = other_plugin_info.instance
+    # Use other_plugin public methods documented in its API.md
+```
+
+Use this pattern to keep integrations optional and resilient.
+
+### Cross-Plugin Contracts
+
+If your plugin exposes a public API:
+
+- Document methods and expected inputs/outputs in `API.md`
+- Avoid relying on private attributes of other plugins
+- Prefer stable, versioned methods and clear error behavior
+
+### Plugin Settings Communication
+
+If your plugin exposes settings via `get_settings()`:
+
+- Keep setting IDs stable across releases
+- Validate values in `update_setting()` and return `False` on invalid input
+- Document each setting in `API.md` so other plugins can read values safely
+
+### Workspace Awareness
+
+Workspace plugins are discovered when a workspace loads. If your plugin stores data:
+
+- Prefer storing within your plugin directory or a workspace-specific subfolder
+- Avoid global state that spans workspaces unless intentionally shared
+- Recompute workspace-specific caches in `initialize()` or on workspace change hooks
+
 ### Plugin Initialization
 
 During initialization, a plugin should:
@@ -195,9 +315,16 @@ During initialization, a plugin should:
 Example:
 
 ```python
-def initialize(self):
+def initialize(self, app, plugin_info):
     # Set up internal data
     self.devices = {}
+
+    # Store app references
+    self.app = app
+    self.device_manager = app.device_manager
+    self.main_window = app.main_window
+    self.config = app.config
+    self.plugin_info = plugin_info
     
     # Connect to signals
     self.device_manager.device_added.connect(self.on_device_added)
@@ -208,7 +335,7 @@ def initialize(self):
         self.setup_ui_components()
     
     # Initialize complete
-    super().initialize()
+    self._initialized = True
     return True
 ```
 
@@ -247,15 +374,17 @@ plugins/my_first_plugin/
 
 ### Step 2: Create the Plugin Metadata
 
-Create a `plugin.yaml` file:
+Create a `manifest.json` file (recommended) or `plugin.yaml` (legacy):
 
-```yaml
-id: my_first_plugin
-name: My First Plugin
-version: 0.1.0
-description: A simple demonstration plugin
-author: Your Name
-entry_point: my_first_plugin.py
+```json
+{
+  "id": "my_first_plugin",
+  "name": "My First Plugin",
+  "version": "0.1.0",
+  "description": "A simple demonstration plugin",
+  "author": "chibashr",
+  "entry_point": "my_first_plugin.py"
+}
 ```
 
 ### Step 3: Create the Main Plugin File
@@ -270,8 +399,8 @@ from src.core.plugin_interface import PluginInterface
 
 
 class MyFirstPlugin(PluginInterface):
-    def __init__(self, app):
-        super().__init__(app)
+    def __init__(self):
+        super().__init__()
         self.name = "My First Plugin"
         self.version = "0.1.0"
         self.description = "A simple demonstration plugin"
@@ -279,13 +408,19 @@ class MyFirstPlugin(PluginInterface):
         # Create UI components
         self._create_widgets()
         
-    def initialize(self):
+    def initialize(self, app, plugin_info):
         """Initialize the plugin"""
+        self.app = app
+        self.device_manager = app.device_manager
+        self.main_window = app.main_window
+        self.config = app.config
+        self.plugin_info = plugin_info
+
         # Connect to signals
         self.device_manager.device_added.connect(self.on_device_added)
         
         # Complete initialization
-        super().initialize()
+        self._initialized = True
         return True
         
     def cleanup(self):
@@ -580,9 +715,16 @@ To make settings persistent across application restarts, you can:
 Example implementation:
 
 ```python
-def initialize(self):
+def initialize(self, app, plugin_info):
+    # Store app references
+    self.app = app
+    self.device_manager = app.device_manager
+    self.main_window = app.main_window
+    self.config = app.config
+    self.plugin_info = plugin_info
+
     # Load settings from config file
-    config_file = os.path.join(self.get_plugin_dir(), "config.json")
+    config_file = os.path.join(self.plugin_info.path, "config.json")
     if os.path.exists(config_file):
         with open(config_file, "r") as f:
             saved_settings = json.load(f)
@@ -590,7 +732,7 @@ def initialize(self):
                 if key in self.settings:
                     self.settings[key]["value"] = value
     
-    super().initialize()
+    self._initialized = True
     return True
 
 def update_setting(self, setting_id, value):
@@ -601,7 +743,7 @@ def update_setting(self, setting_id, value):
     self.settings[setting_id]["value"] = value
     
     # Save settings to config file
-    config_file = os.path.join(self.get_plugin_dir(), "config.json")
+    config_file = os.path.join(self.plugin_info.path, "config.json")
     settings_dict = {k: v["value"] for k, v in self.settings.items()}
     with open(config_file, "w") as f:
         json.dump(settings_dict, f, indent=4)
@@ -660,6 +802,47 @@ Use semantic versioning (MAJOR.MINOR.PATCH):
 - MAJOR: Incompatible API changes
 - MINOR: Added functionality in a backward-compatible manner
 - PATCH: Backward-compatible bug fixes
+
+### 6. Keep the UI Responsive
+
+Avoid long-running work on the UI thread:
+- Move I/O and heavy computation to a worker thread
+- Use signals to report progress and update UI safely
+- Cancel or stop workers during `cleanup()`
+
+### 7. Track Signal Connections
+
+Maintain a list of signal connections you establish so you can disconnect cleanly:
+- Connect in `initialize()`
+- Disconnect in `cleanup()` even if initialization was partial
+- Guard disconnects to avoid exceptions
+
+### 8. Use Stable Public APIs
+
+If other plugins might call you:
+- Keep your public methods small and documented
+- Validate inputs and return consistent shapes
+- Log useful errors instead of raising unhandled exceptions
+
+### 9. Declare Dependencies Explicitly
+
+Use the manifest `dependencies` field when you rely on other plugins:
+- Check for dependency availability at runtime
+- Degrade gracefully if the dependency is missing or disabled
+
+### 10. Store Data Predictably
+
+Keep plugin data in clear, documented locations:
+- Prefer a `data/` folder inside your plugin directory
+- Separate workspace-specific data if it should not be shared
+- Document file formats and retention in your `README.md`
+
+### 11. Log With Context
+
+Use structured logging and include your plugin ID in messages:
+- Prefer `logger.info(f"[{self.plugin_info.id}] ...")`
+- Log configuration changes and external integrations
+- Avoid logging sensitive values
 
 ## Advanced Topics
 
@@ -744,8 +927,7 @@ The Network Scanner plugin provides an excellent example of a well-structured pl
 - Supports custom scan profiles with configurable options
 - Provides UI integration through context menu actions
 - Incorporates a dedicated settings page for configuration
-- **Automatic system dependency installation**: When enabled, automatically detects and offers to install `nmap` if missing
-- **Automatic system dependency installation**: When enabled, automatically detects and offers to install `nmap` if missing
+- **Dependency awareness**: Reports missing Python/system requirements so you can install them before enabling features
 
 #### Code Organization
 
@@ -835,6 +1017,42 @@ profile_deleted = Signal(str)       # profile name
 
 For more details, see the [Network Scanner Plugin API documentation](../plugins/network_scanner/API.md).
 
+## Diagnostics and Validation
+
+These checks make plugins easier to support and integrate.
+
+### Startup Validation Checklist
+
+- Confirm required manifest fields are present and correct
+- Confirm the entry point file exists and is importable
+- Confirm your plugin class implements `initialize(app, plugin_info)`
+- Warn clearly if optional dependencies are missing
+- Log a concise startup summary (version, key config, feature flags)
+
+### Dependency Probes
+
+If you depend on optional libraries or executables:
+
+- Check availability during `initialize()`
+- Disable only the feature that needs the dependency
+- Log a single warning with remediation steps
+
+### Self-Test Hooks
+
+Provide a lightweight self-test path to validate core behavior:
+
+- Expose a menu or toolbar action that runs a quick smoke test
+- Log pass/fail with actionable errors
+- Keep tests fast and non-destructive
+
+### Failure Modes
+
+When failing to initialize:
+
+- Return `False` from `initialize()` and log the root cause
+- Avoid raising uncaught exceptions
+- Leave the UI in a safe, unchanged state
+
 ## Troubleshooting
 
 ### Plugin Not Loading
@@ -874,7 +1092,7 @@ device.set_property("backup.next_scheduled", "2023-05-22")
 device.set_property("backup_error_count", 0)
 ```
 
-Where `your_plugin_id` must match your plugin's ID exactly as defined in your plugin.yaml file.
+Where `your_plugin_id` must match your plugin's ID exactly as defined in your manifest file.
 
 Properties that don't follow this convention will appear in the "Custom Properties" section instead.
 

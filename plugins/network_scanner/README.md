@@ -17,7 +17,10 @@ The Network Scanner plugin allows NetWORKS to discover devices on your network u
 - **Device Discovery**: Automatically add discovered devices to the inventory
 - **OS Detection**: Identify operating systems of discovered devices
 - **Port Scanning**: Detect open ports and services on network devices
-- **Scan Profiles**: Create and manage custom scan profiles through the settings interface
+- **Scan Profiles**: Create and manage custom scan profiles through the scan dialog
+- **Selected Device Batches**: Scan selected devices sequentially with per-device progress
+- **Group Scans**: Run scans against devices in a selected group from the control panel
+- **Responsive Controls**: The dock panel stacks form rows on narrow widths to avoid overlap
 
 ## Requirements
 
@@ -27,7 +30,8 @@ The Network Scanner plugin allows NetWORKS to discover devices on your network u
 - Nmap 7.0+
 - Python packages:
   - python-nmap>=0.7.1
-  - psutil>=5.9.0 (used for interface detection; wheels are available on most platforms)
+- psutil>=5.9.0 (used for interface detection; wheels are available on most platforms)
+  - Interface discovery uses psutil only (no netifaces fallback)
 
 ## Installation
 
@@ -51,6 +55,7 @@ The Network Scanner plugin allows NetWORKS to discover devices on your network u
 2. Configure your scan settings:
    - Select your desired network interface
    - The network range will be automatically populated, or you can enter a custom range
+   - Optionally select a device group and enable "Scan Group Devices"
    - Choose a scan type from the dropdown
    - Adjust OS detection and port scanning options as needed
 3. Click "Start Scan" to begin scanning using the current panel settings.
@@ -67,12 +72,17 @@ The Network Scanner plugin allows NetWORKS to discover devices on your network u
    - **Scan Device's Network**: Scan the subnet of the selected device
    - **Rescan Selected Device(s)**: Rescan the selected device(s)
 
+The scan dialog treats each target type (selected devices, group devices, interface subnet,
+or custom range) as a scan target and runs the appropriate scan mode for each.
+
 ### Scan Types
 
 - **Quick**: Fast ping-only scan to discover hosts (minimal network impact)
 - **Standard**: Balanced scan with some port scanning and OS detection
 - **Comprehensive**: In-depth scan with extensive port scanning and OS fingerprinting
 - **Custom**: Create your own scan profiles with specific settings
+
+Scan profiles can be edited directly in the scan dialog on the "Scan Profiles" tab.
 
 ### Advanced Options
 
@@ -92,6 +102,23 @@ Discovered devices are automatically added to the NetWORKS device inventory with
 - OS information (when detected)
 - Open ports and services (when scanned)
 - "scanned" tag for easy identification
+
+## Settings and Scan Profiles
+
+Settings are managed in the Plugin Manager dialog. Key settings include:
+- Default scan type (quick, standard, comprehensive, or custom)
+- Preferred interface
+- OS detection and port scanning toggles
+- Elevated permissions (sudo/admin)
+- Custom nmap arguments
+- Auto-tagging for discovered devices
+- Scan profiles (create, edit, and select profiles)
+
+Profiles define arguments, timeouts, and detection options. Use "Manage Profiles" in the plugin settings to customize them.
+
+## Data and Storage
+
+The Network Scanner plugin primarily writes results into device properties and tags in the NetWORKS inventory. It does not require separate data files for scan history by default.
 
 ## Troubleshooting
 

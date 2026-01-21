@@ -15,6 +15,9 @@ The Network Scanner plugin provides capabilities to discover devices on a networ
 - Elevated permission scanning for more accurate results
 - Custom nmap arguments for advanced users
 - Create and manage custom scan profiles
+- Edit scan profiles directly from the scan dialog
+- Batch scan selected devices with per-device progress
+- Enumerate network interfaces via psutil-only detection
 
 ## Public API
 

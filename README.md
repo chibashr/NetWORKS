@@ -4,17 +4,15 @@ An extensible device management application.
 
 ## Features
 
-- Device management with customizable properties
-- Workspace support for managing different device configurations
-- Plugin system for extending functionality
-- Context menu support for device interactions
+- Device inventory with groups, tags, and custom properties
+- Workspace isolation with per-workspace UI layout persistence
+- Plugin system for UI extensions and device automation
 - Multi-device selection and bulk operations
-- Device grouping with automatic name conflict resolution
-- Autosave with configurable intervals and automatic backups
-- Comprehensive application settings with multiple configuration options
-- Bulk import of devices from files or pasted text
-- Manifest and changelog tracking for the application and plugins
-- Windows launcher for easy setup and execution
+- Import wizard for CSV/text device onboarding
+- Autosave with configurable backups and rotation
+- Centralized settings for UI, autosave, devices, and logging
+- Integrated documentation hub with dynamically loaded plugin docs
+- Windows launcher for quick setup and execution
 
 ## Installation
 
@@ -136,152 +134,39 @@ See the [Plugin Development Guide](docs/plugins/README.md) for details on creati
 
 ## Documentation
 
-NetWORKS includes comprehensive documentation to help you get started:
+NetWORKS includes comprehensive documentation to help you get started and extend the platform:
 
+- [Documentation Index](docs/index.md): Master entry point for all docs
+- [Program Reference](docs/PROGRAM_REFERENCE.md): Architecture, data layout, and core systems
 - [Getting Started Guide](docs/GETTING_STARTED.md): First steps with NetWORKS
-- [Device Management Guide](docs/DEVICE_MANAGEMENT.md): Guide to managing devices and groups
-- [Multi-Device Operations](docs/MULTI_DEVICE_OPERATIONS.md): Guide to working with multiple devices
-- [Development Guide](docs/DEVELOPMENT.md): Information for developers
-- [API Documentation](docs/API.md): Overview of the API
-- [Signals Documentation](docs/api/signals.md): Working with signals and events
-- [Plugin Development Guide](docs/plugins/README.md): How to extend NetWORKS with plugins
+- [Device Management Guide](docs/DEVICE_MANAGEMENT.md): Managing devices and groups
+- [Workspaces](docs/workspaces.md): Workspace structure and layout persistence
+- [Autosave Documentation](docs/autosave.md): Autosave and backups
+- [Development Guide](docs/DEVELOPMENT.md): Core development and plugin lifecycle
+- [API Documentation](docs/API.md): API overview for plugins
+- [Plugin Development Guide](docs/plugins/README.md): Extending NetWORKS
 
-### Detailed Documentation
-
-For more detailed documentation, see the [docs](docs) directory, which includes:
-
-- [Autosave Documentation](docs/autosave.md): How to configure and use the autosave system
-- [Plugin Development Guide](docs/plugins/README.md)
-- [API Documentation Guidelines](docs/api/README.md)
-- [Core API Reference](docs/api/core.md)
-- [UI API Reference](docs/api/ui.md)
-- [Context Menu API](docs/api/context_menu.md): How to use and extend the context menu
-- [Signals Documentation](docs/api/signals.md): Working with signals and events
-- [Multi-Device Operations](docs/api/context_menu.md#multi-device-selection-support): Support for working with multiple devices
+Plugin documentation lives inside each plugin folder (for example, `plugins/network_scanner/README.md`). The in-app documentation hub loads plugin docs dynamically when plugins are loaded.
 
 ## Architecture
 
-NetWORKS is built with a modular architecture:
+NetWORKS is built around three layers:
+- **Core**: Device management, workspace persistence, configuration, and logging
+- **UI**: Dock-based main window, device tree/table, and dialogs
+- **Plugins**: Feature extensions, discovery, and UI integrations
 
-- **Core**: Provides base functionality for device and plugin management
-- **UI**: Handles the user interface components
-- **Plugins**: Extend the application with additional features
+Core services include:
+- **Device Manager**: Device/group CRUD, selection, and persistence
+- **Plugin Manager**: Discovery, enable/disable, load/unload, lifecycle
+- **Configuration Manager**: Layered config (`default.yaml`, `plugins.yaml`, `user.yaml`)
 
-### Core Components
-
-- **Device Manager**: Manages devices, their properties, and grouping
-- **Plugin Manager**: Handles plugin discovery, loading, and lifecycle
-- **Configuration Manager**: Manages application and plugin configuration
-
-### Plugin System
-
-Plugins can extend the application in the following ways:
-
-- Add toolbar actions and menu items
-- Register device types and properties
-- Add columns to the device table
-- Add panels to the device details view
-- Add dock widgets to the main window
-- Define custom device operations
-- Connect to and emit signals for event-driven functionality
+Plugins can extend the application by:
+- Adding toolbar actions and menu items
+- Registering device properties and operations
+- Adding device table columns and detail panels
+- Adding dock widgets and settings pages
+- Subscribing to and emitting application signals
 
 ## License
 
 This project is licensed under the MIT License.
-
-# Network Commands Plugin
-
-## Overview
-
-The Network Commands plugin for NetWORKS allows you to run and manage commands on network devices and store the results for analysis. It supports command templates, command groups, credential management, and result export.
-
-## Features
-
-- **Command Execution**: Run commands on network devices and view results
-- **Command Templates**: Manage templates for common commands by device type
-- **Command Groups**: Create groups of commands to run in sequence
-- **Secure Credentials**: Store and manage credentials for devices and groups
-- **Result Management**: View, export, and manage command results
-- **Custom Commands**: Enter and run custom commands directly in the UI
-
-## Installation
-
-1. Ensure NetWORKS is installed
-2. Place the `network_commands` folder in the `plugins` directory
-3. Start NetWORKS and enable the plugin
-
-## Usage
-
-### Running Commands
-
-1. Select a device in the device list
-2. Right-click and select "Run Command"
-3. Choose a command from the menu
-4. View the results in the Command Results panel
-
-### Using Command Groups
-
-1. Create a command group using the "Manage Command Groups" dialog
-2. Select one or more devices
-3. Right-click and select "Run Command Group"
-4. Choose a command group from the menu
-5. All commands in the group will run sequentially
-
-### Managing Credentials
-
-1. Select a device or group
-2. Right-click and select "Set Device Credentials" or "Set Group Credentials"
-3. Enter the username, password, and optional enable secret
-4. Credentials will be securely stored for future use
-
-### Exporting Results
-
-1. Select a device
-2. Open the Command Results panel
-3. Click "Export Results"
-4. Choose individual results to export or export all results
-
-## Command Templates
-
-Command templates are stored in JSON files in the `templates` directory. Each file contains templates for a specific device type.
-
-Example template format:
-
-```json
-{
-  "device_type": "cisco_ios",
-  "commands": [
-    {
-      "id": "show_version",
-      "name": "Show Version",
-      "description": "Display device hardware and software version information",
-      "command": "show version",
-      "parameters": {},
-      "parser": "text"
-    }
-  ]
-}
-```
-
-## Command Groups
-
-Command groups allow you to run multiple commands as a batch. Groups can be created and managed through the UI.
-
-## Security
-
-- Credentials are stored with basic encryption
-- No credentials are stored in plain text
-- Authentication status is verified before running commands
-
-## Troubleshooting
-
-If you encounter issues:
-
-1. Check that your device credentials are correct
-2. Verify network connectivity to the device
-3. Check the application logs for error messages
-4. Make sure the device supports the commands you're trying to run
-
-## License
-
-This plugin is part of the NetWORKS application and is governed by the same license terms. 

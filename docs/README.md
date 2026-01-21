@@ -1,16 +1,18 @@
 # NetWORKS Documentation Hub
 
-Welcome to the NetWORKS documentation hub. This directory contains comprehensive documentation for the NetWORKS platform.
+Welcome to the NetWORKS documentation hub. This directory contains the authoritative documentation for the platform and serves as the source for the in-app documentation browser.
 
 ## Documentation Structure
 
-The documentation is organized into the following sections:
+The documentation is organized into:
+- **User guides**: Getting started, device management, workspaces, autosave.
+- **Program reference**: Architecture, data layout, and core systems.
+- **API reference**: Core, UI, and signals for plugin developers.
+- **Plugin development**: Manifest, extension points, and best practices.
 
-- [API Documentation](api/README.md): Documentation of the NetWORKS API
-- [Plugin Development](plugins/README.md): Guide for developing plugins
-- [User Documentation](../GETTING_STARTED.md): Guide for using NetWORKS
+Use `index.md` as the master entry point.
 
-## Using This Documentation
+## Documentation Index
 
 Start with the [Documentation Index](index.md) for a complete overview of all available documentation.
 
@@ -19,8 +21,13 @@ Start with the [Documentation Index](index.md) for a complete overview of all av
 - [Core API Documentation](api/core.md)
 - [UI API Documentation](api/ui.md)
 - [Plugin Development Guide](plugins/README.md)
-- [Getting Started](../GETTING_STARTED.md)
-- [Development Guide](../DEVELOPMENT.md)
+- [Program Reference](PROGRAM_REFERENCE.md)
+- [Getting Started](GETTING_STARTED.md)
+- [Development Guide](DEVELOPMENT.md)
+
+## Plugin Documentation in the Hub
+
+Plugin documentation is stored in each plugin folder (for example, `plugins/network_scanner/README.md`). The in-app documentation hub loads plugin docs dynamically when a plugin is loaded, so the hub always reflects the active plugin set.
 
 ## Contributing to Documentation
 
@@ -37,4 +44,4 @@ Documentation is a critical part of the NetWORKS platform. If you find areas tha
 ## Other Resources
 
 - [Sample Plugin](../plugins/sample/API.md): Example of a well-documented plugin
-- [Main Project README](../README.md): Overview of the project 
+- [Main Project README](../README.md): Overview of the project
