@@ -27,6 +27,13 @@ except ImportError:
     logger.debug("pandas not available for importing Excel files")
 
 try:
+    import openpyxl
+    HAS_OPENPYXL = True
+except ImportError:
+    HAS_OPENPYXL = False
+    logger.debug("openpyxl not available for importing XLSX files")
+
+try:
     import xlrd
     HAS_XLRD = True
 except ImportError:
@@ -149,7 +156,7 @@ class DeviceImporter:
         
         try:
             # Handle different file types
-            if file_ext in ['.xlsx', '.xls'] and (HAS_PANDAS or (file_ext == '.xls' and HAS_XLRD)):
+            if file_ext in ['.xlsx', '.xls'] and (HAS_PANDAS or HAS_OPENPYXL or (file_ext == '.xls' and HAS_XLRD)):
                 data, headers = self._extract_from_excel(file_path, file_ext, options)
             elif file_ext == '.docx' and HAS_DOCX:
                 data, headers = self._extract_from_docx(file_path, options)
@@ -180,6 +187,8 @@ class DeviceImporter:
                 logger.warning("pandas is not installed, falling back to other methods")
                 if file_ext == '.xls' and HAS_XLRD:
                     return self._extract_from_excel_xlrd(file_path, options)
+                if file_ext == '.xlsx' and HAS_OPENPYXL:
+                    return self._extract_from_excel_openpyxl(file_path, options)
                 return [], None
                 
             try:
@@ -201,7 +210,12 @@ class DeviceImporter:
                 if file_ext == '.xls' and HAS_XLRD:
                     logger.info("Trying xlrd fallback for .xls file")
                     return self._extract_from_excel_xlrd(file_path, options)
+                if file_ext == '.xlsx' and HAS_OPENPYXL:
+                    logger.info("Trying openpyxl fallback for .xlsx file")
+                    return self._extract_from_excel_openpyxl(file_path, options)
                 return [], None
+        elif file_ext == '.xlsx' and HAS_OPENPYXL:
+            return self._extract_from_excel_openpyxl(file_path, options)
         elif file_ext == '.xls' and HAS_XLRD:
             return self._extract_from_excel_xlrd(file_path, options)
             
@@ -218,6 +232,7 @@ class DeviceImporter:
             tuple: (data, headers) where data is a list of rows and headers is a list of column names
         """
         has_header = options.get('has_header', True)
+        skip_rows = max(int(options.get('skip_rows', 0)), 0)
         
         try:
             # Use xlrd directly
@@ -235,9 +250,50 @@ class DeviceImporter:
                 headers = [f"Column {i+1}" for i in range(sheet.ncols)]
                 data = all_rows
                 
+            if skip_rows:
+                data = data[skip_rows:]
+                
             return data, headers
         except Exception as e:
             logger.error(f"Error reading Excel file with xlrd: {e}", exc_info=True)
+            return [], None
+
+    def _extract_from_excel_openpyxl(self, file_path, options):
+        """Extract data from XLSX files using openpyxl
+        
+        Args:
+            file_path: Path to the Excel file
+            options: Import options
+            
+        Returns:
+            tuple: (data, headers) where data is a list of rows and headers is a list of column names
+        """
+        has_header = options.get('has_header', True)
+        skip_rows = max(int(options.get('skip_rows', 0)), 0)
+        
+        try:
+            workbook = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+            sheet = workbook.active
+            rows = list(sheet.iter_rows(values_only=True))
+            if not rows:
+                logger.warning("No rows found in XLSX file")
+                return [], None
+                
+            rows = [list(row) for row in rows]
+            
+            if has_header and len(rows) > 0:
+                headers = [str(value) if value is not None else "" for value in rows[0]]
+                data = rows[1:]
+            else:
+                headers = [f"Column {i+1}" for i in range(len(rows[0]))]
+                data = rows
+                
+            if skip_rows:
+                data = data[skip_rows:]
+                
+            return data, headers
+        except Exception as e:
+            logger.error(f"Error reading Excel file with openpyxl: {e}", exc_info=True)
             return [], None
     
     def _extract_from_docx(self, file_path, options):
@@ -322,6 +378,8 @@ class DeviceImporter:
             
         delimiter = options.get('delimiter', ',')
         has_header = options.get('has_header', True)
+        skip_rows = max(int(options.get('skip_rows', 0)), 0)
+        skip_rows = max(int(options.get('skip_rows', 0)), 0)
         
         # Handle different delimiter options
         delimiter_map = {
@@ -329,7 +387,8 @@ class DeviceImporter:
             "Tab": '\t',
             "Semicolon (;)": ';',
             "Pipe (|)": '|',
-            "Space": ' '
+            "Space": ' ',
+            "Auto-detect": "auto"
         }
         if isinstance(delimiter, str) and delimiter in delimiter_map:
             delimiter = delimiter_map[delimiter]
@@ -337,6 +396,16 @@ class DeviceImporter:
         # Read the file with detected encoding
         try:
             with open(file_path, 'r', newline='', encoding=encoding, errors='replace') as f:
+                if delimiter == "auto":
+                    sample = f.read(4096)
+                    f.seek(0)
+                    try:
+                        delimiter = csv.Sniffer().sniff(sample).delimiter
+                        logger.debug(f"Auto-detected delimiter: '{delimiter}'")
+                    except Exception:
+                        delimiter = ','
+                        logger.debug("Could not auto-detect delimiter, defaulting to comma")
+                        
                 reader = csv.reader(f, delimiter=delimiter)
                 rows = list(reader)
                 
@@ -356,6 +425,9 @@ class DeviceImporter:
                         
                     headers = [f"Column {i+1}" for i in range(len(rows[0]))]
                     data = rows
+                    
+                if skip_rows:
+                    data = data[skip_rows:]
                     
                 return data, headers
         except csv.Error as e:
@@ -389,7 +461,8 @@ class DeviceImporter:
             "Tab": '\t',
             "Semicolon (;)": ';',
             "Pipe (|)": '|',
-            "Space": ' '
+            "Space": ' ',
+            "Auto-detect": "auto"
         }
         if isinstance(delimiter, str) and delimiter in delimiter_map:
             delimiter = delimiter_map[delimiter]
@@ -399,8 +472,9 @@ class DeviceImporter:
         
         # Detect if it's a simple list of IPs/hostnames or CSV data
         is_simple_list = True
+        delimiter_probe = delimiter if delimiter != "auto" else ","
         for line in lines[:10]:  # Check first 10 lines
-            if line.strip() and delimiter in line:
+            if line.strip() and delimiter_probe in line:
                 is_simple_list = False
                 break
         
@@ -413,10 +487,19 @@ class DeviceImporter:
                 data = [[line] for line in valid_lines]
                 headers = ["ip_address"]
                 logger.debug(f"Created {len(data)} rows with 1 column from line-by-line input")
+                if skip_rows:
+                    data = data[skip_rows:]
                 return data, headers
         
         # Otherwise process as normal CSV
         try:
+            if delimiter == "auto":
+                sample = "\n".join(lines[:10])
+                try:
+                    delimiter = csv.Sniffer().sniff(sample).delimiter
+                except Exception:
+                    delimiter = ','
+                    
             logger.debug(f"Processing as CSV with delimiter: '{delimiter}'")
             f = io.StringIO(text)
             reader = csv.reader(f, delimiter=delimiter)
@@ -445,6 +528,9 @@ class DeviceImporter:
             else:
                 headers = [f"Column {i+1}" for i in range(len(rows[0]))]
                 data = rows
+                
+            if skip_rows:
+                data = data[skip_rows:]
                 
             return data, headers
         except Exception as e:
@@ -477,9 +563,14 @@ class DeviceImporter:
         
         # Get options
         field_mapping = options.get('field_mapping', {})
+        duplicate_strategy = options.get('duplicate_strategy')
         skip_duplicates = options.get('skip_duplicates', False)
         mark_imported = options.get('mark_imported', True)
         target_group = options.get('target_group', None)
+        progress_callback = options.get('progress_callback')
+        
+        if not duplicate_strategy:
+            duplicate_strategy = "skip" if skip_duplicates else "create_new"
         
         # If no field mapping provided, try to auto-detect
         if not field_mapping:
@@ -489,7 +580,7 @@ class DeviceImporter:
         existing_ips = {}
         existing_hostnames = {}
         
-        if skip_duplicates:
+        if duplicate_strategy in ["skip", "overwrite"]:
             for device in self.device_manager.get_devices():
                 ip = device.get_property("ip_address")
                 hostname = device.get_property("hostname")
@@ -500,7 +591,13 @@ class DeviceImporter:
                     existing_hostnames[hostname.strip()] = device
         
         # Process each row and create devices
+        total_rows = len(data)
+        processed_rows = 0
+        
         for row_data in data:
+            processed_rows += 1
+            if progress_callback:
+                progress_callback(processed_rows, total_rows)
             # Skip empty rows or rows with only empty strings
             if not row_data:
                 continue
@@ -511,6 +608,7 @@ class DeviceImporter:
                 
             # Create base device properties
             device_props = {}
+            row_groups = []
             
             # Map fields based on the field mapping
             for i, header in enumerate(headers):
@@ -547,6 +645,21 @@ class DeviceImporter:
                     if prop_name is None:
                         prop_name = header
                     
+                    if prop_name == "ignore":
+                        continue
+                    if prop_name == "custom":
+                        prop_name = header
+                    
+                    if prop_name == "groups":
+                        if value not in (None, ""):
+                            if isinstance(value, str):
+                                row_groups.extend(
+                                    [group.strip() for group in value.split(",") if group.strip()]
+                                )
+                            else:
+                                row_groups.append(str(value))
+                        continue
+                    
                     # Convert value to appropriate type if needed
                     if value not in (None, ""):
                         # Handle tags as a list
@@ -555,6 +668,11 @@ class DeviceImporter:
                             device_props[prop_name] = tags
                         else:
                             device_props[prop_name] = value
+
+            # Normalize key string fields early to avoid type issues
+            for key in ["ip_address", "hostname"]:
+                if key in device_props and device_props[key] is not None:
+                    device_props[key] = str(device_props[key])
             
             # Skip if we don't have either IP address or hostname
             if not device_props.get("ip_address") and not device_props.get("hostname"):
@@ -563,17 +681,18 @@ class DeviceImporter:
                 continue
                 
             # Check for duplicates
-            if skip_duplicates:
-                ip = device_props.get("ip_address", "").strip()
-                hostname = device_props.get("hostname", "").strip()
+            duplicate_device = None
+            if duplicate_strategy in ["skip", "overwrite"]:
+                ip = str(device_props.get("ip_address", "") or "").strip()
+                hostname = str(device_props.get("hostname", "") or "").strip()
                 
                 if ip and ip in existing_ips:
-                    logger.debug(f"Skipping duplicate IP: {ip}")
-                    stats["skipped_count"] += 1
-                    continue
+                    duplicate_device = existing_ips[ip]
+                elif hostname and hostname in existing_hostnames:
+                    duplicate_device = existing_hostnames[hostname]
                     
-                if hostname and hostname in existing_hostnames:
-                    logger.debug(f"Skipping duplicate hostname: {hostname}")
+                if duplicate_device and duplicate_strategy == "skip":
+                    logger.debug("Skipping duplicate device based on IP/hostname")
                     stats["skipped_count"] += 1
                     continue
             
@@ -608,20 +727,38 @@ class DeviceImporter:
                     else:
                         device_props["tags"] = []
                 
-                # Create a device with minimal valid properties
-                device = Device(alias=alias, **device_props)
-                
-                # Add to device manager
-                self.device_manager.add_device(device)
+                if duplicate_device and duplicate_strategy == "overwrite":
+                    update_props = {k: v for k, v in device_props.items() if v not in ("", None)}
+                    if alias not in ("", None):
+                        update_props["alias"] = alias
+                    if update_props:
+                        duplicate_device.update_properties(update_props)
+                        self.device_manager.device_changed.emit(duplicate_device)
+                        self.device_manager.save_workspace()
+                    device = duplicate_device
+                else:
+                    # Create a device with minimal valid properties
+                    device = Device(alias=alias, **device_props)
+                    
+                    # Add to device manager
+                    self.device_manager.add_device(device)
                 
                 # Add to group if specified
                 if target_group and target_group != self.device_manager.root_group:
                     self.device_manager.add_device_to_group(device, target_group)
                 
+                # Add to groups provided in the import data
+                for group_name in row_groups:
+                    group = self.device_manager.get_group(group_name)
+                    if not group:
+                        group = self.device_manager.create_group(group_name)
+                    if group and group != self.device_manager.root_group:
+                        self.device_manager.add_device_to_group(device, group)
+                
                 # Update tracking for duplicates
-                if skip_duplicates:
-                    ip = device_props.get("ip_address", "").strip()
-                    hostname = device_props.get("hostname", "").strip()
+                if duplicate_strategy in ["skip", "overwrite"]:
+                    ip = str(device_props.get("ip_address", "") or "").strip()
+                    hostname = str(device_props.get("hostname", "") or "").strip()
                     if ip:
                         existing_ips[ip] = device
                     if hostname:
@@ -685,482 +822,6 @@ class DeviceImporter:
         Returns:
             bool: True if import was successful, False otherwise
         """
-        # Import Qt modules here to avoid circular imports
-        from PySide6.QtWidgets import (
-            QWizard, QWizardPage, QVBoxLayout, QHBoxLayout, QFormLayout,
-            QGroupBox, QLabel, QLineEdit, QPushButton, QRadioButton, 
-            QButtonGroup, QCheckBox, QComboBox, QTableWidget, 
-            QTableWidgetItem, QAbstractItemView, QPlainTextEdit,
-            QFileDialog, QMessageBox, QDialog
-        )
-        from PySide6.QtCore import Qt, Signal, QModelIndex
-        import os
+        from ..ui.import_wizard import run_device_import_wizard
         
-        # Create the wizard dialog
-        wizard = QWizard(parent)
-        wizard.setWindowTitle("Import Devices")
-        wizard.setMinimumSize(800, 600)
-        
-        # First page - choose file or paste text
-        intro_page = QWizardPage()
-        intro_page.setTitle("Import Devices")
-        intro_page.setSubTitle("Choose import method")
-        
-        intro_layout = QVBoxLayout(intro_page)
-        
-        method_group = QButtonGroup(intro_page)
-        file_radio = QRadioButton("Import from file")
-        text_radio = QRadioButton("Paste text data")
-        
-        file_radio.setChecked(True)
-        method_group.addButton(file_radio)
-        method_group.addButton(text_radio)
-        
-        intro_layout.addWidget(file_radio)
-        intro_layout.addWidget(text_radio)
-        
-        # Add page and store page ID
-        intro_page_id = wizard.addPage(intro_page)
-        
-        # Second page - file selection (only shown if file radio is selected)
-        file_page = QWizardPage()
-        file_page.setTitle("File Import")
-        file_page.setSubTitle("Select a file to import devices from")
-        
-        file_layout = QVBoxLayout(file_page)
-        
-        file_select_layout = QHBoxLayout()
-        file_path_edit = QLineEdit()
-        file_path_edit.setPlaceholderText("Select a file...")
-        file_select_layout.addWidget(file_path_edit)
-        
-        def select_file():
-            filter_str = "CSV Files (*.csv);;Text Files (*.txt)"
-            if HAS_PANDAS:
-                filter_str += ";;Excel Files (*.xlsx *.xls)"
-            if HAS_XLRD:
-                filter_str += ";;Excel Files (*.xls)"
-            
-            filter_str = "All Supported Files (" + \
-                         "*.csv *.txt" + \
-                         (" *.xlsx *.xls" if HAS_PANDAS else "") + \
-                         (" *.xls" if HAS_XLRD else "") + \
-                         ");;" + filter_str
-            
-            file_path, _ = QFileDialog.getOpenFileName(
-                wizard, "Select Import File", "", filter_str
-            )
-            if file_path:
-                file_path_edit.setText(file_path)
-                logger.debug(f"Import file selected: {file_path}")
-                # Make sure the Next button is enabled
-                wizard.button(QWizard.NextButton).setEnabled(True)
-        
-        browse_button = QPushButton("Browse...")
-        browse_button.clicked.connect(select_file)
-        file_select_layout.addWidget(browse_button)
-        file_layout.addLayout(file_select_layout)
-        
-        file_options_group = QGroupBox("File Options")
-        file_options_layout = QFormLayout(file_options_group)
-        
-        delimiter_combo = QComboBox()
-        delimiter_combo.addItems(["Comma (,)", "Tab", "Semicolon (;)", "Pipe (|)", "Space"])
-        file_options_layout.addRow("Delimiter:", delimiter_combo)
-        
-        has_header_check = QCheckBox("First row contains headers")
-        has_header_check.setChecked(True)
-        file_options_layout.addRow("", has_header_check)
-        
-        encoding_combo = QComboBox()
-        encoding_combo.addItems(["Auto-detect", "UTF-8", "ASCII", "Latin-1 (ISO-8859-1)", "Windows-1252"])
-        file_options_layout.addRow("Text Encoding:", encoding_combo)
-        
-        file_layout.addWidget(file_options_group)
-        
-        # Add page validation
-        def file_page_isComplete():
-            # Check if a file is selected
-            return bool(file_path_edit.text())
-        
-        file_page.isComplete = file_page_isComplete
-        file_page_id = wizard.addPage(file_page)
-        
-        # Connect file path changes to update the Next button state
-        def on_file_path_changed():
-            # Enable Next button when a file path is entered
-            has_file = bool(file_path_edit.text())
-            wizard.button(QWizard.NextButton).setEnabled(has_file)
-            
-        file_path_edit.textChanged.connect(on_file_path_changed)
-        
-        # Initial state - disable Next button if no file selected
-        wizard.button(QWizard.NextButton).setEnabled(False)
-        
-        # Text page (only shown if text radio is selected)
-        text_page = QWizardPage()
-        text_page.setTitle("Text Import")
-        text_page.setSubTitle("Paste data below")
-        
-        text_layout = QVBoxLayout(text_page)
-        
-        text_options_group = QGroupBox("Text Options")
-        text_options_layout = QFormLayout(text_options_group)
-        
-        text_delimiter_combo = QComboBox()
-        text_delimiter_combo.addItems(["Comma (,)", "Tab", "Semicolon (;)", "Pipe (|)", "Space", "Auto-detect"])
-        text_options_layout.addRow("Delimiter:", text_delimiter_combo)
-        
-        text_has_header_check = QCheckBox("First row contains headers")
-        text_has_header_check.setChecked(True)
-        text_options_layout.addRow("", text_has_header_check)
-        
-        text_layout.addWidget(text_options_group)
-        
-        text_edit = QPlainTextEdit()
-        text_edit.setPlaceholderText("Paste data here...")
-        text_layout.addWidget(text_edit)
-        
-        # Help text
-        help_label = QLabel("You can paste CSV data, or a simple list of IP addresses or hostnames (one per line)")
-        help_label.setWordWrap(True)
-        text_layout.addWidget(help_label)
-        
-        # Add page validation
-        def text_page_isComplete():
-            # Check if text is entered
-            return bool(text_edit.toPlainText().strip())
-        
-        text_page.isComplete = text_page_isComplete
-        text_page_id = wizard.addPage(text_page)
-        
-        # Connect text edit changes to completeChanged signal
-        def on_text_changed():
-            # Enable the Next button when there's text
-            has_text = bool(text_edit.toPlainText().strip())
-            wizard.button(QWizard.NextButton).setEnabled(has_text)
-        
-        text_edit.textChanged.connect(on_text_changed)
-        
-        # Initial state - disable Next button if no text
-        wizard.button(QWizard.NextButton).setEnabled(False)
-        
-        # Field mapping page
-        mapping_page = QWizardPage()
-        mapping_page.setTitle("Field Mapping")
-        mapping_page.setSubTitle("Map columns to device properties")
-        
-        mapping_layout = QVBoxLayout(mapping_page)
-        
-        # Mapping table
-        mapping_table = QTableWidget()
-        mapping_table.setColumnCount(2)
-        mapping_table.setHorizontalHeaderLabels(["Field", "Device Property"])
-        mapping_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        mapping_table.horizontalHeader().setStretchLastSection(True)
-        
-        mapping_layout.addWidget(mapping_table)
-        
-        # Preview table
-        preview_group = QGroupBox("Data Preview")
-        preview_layout = QVBoxLayout(preview_group)
-        
-        preview_table = QTableWidget()
-        preview_layout.addWidget(preview_table)
-        
-        mapping_layout.addWidget(preview_group)
-        
-        mapping_page_id = wizard.addPage(mapping_page)
-        
-        # Options page
-        options_page = QWizardPage()
-        options_page.setTitle("Import Options")
-        options_page.setSubTitle("Set additional import options")
-        
-        options_layout = QVBoxLayout(options_page)
-        
-        target_group_label = QLabel("Target Group:")
-        options_layout.addWidget(target_group_label)
-        
-        target_group_combo = QComboBox()
-        target_group_combo.addItem("All Devices")
-        
-        # Add all groups
-        for group in self.device_manager.get_groups():
-            if group != self.device_manager.root_group:
-                target_group_combo.addItem(group.name)
-        
-        options_layout.addWidget(target_group_combo)
-        
-        # New group option
-        new_group_layout = QHBoxLayout()
-        new_group_check = QCheckBox("Create new group:")
-        new_group_edit = QLineEdit()
-        new_group_edit.setEnabled(False)
-        
-        def toggle_new_group():
-            new_group_edit.setEnabled(new_group_check.isChecked())
-            if new_group_check.isChecked():
-                target_group_combo.setEnabled(False)
-            else:
-                target_group_combo.setEnabled(True)
-        
-        new_group_check.toggled.connect(toggle_new_group)
-        
-        new_group_layout.addWidget(new_group_check)
-        new_group_layout.addWidget(new_group_edit)
-        options_layout.addLayout(new_group_layout)
-        
-        # Options
-        skip_duplicates_check = QCheckBox("Skip duplicates (based on IP address and hostname)")
-        skip_duplicates_check.setChecked(True)
-        options_layout.addWidget(skip_duplicates_check)
-        
-        mark_imported_check = QCheckBox("Add 'imported' tag to devices")
-        mark_imported_check.setChecked(True)
-        options_layout.addWidget(mark_imported_check)
-        
-        options_page_id = wizard.addPage(options_page)
-        
-        # Confirmation page
-        confirm_page = QWizardPage()
-        confirm_page.setTitle("Confirm Import")
-        confirm_page.setSubTitle("Ready to import devices")
-        
-        confirm_layout = QVBoxLayout(confirm_page)
-        
-        summary_label = QLabel()
-        summary_label.setWordWrap(True)
-        confirm_layout.addWidget(summary_label)
-        
-        confirm_page_id = wizard.addPage(confirm_page)
-        
-        # Prepare data function
-        def prepare_data():
-            data = []
-            headers = None
-            
-            try:
-                if file_radio.isChecked():
-                    # File import
-                    file_path = file_path_edit.text()
-                    if not file_path or not os.path.exists(file_path):
-                        logger.error(f"File not found: {file_path}")
-                        return [], None
-                    
-                    # Collect options
-                    options = {
-                        'delimiter': delimiter_combo.currentText(),
-                        'has_header': has_header_check.isChecked(),
-                        'encoding': encoding_combo.currentText(),
-                    }
-                    
-                    # Extract data from the file
-                    data, headers = self._extract_data_from_file(
-                        file_path, 
-                        os.path.splitext(file_path)[1].lower(), 
-                        options
-                    )
-                else:
-                    # Text import
-                    text = text_edit.toPlainText()
-                    if not text.strip():
-                        logger.error("No text provided")
-                        return [], None
-                    
-                    # Collect options
-                    options = {
-                        'delimiter': text_delimiter_combo.currentText(),
-                        'has_header': text_has_header_check.isChecked(),
-                    }
-                    
-                    # Extract data from text
-                    data, headers = self._extract_data_from_text(text, options)
-                
-                return data, headers
-            except Exception as e:
-                logger.error(f"Error preparing data: {e}", exc_info=True)
-                QMessageBox.critical(wizard, "Import Error", f"Error preparing data: {str(e)}")
-                return [], None
-        
-        # Wizard page navigation
-        def on_current_id_changed(page_id):
-            if page_id == file_page_id:
-                # Only show file page if file import is selected
-                if not file_radio.isChecked():
-                    wizard.next()
-            elif page_id == text_page_id:
-                # Only show text page if text import is selected
-                if not text_radio.isChecked():
-                    wizard.next()
-            elif page_id == mapping_page_id:
-                # Populate mapping page
-                data, headers = prepare_data()
-                
-                if not data or not headers:
-                    QMessageBox.critical(wizard, "Import Error", "No data could be extracted")
-                    wizard.back()
-                    return
-                
-                # Update mapping table
-                mapping_table.setRowCount(len(headers))
-                
-                # Available device properties
-                properties = [
-                    "alias", "hostname", "ip_address", "mac_address", 
-                    "status", "notes", "tags", "vendor", "model", 
-                    "serial_number", "location", "custom"
-                ]
-                
-                # Auto-detect mappings based on header names
-                auto_mappings = self._auto_detect_field_mapping(headers)
-                
-                # Add headers to the mapping table
-                for i, header in enumerate(headers):
-                    # Add the header
-                    header_item = QTableWidgetItem(header)
-                    header_item.setFlags(header_item.flags() & ~Qt.ItemIsEditable)
-                    mapping_table.setItem(i, 0, header_item)
-                    
-                    # Add combo box for mapping
-                    combo = QComboBox()
-                    combo.addItems(properties)
-                    
-                    # Find the mapping for this header
-                    for field_name, mapped_headers in auto_mappings.items():
-                        if header in mapped_headers:
-                            combo.setCurrentText(field_name)
-                            break
-                    
-                    mapping_table.setCellWidget(i, 1, combo)
-                
-                # Update preview table
-                max_rows = min(5, len(data))
-                preview_table.setRowCount(max_rows)
-                preview_table.setColumnCount(len(headers))
-                preview_table.setHorizontalHeaderLabels(headers)
-                
-                for row in range(max_rows):
-                    for col in range(len(headers)):
-                        if col < len(data[row]):
-                            item = QTableWidgetItem(str(data[row][col]))
-                            preview_table.setItem(row, col, item)
-            
-            elif page_id == confirm_page_id:
-                # Create summary text for confirmation page
-                data, headers = prepare_data()
-                row_count = len(data) if data else 0
-                
-                if new_group_check.isChecked():
-                    target = f"Create new group: {new_group_edit.text()}"
-                else:
-                    target = f"Add to group: {target_group_combo.currentText()}"
-                    
-                summary = f"""
-                Ready to import {row_count} device(s).
-                
-                {target}
-                
-                Skip duplicates: {"Yes" if skip_duplicates_check.isChecked() else "No"}
-                Add 'imported' tag: {"Yes" if mark_imported_check.isChecked() else "No"}
-                """
-                
-                summary_label.setText(summary)
-        
-        wizard.currentIdChanged.connect(on_current_id_changed)
-        
-        # Import function
-        def import_devices():
-            try:
-                # Get the data
-                data, headers = prepare_data()
-                
-                if not data:
-                    logger.error("No data to import")
-                    QMessageBox.critical(
-                        wizard,
-                        "Import Error",
-                        "No data to import"
-                    )
-                    return False
-                
-                # Get field mapping
-                field_mapping = {}
-                for i in range(mapping_table.rowCount()):
-                    header = mapping_table.item(i, 0).text()
-                    mapping = mapping_table.cellWidget(i, 1).currentText()
-                    
-                    # Add to mapping
-                    if mapping not in field_mapping:
-                        field_mapping[mapping] = []
-                    field_mapping[mapping].append(header)
-                
-                # Get or create target group
-                target_group = None
-                if new_group_check.isChecked():
-                    group_name = new_group_edit.text()
-                    if group_name:
-                        target_group = self.device_manager.create_group(group_name)
-                else:
-                    group_name = target_group_combo.currentText()
-                    target_group = self.device_manager.get_group(group_name)
-                
-                # Prepare import options
-                import_options = {
-                    'field_mapping': field_mapping,
-                    'skip_duplicates': skip_duplicates_check.isChecked(),
-                    'mark_imported': mark_imported_check.isChecked(),
-                    'target_group': target_group
-                }
-                
-                # Perform the import
-                if file_radio.isChecked():
-                    # File import
-                    file_path = file_path_edit.text()
-                    import_options['delimiter'] = delimiter_combo.currentText()
-                    import_options['has_header'] = has_header_check.isChecked()
-                    import_options['encoding'] = encoding_combo.currentText()
-                    
-                    success, stats = self.import_from_file(file_path, import_options)
-                else:
-                    # Text import
-                    text = text_edit.toPlainText()
-                    import_options['delimiter'] = text_delimiter_combo.currentText()
-                    import_options['has_header'] = text_has_header_check.isChecked()
-                    
-                    success, stats = self.import_from_text(text, import_options)
-                
-                # Show results
-                if success:
-                    QMessageBox.information(
-                        wizard,
-                        "Import Successful",
-                        f"Successfully imported {stats['imported_count']} device(s).\n"
-                        f"Skipped: {stats['skipped_count']}\n"
-                        f"Errors: {stats['error_count']}"
-                    )
-                    return True
-                else:
-                    QMessageBox.warning(
-                        wizard,
-                        "Import Warning",
-                        f"Import completed with warnings.\n"
-                        f"Imported: {stats['imported_count']}\n"
-                        f"Skipped: {stats['skipped_count']}\n"
-                        f"Errors: {stats['error_count']}"
-                    )
-                    return stats['imported_count'] > 0
-            except Exception as e:
-                logger.error(f"Error during import: {e}", exc_info=True)
-                QMessageBox.critical(
-                    wizard,
-                    "Import Error",
-                    f"An error occurred during import: {str(e)}"
-                )
-                return False
-        
-        # Run the wizard
-        if wizard.exec_() == QDialog.Accepted:
-            return import_devices()
-        
-        return False 
+        return run_device_import_wizard(self.device_manager, parent)

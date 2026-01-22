@@ -22,6 +22,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QAction, QIcon, QFont, QTextCursor
 
+from src.ui.plugin_ui_theme import mark_plugin_ui
+
 
 class CommandWorker(QObject):
     """Worker for running commands in the background"""
@@ -212,6 +214,7 @@ class CommandDialog(QDialog):
             parent: Parent widget
         """
         super().__init__(parent)
+        mark_plugin_ui(self)
         
         self.plugin = plugin
         self.worker_thread = None

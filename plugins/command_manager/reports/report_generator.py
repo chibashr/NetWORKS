@@ -17,12 +17,15 @@ from PySide6.QtWidgets import (
     QDialogButtonBox, QLineEdit, QComboBox
 )
 
+from src.ui.plugin_ui_theme import mark_plugin_ui
+
 class ReportGenerator(QDialog):
     """Dialog for generating command output reports"""
     
     def __init__(self, plugin, parent=None):
         """Initialize the dialog"""
         super().__init__(parent)
+        mark_plugin_ui(self)
         
         self.plugin = plugin
         

@@ -35,29 +35,49 @@ class PluginListItem(QListWidgetItem):
         # Set icon based on plugin status
         self.update_icon()
         
+    def _load_plugin_icon(self, color):
+        icon_path = getattr(self.plugin_info, "icon_path", None)
+        if not icon_path or not os.path.exists(icon_path):
+            return QIcon()
+        base_icon = QIcon(icon_path)
+        pixmap = base_icon.pixmap(QSize(32, 32))
+        if pixmap.isNull():
+            return QIcon()
+        tinted = QPixmap(pixmap.size())
+        tinted.fill(Qt.transparent)
+        painter = QPainter(tinted)
+        painter.setCompositionMode(QPainter.CompositionMode_Source)
+        painter.drawPixmap(0, 0, pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode_SourceIn)
+        painter.fillRect(tinted.rect(), color)
+        painter.end()
+        return QIcon(tinted)
+        
     def update_icon(self):
         """Update the icon based on plugin status"""
         # Update the display text to show status
         status_text = ""
+        palette = QApplication.palette()
+        text_color = palette.color(QPalette.Text)
+        disabled_color = palette.color(QPalette.Disabled, QPalette.Text)
+        error_color = QColor(Qt.red)
         
         if self.plugin_info.state.is_disabled:
             status_text = " [Disabled]"
-            self.setForeground(Qt.gray)
-            self.setIcon(QIcon())
+            self.setForeground(QBrush(disabled_color))
+            self.setIcon(self._load_plugin_icon(disabled_color))
         elif self.plugin_info.state.is_loaded:
             status_text = " [Loaded]"
-            self.setForeground(Qt.black)
-            # Use a green dot icon or similar for loaded plugins
-            # This would be better with actual icons
-            self.setIcon(QIcon())
+            self.setForeground(QBrush(text_color))
+            self.setIcon(self._load_plugin_icon(text_color))
         elif self.plugin_info.state.is_enabled:
             status_text = " [Enabled]"
-            self.setForeground(Qt.darkGreen)
-            self.setIcon(QIcon())
+            self.setForeground(QBrush(text_color))
+            self.setIcon(self._load_plugin_icon(text_color))
         elif self.plugin_info.state == self.plugin_info.state.ERROR:
             status_text = " [Error]"
-            self.setForeground(Qt.red)
-            self.setIcon(QIcon())
+            self.setForeground(QBrush(error_color))
+            self.setIcon(self._load_plugin_icon(error_color))
             
         self.setText(f"{self.plugin_info.name}{status_text}")
 
@@ -133,6 +153,7 @@ class PluginManagerDialog(QDialog):
         # Plugin list
         self.plugin_list = QListWidget()
         self.plugin_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.plugin_list.setIconSize(QSize(32, 32))
         self.plugin_list.currentItemChanged.connect(self.on_plugin_selected)
         self.plugin_list_layout.addWidget(self.plugin_list)
         
@@ -238,7 +259,7 @@ class PluginManagerDialog(QDialog):
         self.status_label = QLabel("")
         self.status_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.status_label.setWordWrap(True)
-        self.status_label.setStyleSheet("color: #444; font-weight: bold;")
+        self.status_label.setObjectName("PluginStatusLabel")
         self.form_layout.addRow("Status:", self.status_label)
         
         self.details_layout.addLayout(self.form_layout)
@@ -281,7 +302,7 @@ class PluginManagerDialog(QDialog):
         self.documentation_view.setReadOnly(True)
         self.documentation_view.setOpenExternalLinks(True)
         self.documentation_view.setMinimumHeight(200)
-        self.documentation_view.setStyleSheet("font-family: monospace;")
+        self.documentation_view.setObjectName("PluginDocumentationView")
         
         # Add markdown support later if available
         self.no_docs_label = QLabel("No documentation available for this plugin")
@@ -306,7 +327,7 @@ class PluginManagerDialog(QDialog):
         self.status_bar = QLabel("No pending changes")
         self.status_bar.setFrameShape(QLabel.Panel)
         self.status_bar.setFrameShadow(QLabel.Sunken)
-        self.status_bar.setStyleSheet("padding: 5px; background-color: #f0f0f0;")
+        self.status_bar.setObjectName("PluginStatusBar")
         
         # Create button layout
         self.button_layout = QHBoxLayout()
@@ -325,7 +346,7 @@ class PluginManagerDialog(QDialog):
         # Default to enabled - will be automatically updated based on changes
         self.save_changes_button.setEnabled(False)
         # Make the save button more prominent
-        self.save_changes_button.setStyleSheet("font-weight: bold;")
+        self.save_changes_button.setProperty("importance", "primary")
         
         self.close_button = QPushButton("Close")
         self.close_button.clicked.connect(self.accept)

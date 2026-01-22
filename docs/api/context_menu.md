@@ -11,6 +11,10 @@ The context menu system consists of:
 3. A priority system for ordering actions in the menu
 4. Support for multiple device selection
 
+Selection source:
+- Checked devices (checkbox column) are the primary selection for menus.
+- If no devices are checked, the currently highlighted rows are used.
+
 ## Registering Context Menu Actions
 
 Plugins can register context menu actions using the `register_context_menu_action` method of the `DeviceTableView` class:

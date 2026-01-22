@@ -17,6 +17,7 @@ This guide provides comprehensive information for developing plugins for the Net
 - [Diagnostics and Validation](#diagnostics-and-validation)
 - [Troubleshooting](#troubleshooting)
 - [Device Properties](#device-properties)
+- [Plugin UI Design Guide](ui_design.md)
 
 ## Quick Start
 
@@ -41,6 +42,29 @@ Each plugin should document itself in its own folder:
 - `docs/` (optional): Additional guides and troubleshooting notes.
 
 The documentation hub loads plugin documentation dynamically when a plugin is loaded, so keep these files up to date.
+
+## Icon Specifications
+
+Icons used in plugin UI should follow the application icon spec in
+`docs/Design Considerations.md`.
+
+**Sizes:**
+- Toolbar: 24x24px
+- Panel header: 16x16px
+- Inline: 16x16px
+- Status: 12x12px
+- Large (dialogs): 32x32px
+- Plugin icon: 48x48px minimum (store under `resources/icons`)
+
+**Style:**
+- Material Icons (filled)
+- Monochrome using theme text colors (black in light theme, white in dark theme)
+- Minimal detail
+- 2px stroke width when using outline variants
+- SVG preferred
+
+**Behavior:**
+- Icon-only actions must include tooltips and aria-labels
 
 ## Plugin System Overview
 

@@ -138,6 +138,29 @@ self.device_manager.permanently_delete_device(device)
 self.device_manager.restore_device(device)
 ```
 
+## Icon Specifications
+
+Icons used in plugin UI should follow the application icon spec in
+`docs/Design Considerations.md`.
+
+**Sizes:**
+- Toolbar: 24x24px
+- Panel header: 16x16px
+- Inline: 16x16px
+- Status: 12x12px
+- Large (dialogs): 32x32px
+- Plugin icon: 48x48px minimum (store under `resources/icons`)
+
+**Style:**
+- Material Icons (filled)
+- Monochrome using theme text colors (black in light theme, white in dark theme)
+- Minimal detail
+- 2px stroke width when using outline variants
+- SVG preferred
+
+**Behavior:**
+- Icon-only actions must include tooltips and aria-labels
+
 ## Best Practices
 
 1. **Use Descriptive Names**: Give devices clear, descriptive names

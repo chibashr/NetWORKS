@@ -55,6 +55,8 @@ def deselect_device(self, device) -> bool
 def clear_selection(self) -> bool
 def get_selected_devices(self) -> list
 
+Note: `get_selected_devices()` returns the checkbox-based selection only. If you need menu behavior that uses highlighted rows when nothing is checked, use `DeviceTableView.get_selected_devices()`.
+
 # Persistence
 def save_devices(self) -> bool
 def load_devices(self) -> bool

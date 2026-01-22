@@ -3,6 +3,7 @@
   "name": "Report Generator",
   "version": "1.0.0",
   "description": "Build tabular and template-based reports from devices and export to common formats",
+  "icon": "resources/icons/report_generator.svg",
   "author": "chibashr",
   "entry_point": "report_generator.py",
   "min_app_version": "0.8.16",

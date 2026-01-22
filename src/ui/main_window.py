@@ -8,7 +8,7 @@ Main window for NetWORKS
 import os
 from loguru import logger
 from PySide6.QtWidgets import (
-    QMainWindow, QDockWidget, QToolBar, QStatusBar, QMenuBar, QMenu,
+    QMainWindow, QDockWidget, QStatusBar, QMenuBar, QMenu,
     QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTreeView, QFrame, QLabel, QToolButton, QPushButton, QTableView,
     QHeaderView, QAbstractItemView, QSizePolicy, QInputDialog, QLineEdit, QMessageBox, QDialog, QListWidget, QTableWidget, QTableWidgetItem, QTextBrowser,
@@ -23,8 +23,11 @@ import re
 from .device_table import DeviceTableModel, DeviceTableView, QAbstractItemView
 from .device_tree import DeviceTreeModel, DeviceTreeView, DeviceTreePanel
 from .plugin_manager_dialog import PluginManagerDialog
+from .plugin_ui_theme import mark_plugin_ui
 from .log_panel import LogPanel
 from .responsive_toolbar import ResponsiveToolbar
+from .scalable_toolbar import ScalableToolbar
+from .material_icons import material_icon
 
 
 class MainWindow(QMainWindow):
@@ -97,6 +100,7 @@ class MainWindow(QMainWindow):
         # Refresh device table
         if hasattr(self, "device_table"):
             self.device_table.refresh()
+            self.device_table.restore_workspace_state()
             
         # Refresh device panel
         if hasattr(self, "device_panel"):
@@ -133,14 +137,22 @@ class MainWindow(QMainWindow):
         """Create actions for menus and toolbars"""
         # File menu actions
         self.action_new_device = QAction("New Device", self)
+        self.action_new_device.setIcon(material_icon("devices", self, QStyle.SP_ComputerIcon))
         self.action_new_device.setStatusTip("Create a new device")
         self.action_new_device.triggered.connect(self.on_new_device)
         
         self.action_new_group = QAction("New Group", self)
+        self.action_new_group.setIcon(material_icon("create_new_folder", self, QStyle.SP_DirIcon))
         self.action_new_group.setStatusTip("Create a new device group")
         self.action_new_group.triggered.connect(self.on_new_group)
+
+        self.action_import_devices = QAction("Import Devices", self)
+        self.action_import_devices.setIcon(material_icon("file_upload", self, QStyle.SP_DialogOpenButton))
+        self.action_import_devices.setStatusTip("Import devices from a file")
+        self.action_import_devices.triggered.connect(self.on_import_devices)
         
         self.action_save = QAction("Save", self)
+        self.action_save.setIcon(material_icon("save", self, QStyle.SP_DialogSaveButton))
         self.action_save.setShortcut(QKeySequence.Save)
         self.action_save.setStatusTip("Save all devices")
         self.action_save.triggered.connect(self.on_save)
@@ -184,6 +196,7 @@ class MainWindow(QMainWindow):
         
         # View menu actions
         self.action_refresh = QAction("Refresh", self)
+        self.action_refresh.setIcon(material_icon("refresh", self, QStyle.SP_BrowserReload))
         self.action_refresh.setShortcut(QKeySequence.Refresh)
         self.action_refresh.setStatusTip("Refresh device status")
         self.action_refresh.triggered.connect(self.on_refresh)
@@ -217,12 +230,7 @@ class MainWindow(QMainWindow):
         
         # Recycle bin action
         self.action_recycle_bin = QAction("Recycle Bin", self)
-        try:
-            from qtawesome import icon
-            self.action_recycle_bin.setIcon(icon('fa5s.trash-restore'))
-        except:
-            # If qtawesome is not available, use a standard icon
-            self.action_recycle_bin.setIcon(self.style().standardIcon(QStyle.SP_TrashIcon))
+        self.action_recycle_bin.setIcon(material_icon("restore_from_trash", self, QStyle.SP_TrashIcon))
         self.action_recycle_bin.setStatusTip("View and restore deleted devices")
         self.action_recycle_bin.triggered.connect(self.on_recycle_bin)
         
@@ -234,6 +242,7 @@ class MainWindow(QMainWindow):
         self.menu_file = self.menu_bar.addMenu("File")
         self.menu_file.addAction(self.action_new_device)
         self.menu_file.addAction(self.action_new_group)
+        self.menu_file.addAction(self.action_import_devices)
         self.menu_file.addSeparator()
         
         # Workspace submenu
@@ -278,32 +287,32 @@ class MainWindow(QMainWindow):
         
     def _create_toolbar(self):
         """Create toolbar"""
-        self.toolbar = QToolBar("Main Toolbar")
+        self.toolbar = ScalableToolbar("Main Toolbar")
+        self.toolbar.setObjectName("MainToolbar")
         self.toolbar.setMovable(False)
-        self.toolbar.setIconSize(QSize(20, 20))  # Reduced from 24x24
-        
-        # Make the toolbar more compact
-        self.toolbar.setStyleSheet("""
-            QToolBar {
-                spacing: 2px;
-                padding: 1px;
-                margin: 0px;
-            }
-            QToolButton {
-                padding: 2px;
-                margin: 0px;
-            }
-        """)
+        self.toolbar.setIconSize(QSize(24, 24))
+        self.toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
         
         self.addToolBar(self.toolbar)
+
+        self.addToolBarBreak(Qt.TopToolBarArea)
+        self.plugin_toolbar = ScalableToolbar("Plugin Toolbar")
+        self.plugin_toolbar.setObjectName("PluginToolbar")
+        self.plugin_toolbar.setMovable(False)
+        self.plugin_toolbar.setIconSize(QSize(24, 24))
+        self.plugin_toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self.plugin_toolbar.setVisible(False)
+
+        self.addToolBar(Qt.TopToolBarArea, self.plugin_toolbar)
         
         # Add actions to toolbar
-        self.toolbar.addAction(self.action_new_device)
-        self.toolbar.addAction(self.action_new_group)
-        self.toolbar.addSeparator()
-        self.toolbar.addAction(self.action_save)
-        self.toolbar.addSeparator()
-        self.toolbar.addAction(self.action_refresh)
+        self.toolbar.add_toolbar_action(self.action_new_device, priority=100)
+        self.toolbar.add_toolbar_action(self.action_new_group, priority=95)
+        self.toolbar.add_toolbar_action(self.action_import_devices, priority=90)
+        self.toolbar.add_toolbar_separator()
+        self.toolbar.add_toolbar_action(self.action_save, priority=85)
+        self.toolbar.add_toolbar_separator()
+        self.toolbar.add_toolbar_action(self.action_refresh, priority=80)
         
     def _create_statusbar(self):
         """Create status bar"""
@@ -340,6 +349,10 @@ class MainWindow(QMainWindow):
         # Create device table (without splitter now)
         self.device_table = DeviceTableView(self.device_manager)
         self.main_layout.addWidget(self.device_table.get_container_widget())
+        if self.device_table.selectionModel():
+            self.device_table.selectionModel().selectionChanged.connect(
+                self._on_table_highlight_changed
+            )
         
     def _create_dock_widgets(self):
         """Create dock widgets"""
@@ -391,29 +404,7 @@ class MainWindow(QMainWindow):
         # Add double click handler
         self.properties_table.cellDoubleClicked.connect(self._handle_property_double_click)
         
-        # Apply modern styling
-        self.properties_table.setStyleSheet("""
-            QTableWidget {
-                border: none;
-                background-color: white;
-                gridline-color: #E0E0E0;
-            }
-            QTableWidget::item {
-                padding: 4px;
-                border-bottom: 1px solid #F0F0F0;
-            }
-            QHeaderView::section {
-                background-color: #F5F5F5;
-                padding: 6px;
-                border: none;
-                border-bottom: 1px solid #D0D0D0;
-                font-weight: bold;
-            }
-            QTableWidget::item:selected {
-                background-color: #E0F0FF;
-                color: #000000;
-            }
-        """)
+        # Use global theme styling for properties table
         
         # Toolbar for property actions
         toolbar_container = ResponsiveToolbar()
@@ -495,9 +486,23 @@ class MainWindow(QMainWindow):
         # Add toolbar actions
         toolbar_actions = plugin.get_toolbar_actions()
         if toolbar_actions:
-            self.toolbar.addSeparator()
+            if not hasattr(plugin_info, 'ui_components'):
+                plugin_info.ui_components = {}
+            if 'toolbar_actions' not in plugin_info.ui_components:
+                plugin_info.ui_components['toolbar_actions'] = []
+            existing_actions = [
+                action for action in self.plugin_toolbar.actions()
+                if action is not self.plugin_toolbar._overflow_action
+            ]
+            if existing_actions:
+                separator = self.plugin_toolbar.add_toolbar_separator()
+                plugin_info.ui_components['toolbar_actions'].append(separator)
             for action in toolbar_actions:
-                self.toolbar.addAction(action)
+                if action.property("toolbar_priority") is None:
+                    action.setProperty("toolbar_priority", 10)
+                self.plugin_toolbar.add_toolbar_action(action)
+                plugin_info.ui_components['toolbar_actions'].append(action)
+            self.plugin_toolbar.setVisible(True)
                 
         # Add menu actions
         menu_actions = plugin.get_menu_actions()
@@ -532,6 +537,7 @@ class MainWindow(QMainWindow):
         # Add device panels to properties widget
         device_panels = plugin.get_device_panels()
         for panel_name, widget in device_panels:
+            mark_plugin_ui(widget)
             self.properties_widget.addTab(widget, panel_name)
             # Store for later removal
             if not hasattr(plugin_info, 'ui_components'):
@@ -549,6 +555,15 @@ class MainWindow(QMainWindow):
             else:
                 dock = QDockWidget(widget_name, self)
                 dock.setWidget(widget)
+
+            plugin_title = getattr(plugin_info, "name", None) or getattr(plugin_info, "id", "")
+            current_title = dock.windowTitle() or widget_name
+            if plugin_title and plugin_title.lower() not in current_title.lower():
+                dock.setWindowTitle(f"{plugin_title} - {current_title}")
+
+            mark_plugin_ui(dock)
+            if dock.widget():
+                mark_plugin_ui(dock.widget())
             
             # Set unique object name for proper layout restoration
             if not dock.objectName():
@@ -599,6 +614,17 @@ class MainWindow(QMainWindow):
                 index = self.properties_widget.indexOf(widget)
                 if index >= 0:
                     self.properties_widget.removeTab(index)
+
+        # Remove toolbar actions
+        if 'toolbar_actions' in plugin_info.ui_components:
+            for action in plugin_info.ui_components['toolbar_actions']:
+                self.plugin_toolbar.removeAction(action)
+            remaining_actions = [
+                action for action in self.plugin_toolbar.actions()
+                if action is not self.plugin_toolbar._overflow_action
+            ]
+            if not remaining_actions:
+                self.plugin_toolbar.setVisible(False)
                     
         # Remove dock widgets
         if 'dock_widgets' in plugin_info.ui_components:
@@ -702,7 +728,7 @@ class MainWindow(QMainWindow):
             logger.debug(f"Showing properties for {len(devices)} devices")
             
             # Get device names for better logging
-            device_names = [d.get_property('alias', f'Device {d.id}') for d in devices]
+            device_names = [str(d.get_property('alias', f'Device {d.id}')) for d in devices]
             logger.debug(f"Multiple devices selected: {', '.join(device_names[:5])}" + 
                        (f" and {len(device_names) - 5} more" if len(device_names) > 5 else ""))
             
@@ -1198,6 +1224,14 @@ class MainWindow(QMainWindow):
         self.device_manager.create_group("New Group")
         
     @Slot()
+    def on_import_devices(self):
+        """Import devices from a file"""
+        logger.debug("Importing devices")
+        from .import_wizard import run_device_import_wizard
+        
+        run_device_import_wizard(self.device_manager, self)
+        
+    @Slot()
     def on_save(self):
         """Save all devices"""
         logger.debug("Saving devices")
@@ -1328,31 +1362,66 @@ class MainWindow(QMainWindow):
     def on_open_workspace(self):
         """Open an existing workspace"""
         logger.debug("Opening workspace")
-        from PySide6.QtWidgets import QInputDialog
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtWidgets import (
+            QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton, QLabel, QMessageBox
+        )
         
         workspaces = self.device_manager.list_workspaces()
         if not workspaces:
             self.status_bar.showMessage("No workspaces available", 3000)
             return
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Open Workspace")
+        dialog.resize(420, 320)
+        
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("Select a workspace:"))
+        
+        list_widget = QListWidget()
+        for workspace in workspaces:
+            list_widget.addItem(workspace.get("name", "Unknown"))
+        layout.addWidget(list_widget)
+        
+        button_layout = QHBoxLayout()
+        browse_button = QPushButton("Browse Folder")
+        open_button = QPushButton("Open")
+        cancel_button = QPushButton("Cancel")
+        button_layout.addWidget(browse_button)
+        button_layout.addStretch()
+        button_layout.addWidget(open_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+        
+        def on_browse():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(self.device_manager.workspaces_dir))
+        
+        def on_open():
+            current_item = list_widget.currentItem()
+            if not current_item:
+                QMessageBox.warning(dialog, "No Selection", "Please select a workspace to open.")
+                return
             
-        workspace_names = [w.get("name", "Unknown") for w in workspaces]
-        
-        name, ok = QInputDialog.getItem(
-            self, "Open Workspace", "Select workspace:", 
-            workspace_names, 0, False
-        )
-        
-        if ok and name:
+            name = current_item.text()
+            
             # Save current workspace before switching
             self.device_manager.save_workspace()
             
             # Load selected workspace
             success = self.device_manager.load_workspace(name)
             if success:
-                # Update UI with new workspace
                 self.refresh_workspace_ui()
+                dialog.accept()
             else:
                 self.status_bar.showMessage(f"Failed to load workspace: {name}", 3000)
+        
+        browse_button.clicked.connect(on_browse)
+        open_button.clicked.connect(on_open)
+        cancel_button.clicked.connect(dialog.reject)
+        
+        dialog.exec()
                 
     @Slot()
     def on_save_workspace(self):
@@ -1368,93 +1437,7 @@ class MainWindow(QMainWindow):
     def on_manage_workspaces(self):
         """Manage workspaces"""
         logger.debug("Managing workspaces")
-        from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton, QLabel, QMessageBox
-        
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Manage Workspaces")
-        dialog.resize(400, 300)
-        
-        layout = QVBoxLayout(dialog)
-        
-        # List of workspaces
-        list_widget = QListWidget()
-        layout.addWidget(QLabel("Available Workspaces:"))
-        layout.addWidget(list_widget)
-        
-        # Buttons
-        button_layout = QHBoxLayout()
-        delete_button = QPushButton("Delete")
-        switch_button = QPushButton("Switch")
-        close_button = QPushButton("Close")
-        
-        button_layout.addWidget(delete_button)
-        button_layout.addWidget(switch_button)
-        button_layout.addWidget(close_button)
-        layout.addLayout(button_layout)
-        
-        # Load workspaces
-        workspaces = self.device_manager.list_workspaces()
-        for workspace in workspaces:
-            name = workspace.get("name", "Unknown")
-            description = workspace.get("description", "")
-            display_text = f"{name} - {description}" if description else name
-            list_widget.addItem(display_text)
-            
-        # Select current workspace
-        for i in range(list_widget.count()):
-            item = list_widget.item(i)
-            if item.text().startswith(self.device_manager.current_workspace):
-                list_widget.setCurrentItem(item)
-                break
-        
-        # Connect buttons
-        def on_delete():
-            current_item = list_widget.currentItem()
-            if current_item:
-                name = current_item.text().split(" - ")[0]
-                if name == "default":
-                    self.status_bar.showMessage("Cannot delete default workspace", 3000)
-                    return
-                    
-                response = QMessageBox.question(
-                    dialog, "Confirm Deletion",
-                    f"Are you sure you want to delete workspace '{name}'?",
-                    QMessageBox.Yes | QMessageBox.No
-                )
-                
-                if response == QMessageBox.Yes:
-                    success = self.device_manager.delete_workspace(name)
-                    if success:
-                        list_widget.takeItem(list_widget.currentRow())
-                        self.status_bar.showMessage(f"Deleted workspace: {name}", 3000)
-                    else:
-                        self.status_bar.showMessage(f"Failed to delete workspace: {name}", 3000)
-        
-        def on_switch():
-            current_item = list_widget.currentItem()
-            if current_item:
-                name = current_item.text().split(" - ")[0]
-                if name != self.device_manager.current_workspace:
-                    # Save current window layout before switching
-                    self._save_workspace_layout()
-                    
-                    # Save current workspace before switching
-                    self.device_manager.save_workspace()
-                    
-                    # Load selected workspace
-                    success = self.device_manager.load_workspace(name)
-                    if success:
-                        # Refresh all UI components
-                        self.refresh_workspace_ui()
-                        dialog.accept()
-                    else:
-                        self.status_bar.showMessage(f"Failed to load workspace: {name}", 3000)
-        
-        delete_button.clicked.connect(on_delete)
-        switch_button.clicked.connect(on_switch)
-        close_button.clicked.connect(dialog.reject)
-        
-        dialog.exec()
+        self.app.show_workspace_selection(is_startup=False)
         
     @Slot()
     def on_recycle_bin(self):
@@ -1755,6 +1738,17 @@ class MainWindow(QMainWindow):
         self.update_status_bar()
         
         # Pass all selected devices to the property panel
+        self.update_property_panel(devices)
+
+    @Slot(object, object)
+    def _on_table_highlight_changed(self, selected, deselected):
+        """Update property panel based on highlights when nothing is checked."""
+        if self.device_manager.get_selected_devices():
+            return
+        if hasattr(self, "device_table") and self.device_table:
+            devices = self.device_table.get_selected_devices()
+        else:
+            devices = []
         self.update_property_panel(devices)
 
     @Slot(list)

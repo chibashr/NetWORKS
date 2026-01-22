@@ -16,12 +16,36 @@ The following fields are required in every plugin manifest:
 The following fields are optional but recommended:
 
 - `description`: A description of the plugin's functionality
+- `icon`: Path to the plugin icon (relative to the plugin root, stored in `resources/icons`)
 - `author`: The plugin author or organization
 - `min_app_version`: The minimum NetWORKS version required
 - `max_app_version`: The maximum NetWORKS version supported
 - `dependencies`: A list of plugin dependencies
 - `requirements`: Python package and system dependencies needed by the plugin
 - `changelog`: A list of changes for each version
+
+## Icon Specifications
+
+Plugins that present UI must follow the application icon spec in
+`docs/Design Considerations.md`. Keep icon assets in `resources/icons`.
+
+**Sizes:**
+- Toolbar: 24x24px
+- Panel header: 16x16px
+- Inline: 16x16px
+- Status: 12x12px
+- Large (dialogs): 32x32px
+- Plugin icon: 48x48px minimum
+
+**Style:**
+- Material Icons (filled)
+- Monochrome using theme text colors (black in light theme, white in dark theme)
+- Minimal detail
+- 2px stroke width when using outline variants
+- SVG preferred
+
+**Behavior:**
+- Icon-only actions must include tooltips and aria-labels
 
 ## Example Manifest
 
@@ -31,6 +55,7 @@ The following fields are optional but recommended:
   "name": "Sample Plugin",
   "version": "1.0.0",
   "description": "A sample plugin to demonstrate the plugin system",
+  "icon": "resources/icons/sample.svg",
   "author": "chibashr",
   "entry_point": "sample_plugin.py",
   "min_app_version": "0.2.0",

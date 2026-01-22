@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
     QSplitter, QProgressBar, QMessageBox, QLineEdit, QTableWidget,
     QTableWidgetItem, QDialog, QDialogButtonBox, QMenu, QFileDialog,
     QRadioButton, QInputDialog, QHeaderView, QSizePolicy, QListWidget,
-    QListWidgetItem
+    QListWidgetItem, QStyle
 )
 from PySide6.QtCore import Qt, Signal, Slot, QSize, QTimer, QThread, QObject
 from PySide6.QtGui import QIcon, QAction, QFont, QColor, QIntValidator
@@ -50,6 +50,8 @@ from PySide6.QtGui import QIcon, QAction, QFont, QColor, QIntValidator
 # Import the plugin interface
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src.core.plugin_interface import PluginInterface
+from src.ui.plugin_ui_theme import mark_plugin_ui
+from src.ui.material_icons import material_icon
 
 
 # Safe action wrapper from sample plugin
@@ -243,24 +245,51 @@ class ScannerWorker(QObject):
                 host_count_estimate = 256
                 try:
                     import ipaddress
-                    if "/" in self.network_range:  # CIDR notation
+                    import re
+                    target_text = self.network_range.strip()
+                    if "/" in target_text:  # CIDR notation
                         try:
-                            network = ipaddress.IPv4Network(self.network_range, strict=False)
+                            network = ipaddress.IPv4Network(target_text, strict=False)
                             host_count_estimate = network.num_addresses
-                            
-                            # Warn if network is very large (more than /20 = 4096 hosts)
-                            # Large networks can cause nmap assertion failures
-                            if host_count_estimate > 4096:
-                                logger.warning(f"Very large network range detected ({host_count_estimate} hosts). This may cause nmap issues.")
-                                self.device_found.emit({
-                                    "status_update": f"Warning: Large network ({host_count_estimate} hosts). Scan may take a long time or fail..."
-                                })
-                            else:
-                                self.device_found.emit({"status_update": f"Preparing to scan {host_count_estimate} potential addresses..."})
                         except Exception:
                             pass
+                    else:
+                        targets = [t for t in re.split(r"[,\s]+", target_text) if t]
+                        if len(targets) > 1:
+                            host_count_estimate = len(targets)
+                        elif len(targets) == 1:
+                            target = targets[0]
+                            if "-" in target:
+                                try:
+                                    start, end = target.split("-", 1)
+                                    if end.isdigit():
+                                        parts = start.split(".")
+                                        if len(parts) == 4:
+                                            start_octet = int(parts[3])
+                                            end_octet = int(end)
+                                            if 0 <= start_octet <= end_octet <= 255:
+                                                host_count_estimate = end_octet - start_octet + 1
+                                    else:
+                                        start_ip = ipaddress.IPv4Address(start)
+                                        end_ip = ipaddress.IPv4Address(end)
+                                        if int(end_ip) >= int(start_ip):
+                                            host_count_estimate = int(end_ip) - int(start_ip) + 1
+                                except Exception:
+                                    pass
+                            else:
+                                host_count_estimate = 1
                 except Exception:
                     pass
+
+                # Warn if network is very large (more than /20 = 4096 hosts)
+                # Large networks can cause nmap assertion failures
+                if host_count_estimate > 4096:
+                    logger.warning(f"Very large network range detected ({host_count_estimate} hosts). This may cause nmap issues.")
+                    self.device_found.emit({
+                        "status_update": f"Warning: Large network ({host_count_estimate} hosts). Scan may take a long time or fail..."
+                    })
+                else:
+                    self.device_found.emit({"status_update": f"Preparing to scan {host_count_estimate} potential addresses..."})
                 
                 # Start the scan within a try/except block
                 try:
@@ -1168,6 +1197,10 @@ class NetworkScannerPlugin(PluginInterface):
         self.scan_type_manager_action = QAction("Scan Type Manager")
         self.scan_type_manager_action.setToolTip("Manage scan profiles and types")
         self.scan_type_manager_action.triggered.connect(self.on_scan_type_manager_action)
+        if self.main_window:
+            self.scan_action.setIcon(material_icon("refresh", self.main_window, QStyle.SP_BrowserReload))
+            self.scan_selected_action.setIcon(material_icon("play_arrow", self.main_window, QStyle.SP_ArrowRight))
+            self.scan_type_manager_action.setIcon(material_icon("tune", self.main_window, QStyle.SP_FileDialogDetailedView))
         
     def _create_widgets(self):
         """Create plugin widgets"""
@@ -1473,7 +1506,6 @@ class NetworkScannerPlugin(PluginInterface):
         dock.setWidget(self.main_widget)
         dock.setObjectName("NetworkScannerDock")
         dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
-        
         # Set minimum width to prevent controls from being too cramped
         self.main_widget.setMinimumWidth(300)
         
@@ -1858,6 +1890,16 @@ class NetworkScannerPlugin(PluginInterface):
         # Update progress bar
         if hasattr(self, "progress_bar"):
             self.progress_bar.setValue(percentage)
+            self.progress_bar.setTextVisible(True)
+            if self._batch_scan_active and self._batch_scan_current:
+                current_label = self._batch_scan_current.get("label", self._batch_scan_current.get("ip", "device"))
+                remaining = max(0, self._batch_scan_total - self._batch_scan_index)
+                self.progress_bar.setFormat(
+                    f"Device {self._batch_scan_index}/{self._batch_scan_total} "
+                    f"({remaining} remaining): {current_label} - %p%"
+                )
+            else:
+                self.progress_bar.setFormat("Scanning - %p%")
             
         # Update status label
         if hasattr(self, "status_label"):
@@ -2175,7 +2217,12 @@ class NetworkScannerPlugin(PluginInterface):
         # Determine network range based on selected radio button
         if hasattr(self, "selected_devices_radio") and self.selected_devices_radio.isChecked():
             # Scan selected devices
-            selected_devices = self.device_manager.get_selected_devices()
+            from src.ui.device_table import DeviceTableView
+            device_table = self.main_window.findChild(DeviceTableView)
+            if device_table:
+                selected_devices = device_table.get_selected_devices()
+            else:
+                selected_devices = self.device_manager.get_selected_devices()
             if not selected_devices:
                 QMessageBox.warning(
                     self.main_window,
@@ -2279,6 +2326,7 @@ class NetworkScannerPlugin(PluginInterface):
             selected_devices = [selected_devices]
 
         dialog = QDialog(self.main_window)
+        mark_plugin_ui(dialog)
         dialog.setWindowTitle("Network Scan")
         dialog.setMinimumWidth(550)  # Slightly wider to accommodate content
         dialog.setMinimumHeight(450)  # Set minimum height
@@ -2289,6 +2337,8 @@ class NetworkScannerPlugin(PluginInterface):
         
         # Create tabs for basic and advanced settings
         tab_widget = QTabWidget()
+        mark_plugin_ui(tab_widget)
+        mark_plugin_ui(tab_widget.tabBar())
         basic_tab = QWidget()
         advanced_tab = QWidget()
         profiles_tab = QWidget()
@@ -3904,6 +3954,7 @@ class NetworkScannerPlugin(PluginInterface):
     def _show_scan_type_manager_dialog(self):
         """Show the scan type manager dialog"""
         dialog = QDialog(self.main_window)
+        mark_plugin_ui(dialog)
         dialog.setWindowTitle("Scan Type Manager")
         dialog.setMinimumWidth(600)
         dialog.setMinimumHeight(500)
@@ -4013,6 +4064,7 @@ class NetworkScannerPlugin(PluginInterface):
         # Show edit dialog for a profile
         def edit_profile_dialog(profile_id=None, is_new=False):
             edit_dialog = QDialog(dialog)
+            mark_plugin_ui(edit_dialog)
             edit_dialog.setWindowTitle("New Scan Profile" if is_new else "Edit Scan Profile")
             edit_dialog.setMinimumWidth(450)
             

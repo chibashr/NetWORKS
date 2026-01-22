@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QSlider, QRadioButton, QButtonGroup, QScrollArea
 )
 from PySide6.QtCore import Qt, QTime, QSize, Signal, Slot
+from PySide6.QtGui import QColor
 
 
 class SettingsDialog(QDialog):
@@ -160,6 +161,20 @@ class SettingsDialog(QDialog):
         self.font_size_spin.setMinimum(8)
         self.font_size_spin.setMaximum(18)
         appearance_layout.addRow("Font Size:", self.font_size_spin)
+
+        # Accent color
+        accent_container = QWidget()
+        accent_layout = QHBoxLayout(accent_container)
+        accent_layout.setContentsMargins(0, 0, 0, 0)
+        self.accent_color_edit = QLineEdit()
+        self.accent_color_edit.setPlaceholderText("#E87722")
+        self.accent_color_edit.setMaximumWidth(120)
+        self.accent_color_button = QPushButton("Pick...")
+        self.accent_color_button.clicked.connect(self._on_pick_accent_color)
+        accent_layout.addWidget(self.accent_color_edit)
+        accent_layout.addWidget(self.accent_color_button)
+        accent_layout.addStretch()
+        appearance_layout.addRow("Accent Color:", accent_container)
         
         # Toolbar position
         self.toolbar_pos_combo = QComboBox()
@@ -501,6 +516,8 @@ class SettingsDialog(QDialog):
         
         # UI settings
         self.font_size_spin.setValue(self.config.get("ui.font_size", 10))
+        self.row_height_spin.setValue(self.config.get("ui.row_height", 22))
+        self.accent_color_edit.setText(self.config.get("ui.accent_color", "#E87722"))
         self.toolbar_pos_combo.setCurrentText(self.config.get("ui.toolbar_position", "Top").capitalize())
         self.show_statusbar_check.setChecked(self.config.get("ui.show_statusbar", True))
         
@@ -551,6 +568,8 @@ class SettingsDialog(QDialog):
         
         # UI settings
         self.config.set("ui.font_size", self.font_size_spin.value())
+        self.config.set("ui.row_height", self.row_height_spin.value())
+        self.config.set("ui.accent_color", self.accent_color_edit.text().strip())
         self.config.set("ui.toolbar_position", self.toolbar_pos_combo.currentText().lower())
         self.config.set("ui.show_statusbar", self.show_statusbar_check.isChecked())
         
@@ -616,3 +635,10 @@ class SettingsDialog(QDialog):
     def _on_reset_repo_url(self):
         """Reset repository URL to default"""
         self.repo_url_edit.setText("https://github.com/chibashr/netWORKS") 
+
+    def _on_pick_accent_color(self):
+        """Pick an accent color for the UI theme."""
+        current = self.accent_color_edit.text().strip() or "#E87722"
+        color = QColorDialog.getColor(QColor(current), self, "Select Accent Color")
+        if color.isValid():
+            self.accent_color_edit.setText(color.name())

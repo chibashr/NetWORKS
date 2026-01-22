@@ -42,14 +42,15 @@ NetWORKS provides a powerful device import feature that allows you to bulk impor
 To access the import feature:
 - Right-click in an empty area of the device tree and select "Import Devices..."
 - Right-click in an empty area of the device table and select "Import Devices..."
+- Use the "Import Devices" toolbar button or the File menu action
 
 ### Importing from Files
 
-You can import devices from CSV or text files:
+You can import devices from CSV, TXT, or Excel files:
 
-1. In the import wizard, select the "Import from File" tab
+1. In the import wizard, select the "File" tab
 2. Click "Browse..." to select a file
-3. Configure the delimiter and header options
+3. Configure the delimiter, header, and skip-row options
 4. Click "Next" to proceed to column mapping
 
 Supported delimiters include:
@@ -63,9 +64,9 @@ Supported delimiters include:
 
 You can also paste data directly from your clipboard:
 
-1. In the import wizard, select the "Paste from Clipboard" tab
+1. In the import wizard, select the "Text" tab
 2. Paste your data into the text area
-3. Configure the delimiter and header options
+3. Configure the delimiter, header, and skip-row options
 4. Click "Next" to proceed to column mapping
 
 ### Column Mapping
@@ -74,7 +75,7 @@ The column mapping page allows you to specify how each column in your data maps 
 
 1. Review the data preview at the top of the page
 2. For each column, select the corresponding device property from the dropdown
-3. Columns mapped to "None" will be ignored during import
+3. Columns mapped to "ignore" will be skipped during import
 4. Click "Next" to proceed to the final import page
 
 The import wizard will attempt to automatically map columns based on their headers. For example:
@@ -82,21 +83,19 @@ The import wizard will attempt to automatically map columns based on their heade
 - Columns with "host" will map to the "hostname" property
 - Columns with "ip" will map to the "ip_address" property
 
+You can also map a column to "groups" to add imported devices to one or more named groups (comma-separated).
+
 ### Custom Properties
 
-You can also map columns to custom properties that don't exist in the standard set of device properties:
-
-1. In the column mapping page, enter a name for your custom property
-2. Click "Add"
-3. The custom property will now be available in the mapping dropdown for any column
-4. Map a column to your custom property
-5. During import, the custom property will be created for each device
+Columns mapped to "custom" will use the column header as the property name. This lets you import custom fields without changing the schema.
 
 ### Selecting a Target Group
 
 On the final import page, you can select which group the imported devices should be added to:
 
 1. Select a group from the dropdown (defaults to "Root Group")
-2. Click "Finish" to complete the import process
+2. Optionally create a new group
+3. Choose duplicate handling (skip, overwrite, or create new)
+4. Click "Finish" to complete the import process
 
 All imported devices will be added to the selected group and will be visible in both the device tree and the device table. 

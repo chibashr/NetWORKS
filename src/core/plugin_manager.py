@@ -114,6 +114,7 @@ class PluginInfo:
         self.author = author
         self.entry_point = entry_point
         self.path = path
+        self.icon_path = None
         self._state = PluginState.DISCOVERED
         self.instance = None
         
@@ -740,6 +741,11 @@ class PluginManager(QObject):
             plugin_info.max_app_version = data.get("max_app_version")
             plugin_info.dependencies = data.get("dependencies", [])
             plugin_info.changelog = data.get("changelog", [])
+            plugin_info.icon_path = self._resolve_plugin_icon_path(
+                data.get("icon"),
+                plugin_dir,
+                plugin_info.id
+            )
             
             # Add requirements if specified
             if "requirements" in data:
@@ -820,6 +826,11 @@ class PluginManager(QObject):
             plugin_info.max_app_version = data.get("max_app_version")
             plugin_info.dependencies = data.get("dependencies", [])
             plugin_info.changelog = data.get("changelog", [])
+            plugin_info.icon_path = self._resolve_plugin_icon_path(
+                data.get("icon"),
+                plugin_dir,
+                plugin_info.id
+            )
             
             # Add requirements if specified
             if "requirements" in data:
@@ -864,6 +875,22 @@ class PluginManager(QObject):
         except Exception as e:
             logger.error(f"Error loading plugin info from YAML: {e}")
             return None
+
+    def _resolve_plugin_icon_path(self, icon_value, plugin_dir, plugin_id):
+        """Resolve the plugin icon path from manifest or default location."""
+        candidates = []
+        if icon_value:
+            candidates.append(icon_value)
+        candidates.append(os.path.join("resources", "icons", f"{plugin_id}.svg"))
+        for candidate in candidates:
+            if not candidate:
+                continue
+            icon_path = candidate
+            if not os.path.isabs(icon_path):
+                icon_path = os.path.join(plugin_dir, icon_path)
+            if os.path.exists(icon_path):
+                return icon_path
+        return None
             
     def get_plugins(self):
         """Get all plugins"""

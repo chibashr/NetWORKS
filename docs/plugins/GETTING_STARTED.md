@@ -24,6 +24,29 @@ plugins/
         └── icons/           # Optional icons
 ```
 
+## Icon Specifications
+
+Plugin UI icons should follow the application icon spec in
+`docs/Design Considerations.md`. Store plugin assets in `resources/icons`.
+
+**Sizes:**
+- Toolbar: 24x24px
+- Panel header: 16x16px
+- Inline: 16x16px
+- Status: 12x12px
+- Large (dialogs): 32x32px
+- Plugin icon: 48x48px minimum
+
+**Style:**
+- Material Icons (filled)
+- Monochrome using theme text colors (black in light theme, white in dark theme)
+- Minimal detail
+- 2px stroke width when using outline variants
+- SVG preferred
+
+**Behavior:**
+- Icon-only actions must include tooltips and aria-labels
+
 ## 2. Creating the Manifest File
 
 Create a file called `manifest.json` in your plugin directory with the following content:

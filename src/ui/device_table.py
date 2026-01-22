@@ -6,14 +6,17 @@ Device table model and view for NetWORKS
 """
 
 from loguru import logger
-from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Signal, Slot, QItemSelectionModel
-from PySide6.QtWidgets import (QTableView, QHeaderView, QAbstractItemView, QMenu, QApplication, QWidget, QDialog, QVBoxLayout, QFormLayout, QLineEdit, QDialogButtonBox, QLabel, QTextEdit, QPushButton, QHBoxLayout, QComboBox, QTabWidget, QListWidget, QListWidgetItem, QMessageBox, QGroupBox, QCheckBox, QTableWidget, QTableWidgetItem, QFileDialog, QWizard, QWizardPage, QScrollArea, QRadioButton, QSizePolicy, QGridLayout)
-from PySide6.QtGui import QColor, QBrush, QFont, QIcon, QAction
+from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Signal, Slot, QItemSelectionModel, QSettings, QRect
+from PySide6.QtWidgets import (QTableView, QHeaderView, QAbstractItemView, QMenu, QApplication, QWidget, QDialog, QVBoxLayout, QFormLayout, QLineEdit, QDialogButtonBox, QLabel, QTextEdit, QPushButton, QHBoxLayout, QComboBox, QTabWidget, QListWidget, QListWidgetItem, QMessageBox, QGroupBox, QCheckBox, QTableWidget, QTableWidgetItem, QFileDialog, QWizard, QWizardPage, QScrollArea, QRadioButton, QSizePolicy, QGridLayout, QToolButton, QStyle, QStyleOptionButton, QInputDialog)
+from PySide6.QtGui import QFontDatabase, QIcon, QAction
 from ..core.device_manager import Device
 from .responsive_toolbar import ResponsiveToolbar
+from .material_icons import material_icon
 import csv
 import io
 import re
+import json
+import os
 
 
 class IPSortFilterProxyModel(QSortFilterProxyModel):
@@ -24,6 +27,9 @@ class IPSortFilterProxyModel(QSortFilterProxyModel):
         super().__init__(parent)
         # Index of the IP address column
         self.ip_column_index = -1
+        self._simple_filter_text = ""
+        self._advanced_rules = []
+        self._advanced_logic = "AND"
     
     def lessThan(self, left, right):
         """
@@ -42,9 +48,9 @@ class IPSortFilterProxyModel(QSortFilterProxyModel):
         
         # Find the IP address column if we haven't cached it
         if self.ip_column_index == -1:
-            for i, header in enumerate(source_model._headers):
+            for i, header in enumerate(source_model.get_data_headers()):
                 if header == "IP Address":
-                    self.ip_column_index = i
+                    self.ip_column_index = i + 1
                     break
         
         # Special handling for IP address column
@@ -82,9 +88,123 @@ class IPSortFilterProxyModel(QSortFilterProxyModel):
         # For other columns, use the default sorting mechanism
         return super().lessThan(left, right)
 
+    def reset_ip_column(self):
+        """Reset cached IP column index after layout changes."""
+        self.ip_column_index = -1
+
+    def setFilterFixedString(self, pattern):
+        """Store the simple filter text and refresh."""
+        self._simple_filter_text = (pattern or "").strip()
+        self.invalidateFilter()
+
+    def set_advanced_filter(self, rules, logic="AND"):
+        """Set advanced filter rules with AND/OR logic."""
+        self._advanced_rules = rules or []
+        self._advanced_logic = "OR" if logic == "OR" else "AND"
+        self.invalidateFilter()
+
+    def filterAcceptsRow(self, source_row, source_parent):
+        """Apply simple and advanced filters without blocking the UI."""
+        model = self.sourceModel()
+        if not model:
+            return True
+
+        if self._simple_filter_text:
+            if not self._row_matches_simple_filter(model, source_row, source_parent):
+                return False
+
+        if not self._advanced_rules:
+            return True
+
+        rule_matches = []
+        for rule in self._advanced_rules:
+            match = self._match_rule(model, source_row, source_parent, rule)
+            if match is None:
+                continue
+            rule_matches.append(match)
+
+        if not rule_matches:
+            return True
+
+        if self._advanced_logic == "OR":
+            return any(rule_matches)
+        return all(rule_matches)
+
+    def _row_matches_simple_filter(self, model, source_row, source_parent):
+        """Match the simple text filter against all data columns."""
+        haystack = self._simple_filter_text.lower()
+        if not haystack:
+            return True
+
+        for col in range(1, model.columnCount()):
+            value = model.data(model.index(source_row, col, source_parent), Qt.DisplayRole)
+            if haystack in str(value or "").lower():
+                return True
+        return False
+
+    def _match_rule(self, model, source_row, source_parent, rule):
+        """Return True/False for a rule, or None if the rule can't be applied."""
+        if not isinstance(rule, dict):
+            return None
+
+        field = rule.get("field")
+        operator = rule.get("operator")
+        raw_value = rule.get("value", "")
+
+        if not field or not operator:
+            return None
+
+        value = str(raw_value or "").lower()
+
+        if field == "Any Column":
+            return self._match_any_column(model, source_row, source_parent, operator, value)
+
+        column_index = model.get_column_index(field)
+        if column_index < 0:
+            return None
+
+        cell_value = model.data(model.index(source_row, column_index, source_parent), Qt.DisplayRole)
+        return self._evaluate_operator(str(cell_value or "").lower(), operator, value)
+
+    def _match_any_column(self, model, source_row, source_parent, operator, value):
+        """Apply a rule across all data columns."""
+        column_values = []
+        for col in range(1, model.columnCount()):
+            cell_value = model.data(model.index(source_row, col, source_parent), Qt.DisplayRole)
+            column_values.append(str(cell_value or "").lower())
+
+        if operator in ("not_contains", "not_equals"):
+            return all(self._evaluate_operator(cell, operator, value) for cell in column_values)
+        if operator == "is_empty":
+            return all(not cell for cell in column_values)
+        if operator == "is_not_empty":
+            return any(cell for cell in column_values)
+
+        return any(self._evaluate_operator(cell, operator, value) for cell in column_values)
+
+    def _evaluate_operator(self, cell_value, operator, value):
+        """Evaluate a single operator against a cell value."""
+        if operator == "contains":
+            return value in cell_value
+        if operator == "not_contains":
+            return value not in cell_value
+        if operator == "equals":
+            return cell_value == value
+        if operator == "not_equals":
+            return cell_value != value
+        if operator == "starts_with":
+            return cell_value.startswith(value)
+        if operator == "ends_with":
+            return cell_value.endswith(value)
+        if operator == "is_empty":
+            return cell_value == ""
+        if operator == "is_not_empty":
+            return cell_value != ""
+        return False
+
 
 class _WrappingButtonGroup(QWidget):
-    """Wrap buttons into rows based on available width."""
+    """Keep action buttons on a single line in the device table toolbar."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -108,13 +228,8 @@ class _WrappingButtonGroup(QWidget):
         if not self._buttons:
             return
 
-        max_width = max(button.sizeHint().width() for button in self._buttons)
-        spacing = self._layout.horizontalSpacing()
-        if spacing < 0:
-            spacing = 6
-
-        available = max(1, self.width())
-        columns = max(1, available // max(1, max_width + spacing))
+        # Keep the buttons on one row to avoid vertical stacking.
+        columns = max(1, len(self._buttons))
         if columns == self._columns:
             return
 
@@ -129,6 +244,279 @@ class _WrappingButtonGroup(QWidget):
             row = index // columns
             col = index % columns
             self._layout.addWidget(button, row, col)
+
+
+class _SelectionHeader(QHeaderView):
+    """Header with a master checkbox for row selection."""
+
+    toggled = Signal(Qt.CheckState)
+
+    def __init__(self, orientation, parent=None):
+        super().__init__(orientation, parent)
+        self._check_state = Qt.Unchecked
+        self.setSectionsClickable(True)
+
+    def set_check_state(self, state):
+        """Update checkbox state and repaint."""
+        if state == self._check_state:
+            return
+        self._check_state = state
+        self.viewport().update()
+
+    def paintSection(self, painter, rect, logicalIndex):
+        super().paintSection(painter, rect, logicalIndex)
+        if self.orientation() != Qt.Horizontal or logicalIndex != 0:
+            return
+
+        option = QStyleOptionButton()
+        option.state = QStyle.State_Enabled
+        if self._check_state == Qt.Checked:
+            option.state |= QStyle.State_On
+        elif self._check_state == Qt.PartiallyChecked:
+            option.state |= QStyle.State_NoChange
+        else:
+            option.state |= QStyle.State_Off
+
+        option.rect = self._checkbox_rect_for_section(rect)
+        self.style().drawControl(QStyle.CE_CheckBox, option, painter, self)
+
+    def mousePressEvent(self, event):
+        if self.orientation() == Qt.Horizontal:
+            rect = QRect(
+                self.sectionViewportPosition(0),
+                0,
+                self.sectionSize(0),
+                self.height()
+            )
+            checkbox_rect = self._checkbox_rect_for_section(rect)
+            if checkbox_rect.contains(event.pos()):
+                next_state = Qt.Unchecked if self._check_state == Qt.Checked else Qt.Checked
+                self.set_check_state(next_state)
+                self.toggled.emit(next_state)
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def _checkbox_rect_for_section(self, rect):
+        indicator = self.style().pixelMetric(QStyle.PM_IndicatorWidth)
+        x = rect.x() + (rect.width() - indicator) // 2
+        y = rect.y() + (rect.height() - indicator) // 2
+        return QRect(x, y, indicator, indicator)
+
+
+class AdvancedFilterDialog(QDialog):
+    """Dialog for building advanced column-based filters."""
+
+    apply_requested = Signal(dict)
+
+    OPERATORS = [
+        ("contains", "contains"),
+        ("not_contains", "does not contain"),
+        ("equals", "equals"),
+        ("not_equals", "does not equal"),
+        ("starts_with", "starts with"),
+        ("ends_with", "ends with"),
+        ("is_empty", "is empty"),
+        ("is_not_empty", "is not empty"),
+    ]
+
+    def __init__(self, fields, presets, current_state, on_save_preset, on_delete_preset, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Advanced Filtering")
+        self.setMinimumWidth(560)
+
+        self._fields = fields
+        self._presets = presets or {}
+        self._on_save_preset = on_save_preset
+        self._on_delete_preset = on_delete_preset
+        self._rule_rows = []
+
+        layout = QVBoxLayout(self)
+
+        preset_layout = QHBoxLayout()
+        preset_layout.addWidget(QLabel("Presets:"))
+        self.presets_combo = QComboBox()
+        preset_layout.addWidget(self.presets_combo, 1)
+        load_button = QPushButton("Load")
+        save_button = QPushButton("Save")
+        delete_button = QPushButton("Delete")
+        preset_layout.addWidget(load_button)
+        preset_layout.addWidget(save_button)
+        preset_layout.addWidget(delete_button)
+        layout.addLayout(preset_layout)
+
+        logic_layout = QHBoxLayout()
+        logic_layout.addWidget(QLabel("Match:"))
+        self.logic_combo = QComboBox()
+        self.logic_combo.addItem("All rules (AND)", "AND")
+        self.logic_combo.addItem("Any rule (OR)", "OR")
+        logic_layout.addWidget(self.logic_combo)
+        logic_layout.addStretch(1)
+        layout.addLayout(logic_layout)
+
+        rules_container = QWidget()
+        self.rules_layout = QVBoxLayout(rules_container)
+        self.rules_layout.setContentsMargins(0, 0, 0, 0)
+        self.rules_layout.setSpacing(6)
+
+        rules_scroll = QScrollArea()
+        rules_scroll.setWidgetResizable(True)
+        rules_scroll.setWidget(rules_container)
+        layout.addWidget(rules_scroll, 1)
+
+        add_rule_button = QPushButton("Add Rule")
+        layout.addWidget(add_rule_button)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Apply | QDialogButtonBox.Close)
+        layout.addWidget(button_box)
+
+        add_rule_button.clicked.connect(self._add_rule_row)
+        load_button.clicked.connect(self._load_selected_preset)
+        save_button.clicked.connect(self._save_preset)
+        delete_button.clicked.connect(self._delete_preset)
+        apply_button = button_box.button(QDialogButtonBox.Apply)
+        if apply_button:
+            apply_button.clicked.connect(lambda: self.apply_requested.emit(self.get_filter_state()))
+        button_box.rejected.connect(self.reject)
+
+        self._refresh_presets()
+        self.set_filter_state(current_state or {"logic": "AND", "rules": []})
+
+    def _refresh_presets(self):
+        self.presets_combo.clear()
+        for name in sorted(self._presets.keys()):
+            self.presets_combo.addItem(name)
+
+    def _add_rule_row(self, rule=None):
+        rule = rule or {}
+        row_widget = QWidget()
+        row_layout = QHBoxLayout(row_widget)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+
+        field_combo = QComboBox()
+        field_combo.addItems(self._fields)
+        if rule.get("field") in self._fields:
+            field_combo.setCurrentText(rule.get("field"))
+
+        operator_combo = QComboBox()
+        for op_key, label in self.OPERATORS:
+            operator_combo.addItem(label, op_key)
+        if rule.get("operator"):
+            index = operator_combo.findData(rule.get("operator"))
+            if index >= 0:
+                operator_combo.setCurrentIndex(index)
+
+        value_edit = QLineEdit()
+        value_edit.setPlaceholderText("Value")
+        value_edit.setText(rule.get("value", ""))
+
+        remove_button = QToolButton()
+        remove_button.setText("Remove")
+        remove_button.setToolTip("Remove this rule")
+
+        row_layout.addWidget(field_combo)
+        row_layout.addWidget(operator_combo)
+        row_layout.addWidget(value_edit, 1)
+        row_layout.addWidget(remove_button)
+
+        def update_value_state():
+            op_key = operator_combo.currentData()
+            needs_value = op_key not in ("is_empty", "is_not_empty")
+            value_edit.setEnabled(needs_value)
+            if not needs_value:
+                value_edit.clear()
+
+        operator_combo.currentIndexChanged.connect(update_value_state)
+        update_value_state()
+
+        def remove_row():
+            self._rule_rows = [row for row in self._rule_rows if row["widget"] is not row_widget]
+            row_widget.setParent(None)
+            row_widget.deleteLater()
+
+        remove_button.clicked.connect(remove_row)
+
+        self.rules_layout.addWidget(row_widget)
+        self._rule_rows.append({
+            "widget": row_widget,
+            "field": field_combo,
+            "operator": operator_combo,
+            "value": value_edit,
+        })
+
+    def _load_selected_preset(self):
+        name = self.presets_combo.currentText()
+        if not name or name not in self._presets:
+            return
+        self.set_filter_state(self._presets.get(name, {}))
+
+    def _save_preset(self):
+        name, ok = QInputDialog.getText(self, "Save Preset", "Preset name:")
+        name = (name or "").strip()
+        if not ok or not name:
+            return
+        state = self.get_filter_state()
+        self._presets[name] = state
+        if self._on_save_preset:
+            self._on_save_preset(name, state)
+        self._refresh_presets()
+        index = self.presets_combo.findText(name)
+        if index >= 0:
+            self.presets_combo.setCurrentIndex(index)
+
+    def _delete_preset(self):
+        name = self.presets_combo.currentText()
+        if not name or name not in self._presets:
+            return
+        confirm = QMessageBox.question(
+            self,
+            "Delete Preset",
+            f"Delete preset '{name}'?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+        del self._presets[name]
+        if self._on_delete_preset:
+            self._on_delete_preset(name)
+        self._refresh_presets()
+
+    def set_filter_state(self, state):
+        state = state or {}
+        logic = state.get("logic", "AND")
+        index = self.logic_combo.findData(logic)
+        if index >= 0:
+            self.logic_combo.setCurrentIndex(index)
+
+        for row in list(self._rule_rows):
+            row["widget"].setParent(None)
+        self._rule_rows = []
+
+        rules = state.get("rules", []) or []
+        if not rules:
+            self._add_rule_row()
+            return
+        for rule in rules:
+            self._add_rule_row(rule)
+
+    def get_filter_state(self):
+        rules = []
+        for row in self._rule_rows:
+            field = row["field"].currentText()
+            operator = row["operator"].currentData()
+            value = row["value"].text().strip()
+            if operator not in ("is_empty", "is_not_empty") and not value:
+                continue
+            rules.append({
+                "field": field,
+                "operator": operator,
+                "value": value,
+            })
+
+        return {
+            "logic": self.logic_combo.currentData() or "AND",
+            "rules": rules,
+        }
 
 
 class DeviceTableModel(QAbstractTableModel):
@@ -191,6 +579,16 @@ class DeviceTableModel(QAbstractTableModel):
     def get_visible_headers(self):
         """Get currently visible headers"""
         return self._headers
+
+    def get_data_headers(self):
+        """Get headers for data columns (excluding selection column)."""
+        return self._headers
+
+    def get_column_index(self, header):
+        """Return the model column index for a given header."""
+        if header in self._headers:
+            return self._headers.index(header) + 1
+        return -1
         
     def _discover_custom_properties(self):
         """Discover custom properties from all devices"""
@@ -339,12 +737,15 @@ class DeviceTableModel(QAbstractTableModel):
         
     def columnCount(self, parent=None):
         """Return the number of columns"""
-        return len(self._headers)
+        # Add one column for selection checkboxes.
+        return len(self._headers) + 1
         
     def headerData(self, section, orientation, role=Qt.DisplayRole):
         """Return the header data"""
         if role == Qt.DisplayRole and orientation == Qt.Horizontal:
-            return self._headers[section]
+            if section == 0:
+                return ""
+            return self._headers[section - 1]
         return None
         
     def data(self, index, role=Qt.DisplayRole):
@@ -357,16 +758,27 @@ class DeviceTableModel(QAbstractTableModel):
             
         device = self._devices[index.row()]
         column = index.column()
+
+        if column == 0:
+            if role == Qt.CheckStateRole:
+                return Qt.Checked if device in self.device_manager.get_selected_devices() else Qt.Unchecked
+            if role == Qt.UserRole:
+                return device
+            if role == Qt.TextAlignmentRole:
+                return Qt.AlignCenter
+            return None
+
+        data_column = column - 1
         
         if role == Qt.DisplayRole or role == Qt.EditRole:
             # Check if it's a plugin column
             for header, key, callback in self._plugin_columns:
-                if header == self._headers[column]:
+                if header == self._headers[data_column]:
                     return callback(device)
             
             # Regular column or custom property column
-            if column < len(self._column_keys):
-                key = self._column_keys[column]
+            if data_column < len(self._column_keys):
+                key = self._column_keys[data_column]
                 
                 # Special handling for device groups
                 if key == "groups":
@@ -383,11 +795,13 @@ class DeviceTableModel(QAbstractTableModel):
                 
             return None
             
-        elif role == Qt.BackgroundRole:
-            # Highlight selected devices
-            if device in self.device_manager.get_selected_devices():
-                return QBrush(QColor(240, 248, 255))  # Light blue
-                
+        elif role == Qt.FontRole:
+            header = self._headers[data_column]
+            key = None
+            if data_column < len(self._column_keys):
+                key = self._column_keys[data_column]
+            if key in ("ip_address", "mac_address") or (key and "id" in key) or "ID" in header:
+                return QFontDatabase.systemFont(QFontDatabase.FixedFont)
         elif role == Qt.TextAlignmentRole:
             return Qt.AlignLeft | Qt.AlignVCenter
             
@@ -401,8 +815,50 @@ class DeviceTableModel(QAbstractTableModel):
         """Return the cell flags"""
         if not index.isValid():
             return Qt.NoItemFlags
-            
+
+        if index.column() == 0:
+            return Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable
+
         return Qt.ItemIsEnabled | Qt.ItemIsSelectable
+
+    def setData(self, index, value, role=Qt.EditRole):
+        """Update selection state when checkbox column is toggled."""
+        if not index.isValid() or index.column() != 0:
+            return False
+        if role != Qt.CheckStateRole:
+            return False
+
+        device = self._devices[index.row()]
+        selected_devices = self.device_manager.get_selected_devices()
+        next_selection = selected_devices.copy()
+
+        if value == Qt.Checked and device not in next_selection:
+            next_selection.append(device)
+        elif value == Qt.Unchecked and device in next_selection:
+            next_selection.remove(device)
+
+        if set(next_selection) == set(selected_devices):
+            return False
+
+        self.device_manager.selected_devices = next_selection.copy()
+        self.device_manager.selection_changed.emit(next_selection)
+        self.dataChanged.emit(index, index, [Qt.CheckStateRole])
+        return True
+
+    def notify_selection_changed(self, rows=None):
+        """Emit dataChanged for selection checkboxes."""
+        if self.rowCount() == 0:
+            return
+
+        if rows:
+            for row in rows:
+                index = self.index(row, 0)
+                self.dataChanged.emit(index, index, [Qt.CheckStateRole])
+            return
+
+        left_index = self.index(0, 0)
+        right_index = self.index(self.rowCount() - 1, 0)
+        self.dataChanged.emit(left_index, right_index, [Qt.CheckStateRole])
         
     @Slot(object)
     def on_device_added(self, device):
@@ -465,6 +921,10 @@ class DeviceTableView(QTableView):
         self.device_manager = device_manager
         self._context_menu_actions = []  # List of (name, callback, priority) tuples
         self._ignore_selection_changes = False  # Flag to prevent recursive selection updates
+        self._group_list = []
+        self._group_filter_name = None
+        self._advanced_filter_state = {"logic": "AND", "rules": []}
+        self._advanced_filter_dialog = None
         
         # Create and set the model
         self.table_model = DeviceTableModel(self.device_manager)
@@ -477,6 +937,11 @@ class DeviceTableView(QTableView):
         
         # Set the proxy model
         self.setModel(self.proxy_model)
+        self.proxy_model.modelReset.connect(self._update_header_checkbox_state)
+        self.proxy_model.rowsInserted.connect(lambda *_: self._update_header_checkbox_state())
+        self.proxy_model.rowsRemoved.connect(lambda *_: self._update_header_checkbox_state())
+        self.table_model.layoutChanged.connect(self.proxy_model.reset_ip_column)
+        self.table_model.layoutChanged.connect(lambda: self.horizontalHeader().resizeSection(0, 28))
         
         # Set up the view
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -489,60 +954,49 @@ class DeviceTableView(QTableView):
             self.setUniformRowHeights(True)
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         
-        # Set up the horizontal header
-        header = self.horizontalHeader()
+        # Set up the horizontal header with a master selection checkbox
+        header = _SelectionHeader(Qt.Horizontal, self)
+        self.setHorizontalHeader(header)
         header.setSectionResizeMode(QHeaderView.Interactive)
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
         header.setStretchLastSection(True)
-        header.setSortIndicator(0, Qt.AscendingOrder)
+        header.resizeSection(0, 28)
+        header.setSortIndicator(1, Qt.AscendingOrder)
+        header.setContextMenuPolicy(Qt.CustomContextMenu)
+        header.customContextMenuRequested.connect(self._on_header_context_menu)
+        header.toggled.connect(self._on_header_checkbox_toggled)
+        header.sortIndicatorChanged.connect(self._save_sort_state)
         
-        # Create a responsive filter toolbar above the table to avoid overlap
+        # Create a responsive toolbar above the table to avoid overlap
         self.filter_widget = ResponsiveToolbar(breakpoint=900)
         self.filter_widget.setContentsMargins(5, 5, 5, 5)
         self.filter_widget.setSpacing(6)
-        
-        # Create a search filter
-        self.filter_label = QLabel("Filter:")
-        self.filter_widget.addWidget(self.filter_label)
-        
-        self.filter_edit = QLineEdit()
-        self.filter_edit.setPlaceholderText("Search in all columns...")
-        self.filter_edit.textChanged.connect(self.filter_table)
-        self.filter_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.filter_widget.addWidget(self.filter_edit)
-        
-        # Create a group filter
-        self.group_label = QLabel("Group:")
-        self.filter_widget.addWidget(self.group_label)
-        
-        self.group_combo = QComboBox()
-        self.refresh_group_combo()
-        self.group_combo.currentIndexChanged.connect(self.filter_by_group)
-        self.group_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.filter_widget.addWidget(self.group_combo)
-        
-        # Create a compact, wrapping button group
-        self.button_group = _WrappingButtonGroup()
 
-        # Create a button to customize columns
-        self.columns_button = QPushButton("Columns")
-        self.columns_button.clicked.connect(self.show_column_selector)
-        self.button_group.addButton(self.columns_button)
+        # Create a compact, wrapping button group for table actions
+        self.button_group = _WrappingButtonGroup()
         
+        self.filter_button = QToolButton()
+        self.filter_button.setAutoRaise(True)
+        self.filter_button.setCheckable(True)
+        self.filter_button.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        filter_icon = material_icon("filter_list", self, QStyle.SP_FileDialogContentsView)
+        self.filter_button.setIcon(filter_icon)
+        self.filter_button.setIconSize(QRect(0, 0, 16, 16).size())
+        self.filter_button.setToolTip("Advanced Filtering")
+        self.filter_button.clicked.connect(self.show_advanced_filter_dialog)
+        self.button_group.addButton(self.filter_button)
+
         # Create a button for deduplication
-        self.deduplicate_button = QPushButton("Deduplicate")
+        self.deduplicate_button = QToolButton()
+        self.deduplicate_button.setAutoRaise(True)
+        self.deduplicate_button.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        dedup_icon = material_icon("content_copy", self, QStyle.SP_FileDialogNewFolder)
+        self.deduplicate_button.setIcon(dedup_icon)
+        self.deduplicate_button.setIconSize(QRect(0, 0, 16, 16).size())
         self.deduplicate_button.setToolTip("Identify and manage duplicate devices based on column values")
         self.deduplicate_button.clicked.connect(self.show_deduplicate_dialog)
         self.button_group.addButton(self.deduplicate_button)
         
-        # Add select all/none buttons
-        self.select_all_button = QPushButton("Select All")
-        self.select_all_button.clicked.connect(self._on_action_select_all)
-        self.button_group.addButton(self.select_all_button)
-        
-        self.select_none_button = QPushButton("Deselect All")
-        self.select_none_button.clicked.connect(self._on_action_deselect_all)
-        self.button_group.addButton(self.select_none_button)
-
         self.filter_widget.addWidget(self.button_group)
         
         # Connect signals
@@ -552,10 +1006,15 @@ class DeviceTableView(QTableView):
         self.selectionModel().selectionChanged.connect(self.on_selection_model_changed)
         
         # Connect to device manager signals for group changes
-        self.device_manager.group_added.connect(self.refresh_group_combo)
-        self.device_manager.group_removed.connect(self.refresh_group_combo)
-        self.device_manager.group_changed.connect(self.refresh_group_combo)
+        self.device_manager.group_added.connect(self._on_group_data_changed)
+        self.device_manager.group_removed.connect(self._on_group_data_changed)
+        self.device_manager.group_changed.connect(self._on_group_data_changed)
         self.device_manager.selection_changed.connect(self.on_manager_selection_changed)
+        self.refresh_group_combo()
+
+        # Apply user interface preferences from config if available
+        self._apply_ui_preferences()
+        self._restore_table_state()
         
         # Register default context menu actions
         self.register_context_menu_action("Add Device", self._on_action_add_device, 10)
@@ -567,37 +1026,38 @@ class DeviceTableView(QTableView):
         self.register_context_menu_action("Select All", self._on_action_select_all, 400)
         self.register_context_menu_action("Deselect All", self._on_action_deselect_all, 410)
         self.register_context_menu_action("Delete", self._on_action_delete, 900)
+
+        app = QApplication.instance()
+        config = getattr(app, "config", None)
+        if config and hasattr(config, "config_changed"):
+            config.config_changed.connect(self._apply_ui_preferences)
+
+    def _apply_ui_preferences(self):
+        """Apply UI preferences like row height from configuration."""
+        app = QApplication.instance()
+        config = getattr(app, "config", None)
+        row_height = 22
+        if config:
+            row_height = config.get("ui.row_height", row_height)
+        self.verticalHeader().setDefaultSectionSize(row_height)
         
     def refresh(self):
         """Refresh the device table view and its components"""
         # Refresh the device data in the model
         self.table_model.refresh_devices()
-        # Refresh the group combo to ensure it's up to date
-        self.refresh_group_combo()
-        # Clear any current filter
-        self.filter_edit.clear()
         # Reset selection
         self.clearSelection()
+        self._update_header_checkbox_state()
     
     def refresh_group_combo(self):
-        """Refresh the group filter dropdown"""
-        # Save current selection
-        current_text = self.group_combo.currentText() if self.group_combo.count() > 0 else ""
-        
-        # Clear and refill
-        self.group_combo.clear()
-        self.group_combo.addItem("All Groups")
-        
-        # Add all groups
-        for group in self.device_manager.get_groups():
-            if group != self.device_manager.root_group:
-                self.group_combo.addItem(group.name, group)
-                
-        # Try to restore previous selection
-        if current_text:
-            index = self.group_combo.findText(current_text)
-            if index >= 0:
-                self.group_combo.setCurrentIndex(index)
+        """Refresh group-related state for filtering (no visible UI)."""
+        groups = [
+            group for group in self.device_manager.get_groups()
+            if group != self.device_manager.root_group
+        ]
+        self._group_list = groups
+        if self._group_filter_name and self._group_filter_name not in [g.name for g in groups]:
+            self.set_group_filter(None)
     
     def filter_table(self, text):
         """Filter the table based on the text"""
@@ -605,23 +1065,37 @@ class DeviceTableView(QTableView):
         
     def filter_by_group(self, index):
         """Filter the table by selected group"""
-        if index == 0:  # All Groups
-            self.table_model.filter_by_group(None)
-        else:
-            group = self.group_combo.itemData(index)
-            self.table_model.filter_by_group(group)
+        if isinstance(index, int):
+            group = None
+            if index > 0 and index - 1 < len(self._group_list):
+                group = self._group_list[index - 1]
+            self._apply_group_filter(group)
+            return
+        self._apply_group_filter(index)
 
     def set_group_filter(self, group):
         """Set the group filter programmatically"""
+        self._apply_group_filter(group)
+
+    def _on_group_data_changed(self, *_args):
+        """Keep group filter state in sync with group changes."""
+        self.refresh_group_combo()
+
+    def _apply_group_filter(self, group):
+        """Apply a group filter and persist it."""
         if group is None:
-            self.group_combo.setCurrentIndex(0)
             self.table_model.filter_by_group(None)
-            return
-            
-        index = self.group_combo.findText(group.name)
-        if index >= 0:
-            self.group_combo.setCurrentIndex(index)
+            self._group_filter_name = None
+        else:
             self.table_model.filter_by_group(group)
+            self._group_filter_name = group.name
+
+        self._save_group_filter_state(self._group_filter_name)
+        self._update_header_checkbox_state()
+
+    def _save_group_filter_state(self, group_name):
+        settings = self._get_workspace_settings()
+        settings.setValue("group_filter", group_name or "")
             
     def show_column_selector(self):
         """Show a dialog to select which columns to display"""
@@ -736,6 +1210,8 @@ class DeviceTableView(QTableView):
                 
             # Update model
             self.table_model.set_visible_headers(selected_columns)
+            self._save_column_visibility(selected_columns)
+            self._update_header_checkbox_state()
             
     def show_deduplicate_dialog(self):
         """Show dialog to deduplicate devices based on a selected column"""
@@ -1100,6 +1576,285 @@ class DeviceTableView(QTableView):
         layout.addWidget(self)
         
         return container
+
+    def show_advanced_filter_dialog(self):
+        """Show the advanced filtering dialog."""
+        self.filter_button.setChecked(bool(self._advanced_filter_state.get("rules")))
+        presets = self._load_filter_presets()
+        fields = ["Any Column"] + self.table_model.get_all_headers()
+
+        if self._advanced_filter_dialog:
+            try:
+                self._advanced_filter_dialog.close()
+            except Exception:
+                pass
+
+        dialog = AdvancedFilterDialog(
+            fields=fields,
+            presets=presets,
+            current_state=self._advanced_filter_state,
+            on_save_preset=self._save_filter_preset,
+            on_delete_preset=self._delete_filter_preset,
+            parent=self,
+        )
+        dialog.apply_requested.connect(lambda state: self._apply_advanced_filter_state(state))
+        dialog.open()
+        self._advanced_filter_dialog = dialog
+
+    def _apply_advanced_filter_state(self, state, save=True):
+        """Apply advanced filter state to the proxy model."""
+        state = state or {"logic": "AND", "rules": []}
+        self._advanced_filter_state = state
+        self.proxy_model.set_advanced_filter(
+            rules=state.get("rules", []),
+            logic=state.get("logic", "AND"),
+        )
+        self.filter_button.setChecked(bool(state.get("rules")))
+        if save:
+            self._save_filter_state(state)
+        self._update_header_checkbox_state()
+
+    def _on_header_context_menu(self, position):
+        """Show a context menu for column header actions."""
+        menu = QMenu(self)
+        menu.addAction("Edit Columns...", self.show_column_selector)
+        menu.exec(self.horizontalHeader().mapToGlobal(position))
+
+    def _on_header_checkbox_toggled(self, state):
+        """Select or deselect all visible rows via the header checkbox."""
+        if state == Qt.Checked:
+            self._on_action_select_all()
+        else:
+            self._on_action_deselect_all()
+
+    def _update_header_checkbox_state(self):
+        """Sync the header checkbox with the current selection state."""
+        header = self.horizontalHeader()
+        if not isinstance(header, _SelectionHeader):
+            return
+
+        row_count = self.proxy_model.rowCount()
+        if row_count == 0:
+            header.set_check_state(Qt.Unchecked)
+            return
+
+        selected_devices = set(self.device_manager.get_selected_devices())
+        selected_visible = 0
+        for row in range(row_count):
+            device = self.proxy_model.index(row, 0).data(Qt.UserRole)
+            if device in selected_devices:
+                selected_visible += 1
+
+        if selected_visible == 0:
+            header.set_check_state(Qt.Unchecked)
+        elif selected_visible == row_count:
+            header.set_check_state(Qt.Checked)
+        else:
+            header.set_check_state(Qt.PartiallyChecked)
+
+    def _get_visible_devices(self):
+        """Return devices for currently visible rows in the proxy model."""
+        devices = []
+        for row in range(self.proxy_model.rowCount()):
+            device = self.proxy_model.index(row, 0).data(Qt.UserRole)
+            if device:
+                devices.append(device)
+        return devices
+
+    def _get_highlighted_devices(self):
+        """Return devices for currently highlighted rows."""
+        devices = []
+        for index in self.selectionModel().selectedRows():
+            device = index.data(Qt.UserRole)
+            if device:
+                devices.append(device)
+        return devices
+
+    def get_selected_devices(self):
+        """Return checked devices, or highlighted ones if none are checked."""
+        checked_devices = self.device_manager.get_selected_devices()
+        if checked_devices:
+            return checked_devices.copy()
+        return self._get_highlighted_devices()
+
+    def _set_check_state_for_indexes(self, indices, state):
+        """Set checkbox state for a list of proxy indexes."""
+        for index in indices:
+            if not index.isValid():
+                continue
+            proxy_index = index.sibling(index.row(), 0)
+            source_index = self.proxy_model.mapToSource(proxy_index)
+            self.table_model.setData(source_index, state, Qt.CheckStateRole)
+
+    def _toggle_checkbox_for_index(self, index):
+        """Toggle checkbox state for the row containing the given index."""
+        if not index.isValid():
+            return
+
+        proxy_index = index.sibling(index.row(), 0)
+        source_index = self.proxy_model.mapToSource(proxy_index)
+        current_state = source_index.data(Qt.CheckStateRole)
+        next_state = Qt.Unchecked if current_state == Qt.Checked else Qt.Checked
+        self.table_model.setData(source_index, next_state, Qt.CheckStateRole)
+
+    def keyPressEvent(self, event):
+        """Toggle checkbox selection using the spacebar."""
+        if event.key() == Qt.Key_Space:
+            highlighted = self.selectionModel().selectedRows()
+            if highlighted:
+                # Toggle all highlighted rows in one action.
+                states = [
+                    self.proxy_model.mapToSource(index.sibling(index.row(), 0)).data(Qt.CheckStateRole)
+                    for index in highlighted
+                    if index.isValid()
+                ]
+                next_state = Qt.Unchecked if states and all(state == Qt.Checked for state in states) else Qt.Checked
+                self._set_check_state_for_indexes(highlighted, next_state)
+            else:
+                current = self.currentIndex()
+                if current.isValid():
+                    self._toggle_checkbox_for_index(current)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def mousePressEvent(self, event):
+        """Toggle checkbox selection on click without altering row highlight."""
+        if event.button() == Qt.LeftButton:
+            index = self.indexAt(event.pos())
+            if index.isValid() and index.column() == 0:
+                self._toggle_checkbox_for_index(index)
+                self.setCurrentIndex(index)
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def _get_workspace_settings(self):
+        """Get QSettings for the current workspace device table state."""
+        workspace_name = self.device_manager.current_workspace
+        workspace_dir = os.path.join(self.device_manager.workspaces_dir, workspace_name)
+        settings_dir = os.path.join(workspace_dir, "settings")
+        os.makedirs(settings_dir, exist_ok=True)
+        return QSettings(os.path.join(settings_dir, "device_table.ini"), QSettings.IniFormat)
+
+    def _restore_table_state(self):
+        """Restore column visibility and filters for the workspace."""
+        settings = self._get_workspace_settings()
+
+        visible_headers = settings.value("visible_headers", None)
+        if visible_headers:
+            if isinstance(visible_headers, str):
+                visible_headers = [visible_headers]
+            self.table_model.set_visible_headers(visible_headers)
+        else:
+            app = QApplication.instance()
+            config = getattr(app, "config", None)
+            default_keys = []
+            applied_defaults = False
+            if config:
+                default_keys = config.get("ui.device_table.default_columns", []) or []
+            if default_keys:
+                key_to_header = dict(zip(self.table_model._all_column_keys, self.table_model._all_headers))
+                default_headers = [key_to_header.get(key) for key in default_keys]
+                default_headers = [header for header in default_headers if header]
+                if default_headers:
+                    self.table_model.set_visible_headers(default_headers)
+                    applied_defaults = True
+            if not applied_defaults:
+                fallback_headers = ["Alias", "Hostname", "IP Address", "MAC Address", "Status", "Tags", "Groups"]
+                self.table_model.set_visible_headers(fallback_headers)
+
+        group_name = settings.value("group_filter", "")
+        if group_name:
+            group = self.device_manager.get_group(group_name)
+            if group:
+                self._apply_group_filter(group)
+
+        state = self._load_filter_state()
+        if state:
+            self._apply_advanced_filter_state(state, save=False)
+        else:
+            self._update_header_checkbox_state()
+
+        sort_column = settings.value("sort_column", None)
+        sort_order = settings.value("sort_order", None)
+        sort_header = settings.value("sort_header", "")
+        if sort_column is not None and sort_order is not None:
+            try:
+                sort_column = int(sort_column)
+                sort_order = Qt.SortOrder(int(sort_order))
+                if 0 <= sort_column < self.proxy_model.columnCount():
+                    self.sortByColumn(sort_column, sort_order)
+            except Exception:
+                logger.warning("Failed to restore sort state", exc_info=True)
+        elif sort_header:
+            column_index = self.table_model.get_column_index(sort_header)
+            if column_index >= 0:
+                self.sortByColumn(column_index, Qt.AscendingOrder)
+
+    def restore_workspace_state(self):
+        """Public wrapper to restore per-workspace table state."""
+        self._restore_table_state()
+
+    def _save_column_visibility(self, headers):
+        settings = self._get_workspace_settings()
+        settings.setValue("visible_headers", headers)
+
+    def _save_sort_state(self, column, order):
+        """Persist sort column and order for the workspace."""
+        settings = self._get_workspace_settings()
+        order_value = int(order.value) if hasattr(order, "value") else int(order)
+        settings.setValue("sort_column", int(column))
+        settings.setValue("sort_order", order_value)
+        header_name = ""
+        if column > 0:
+            header_name = self.table_model.get_data_headers()[column - 1]
+        settings.setValue("sort_header", header_name)
+
+    def _load_filter_state(self):
+        settings = self._get_workspace_settings()
+        raw_state = settings.value("advanced_filter_state", "")
+        if not raw_state:
+            return None
+        try:
+            state = json.loads(raw_state)
+            if isinstance(state, dict):
+                return state
+        except Exception:
+            logger.warning("Failed to load advanced filter state", exc_info=True)
+        return None
+
+    def _save_filter_state(self, state):
+        settings = self._get_workspace_settings()
+        settings.setValue("advanced_filter_state", json.dumps(state))
+
+    def _load_filter_presets(self):
+        settings = self._get_workspace_settings()
+        raw_presets = settings.value("advanced_filter_presets", "")
+        if not raw_presets:
+            return {}
+        try:
+            presets = json.loads(raw_presets)
+            if isinstance(presets, dict):
+                return presets
+        except Exception:
+            logger.warning("Failed to load filter presets", exc_info=True)
+        return {}
+
+    def _save_filter_presets(self, presets):
+        settings = self._get_workspace_settings()
+        settings.setValue("advanced_filter_presets", json.dumps(presets))
+
+    def _save_filter_preset(self, name, state):
+        presets = self._load_filter_presets()
+        presets[name] = state
+        self._save_filter_presets(presets)
+
+    def _delete_filter_preset(self, name):
+        presets = self._load_filter_presets()
+        if name in presets:
+            del presets[name]
+            self._save_filter_presets(presets)
      
     def register_context_menu_action(self, name, callback, priority=500):
         """
@@ -1152,20 +1907,16 @@ class DeviceTableView(QTableView):
         if not device:
             return
             
-        # Get modifiers (we don't need to handle selection behavior here any more)
-        # The built-in selection model will handle this, and our selection_changed handler
-        # will sync the selection to the device_manager
+        # Row highlight is navigation only; checkbox state controls actual selection.
         modifiers = QApplication.keyboardModifiers()
         logger.debug(f"Item clicked with modifiers: {modifiers}")
-        
-        # Our on_selection_model_changed method will handle updating the device_manager selection
-        # based on the UI selection that happens automatically in Qt
     
     def on_item_double_clicked(self, index):
         """Handle item double clicked"""
         if not index.isValid():
             return
-            
+
+        self._toggle_checkbox_for_index(index)
         device = index.data(Qt.UserRole)
         if device:
             self.double_clicked.emit(device)
@@ -1203,6 +1954,7 @@ class DeviceTableView(QTableView):
                 if header_name not in visible_headers:
                     new_headers = visible_headers + [header_name]
                     table_model.set_visible_headers(new_headers)
+                    self._save_column_visibility(new_headers)
                     QMessageBox.information(
                         dialog,
                         "Column Added",
@@ -1675,24 +2427,17 @@ class DeviceTableView(QTableView):
 
     def on_context_menu(self, pos):
         """Show context menu"""
-        indices = self.selectedIndexes()
-        if not indices:
-            return
-            
-        # Get unique rows
-        rows = set()
-        devices = []
-        for index in indices:
-            row = index.row()
-            rows.add(row)
-        
-        # Get corresponding devices
-        for row in rows:
-            # Get the model index for this row
-            device_index = self.model().index(row, 0)
-            device = device_index.data(Qt.UserRole)
-            if device:
-                devices.append(device)
+        devices = self._get_highlighted_devices()
+        if not devices:
+            checked_devices = self.device_manager.get_selected_devices()
+            devices = checked_devices.copy() if checked_devices else []
+
+        if not devices:
+            index = self.indexAt(pos)
+            if index.isValid():
+                device = index.data(Qt.UserRole)
+                if device:
+                    devices.append(device)
                 
         # Exit if no devices
         if not devices:
@@ -2289,43 +3034,29 @@ class DeviceTableView(QTableView):
             
     def _on_action_import_devices(self, device):
         """Import devices from a file"""
-        # Find the DeviceTreeView to use its import dialog
-        from .device_tree import DeviceTreeView
+        from .import_wizard import run_device_import_wizard
         
-        tree_view = None
-        
-        # Try to find the tree view in the parent's children
-        for widget in self.parent().findChildren(DeviceTreeView):
-            tree_view = widget
-            break
-            
-        # If not found, try searching the whole application
-        if not tree_view:
-            for widget in QApplication.instance().allWidgets():
-                if isinstance(widget, DeviceTreeView):
-                    tree_view = widget
-                    break
-                
-        if tree_view:
-            tree_view._show_import_dialog()
-        else:
-            QMessageBox.warning(
-                self,
-                "Import Devices",
-                "Device import feature is currently unavailable. DeviceTreeView not found."
-            )
+        run_device_import_wizard(self.device_manager, self)
 
     def _on_action_select_all(self):
         """Select all devices in the current view"""
-        logger.debug("Selecting all visible devices")
-        # Use the built-in selectAll method which will trigger selectionChanged
-        self.selectAll()
+        logger.debug("Checking all visible devices")
+        visible_devices = self._get_visible_devices()
+        if not visible_devices:
+            return
+        checked_devices = self.device_manager.get_selected_devices()
+        merged = {device for device in checked_devices}
+        merged.update(visible_devices)
+        self._sync_selection_to_device_manager(list(merged))
+        self.table_model.notify_selection_changed()
+        self._update_header_checkbox_state()
             
     def _on_action_deselect_all(self):
         """Deselect all devices"""
-        logger.debug("Deselecting all devices")
-        # Clear the selection which will trigger selectionChanged
-        self.selectionModel().clearSelection()
+        logger.debug("Clearing all checked devices")
+        self._sync_selection_to_device_manager([])
+        self.table_model.notify_selection_changed()
+        self._update_header_checkbox_state()
 
     def _populate_add_to_group_menu(self, menu, devices):
         """Populate the Add to Group submenu
@@ -2516,24 +3247,9 @@ class DeviceTableView(QTableView):
         if self._ignore_selection_changes:
             return
 
-        # Get all currently selected model indices
-        selected_indices = self.selectionModel().selectedRows()
-        
-        # Get corresponding devices
-        selected_devices = []
-        for index in selected_indices:
-            device = index.data(Qt.UserRole)
-            if device:
-                selected_devices.append(device)
-                
-        # Determine what's been newly selected and deselected
-        previously_selected = self.device_manager.get_selected_devices()
-        
-        # Log the operation
-        logger.debug(f"Selection model changed: {len(selected_devices)} devices now selected in UI")
-        
-        # Update the device manager selection without triggering recursive updates
-        self._sync_selection_to_device_manager(selected_devices)
+        # Selection highlight is navigation only; keep checkboxes unchanged.
+        selected_count = len(self.selectionModel().selectedRows())
+        logger.debug(f"Row highlight changed: {selected_count} rows highlighted")
 
     @Slot(list)
     def on_manager_selection_changed(self, devices):
@@ -2543,19 +3259,9 @@ class DeviceTableView(QTableView):
             
         self._ignore_selection_changes = True
         try:
-            self.clearSelection()
-            if not devices:
-                return
-                
-            # Map devices to rows in the proxy model
-            for row in range(self.proxy_model.rowCount()):
-                index = self.proxy_model.index(row, 0)
-                device = index.data(Qt.UserRole)
-                if device and device in devices:
-                    self.selectionModel().select(
-                        index,
-                        QItemSelectionModel.Select | QItemSelectionModel.Rows
-                    )
+            # Only update checkbox visuals and header state.
+            self.table_model.notify_selection_changed()
+            self._update_header_checkbox_state()
         finally:
             self._ignore_selection_changes = False
         
@@ -2577,6 +3283,6 @@ class DeviceTableView(QTableView):
             
             # Log names of selected devices for debugging
             if selected_devices:
-                device_names = [d.get_property('alias', f'Device {d.id}') for d in selected_devices]
+                device_names = [str(d.get_property('alias', f'Device {d.id}')) for d in selected_devices]
                 logger.debug(f"Selected devices: {', '.join(device_names[:5])}" + 
                            (f" and {len(device_names) - 5} more" if len(device_names) > 5 else ""))

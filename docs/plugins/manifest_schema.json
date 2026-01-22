@@ -23,6 +23,10 @@
       "type": "string",
       "description": "Description of the plugin's functionality"
     },
+    "icon": {
+      "type": "string",
+      "description": "Relative path to the plugin icon asset"
+    },
     "author": {
       "type": "string",
       "description": "Plugin author or organization"

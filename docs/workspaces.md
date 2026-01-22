@@ -23,16 +23,18 @@ config/workspaces/
 ├── default/                   # Default workspace
 │   ├── workspace.json         # Workspace metadata
 │   ├── groups.json            # Group structure
-│   └── devices/               # Device references
-│       ├── device1.ref        # Reference to device1
-│       └── device2.ref        # Reference to device2
+│   └── devices/               # Device data per workspace
+│       ├── <device-id>/
+│       │   └── device.json
+│       └── <device-id>/
+│           └── device.json
 └── production/                # Another workspace
     ├── workspace.json
     ├── groups.json
     └── devices/
 ```
 
-The actual device data is stored in the `config/devices` directory and shared across workspaces. Each workspace contains references to devices rather than duplicating device data.
+Device data is stored inside each workspace under `devices/<device-id>/device.json`. This keeps workspaces fully self-contained for portability.
 
 ## Workspace File Format
 
@@ -78,7 +80,7 @@ A new workspace will be created with default settings and an empty device list. 
 To switch to a different workspace:
 
 1. Go to "File" → "Workspaces" → "Open Workspace"
-2. Select a workspace from the list
+2. Browse to a workspace folder in the file browser
 3. Click "Open"
 
 When switching workspaces, the UI layout will automatically change to match the saved layout for that workspace.

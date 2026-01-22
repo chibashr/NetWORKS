@@ -19,12 +19,15 @@ from PySide6.QtWidgets import (
     QProgressDialog, QApplication, QWidget, QListWidgetItem
 )
 
+from src.ui.plugin_ui_theme import mark_plugin_ui
+
 class CommandBatchExport(QDialog):
     """Dialog for exporting commands from multiple devices"""
     
     def __init__(self, plugin, parent=None):
         """Initialize the dialog"""
         super().__init__(parent)
+        mark_plugin_ui(self)
         
         self.plugin = plugin
         

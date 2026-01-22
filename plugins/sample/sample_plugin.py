@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
     QPushButton, QTabWidget, QScrollArea, QTreeWidget, QTreeWidgetItem,
     QGridLayout, QFormLayout, QGroupBox, QCheckBox, QComboBox,
     QSplitter, QProgressBar, QMessageBox, QTableWidget, QTableWidgetItem,
-    QMenu
+    QMenu, QStyle
 )
 from PySide6.QtCore import Qt, Signal, Slot, QSize, QTimer
 from PySide6.QtGui import QIcon, QAction, QFont, QColor, QClipboard
@@ -31,6 +31,9 @@ from PySide6.QtGui import QIcon, QAction, QFont, QColor, QClipboard
 # Import the plugin interface
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from src.core.plugin_interface import PluginInterface
+from src.ui.plugin_ui_theme import mark_plugin_ui
+from src.ui.plugin_widgets import CollapsibleSection, PluginDialogBase
+from src.ui.material_icons import material_icon
 
 
 def safe_action_wrapper(func):
@@ -432,6 +435,9 @@ class SamplePlugin(PluginInterface):
         self.action_test = QAction("Test Application", self)
         self.action_test.setStatusTip("Launch application testing dashboard")
         self.action_test.triggered.connect(self.on_test_action)
+        if getattr(self, "main_window", None):
+            self.action_sample.setIcon(material_icon("devices", self.main_window, QStyle.SP_ComputerIcon))
+            self.action_test.setIcon(material_icon("science", self.main_window, QStyle.SP_DialogApplyButton))
         
         # Create menu actions
         self.action_sample_menu = QAction("Sample Menu Action", self)
@@ -458,6 +464,8 @@ class SamplePlugin(PluginInterface):
         """Create widgets for the plugin"""
         # Create the main plugin panel with tabs
         self.main_panel = QTabWidget()
+        mark_plugin_ui(self.main_panel)
+        mark_plugin_ui(self.main_panel.tabBar())
         
         # --- Log Tab ---
         self.log_tab = QWidget()
@@ -489,8 +497,8 @@ class SamplePlugin(PluginInterface):
         self.test_dashboard_layout = QVBoxLayout(self.test_dashboard)
         
         # Test control group
-        test_control_group = QGroupBox("Test Controls")
-        test_control_layout = QHBoxLayout(test_control_group)
+        self.test_control_section = CollapsibleSection("Test Controls")
+        test_control_layout = QHBoxLayout()
         
         self.run_all_tests_button = QPushButton("Run All Tests")
         self.run_all_tests_button.clicked.connect(self.test_core_features)
@@ -501,11 +509,12 @@ class SamplePlugin(PluginInterface):
         self.stop_tests_button.setEnabled(False)
         test_control_layout.addWidget(self.stop_tests_button)
         
-        self.test_dashboard_layout.addWidget(test_control_group)
+        self.test_control_section.content_layout.addLayout(test_control_layout)
+        self.test_dashboard_layout.addWidget(self.test_control_section)
         
         # Test results group
-        test_results_group = QGroupBox("Test Results")
-        test_results_layout = QVBoxLayout(test_results_group)
+        self.test_results_section = CollapsibleSection("Test Results")
+        test_results_layout = QVBoxLayout()
         
         # Add tree widget for test results
         self.test_results_tree = QTreeWidget()
@@ -519,7 +528,8 @@ class SamplePlugin(PluginInterface):
         self.test_progress.setValue(0)
         test_results_layout.addWidget(self.test_progress)
         
-        self.test_dashboard_layout.addWidget(test_results_group)
+        self.test_results_section.content_layout.addLayout(test_results_layout)
+        self.test_dashboard_layout.addWidget(self.test_results_section)
         
         # Add the test dashboard to the test tab
         self.test_layout.addWidget(self.test_dashboard)
@@ -529,8 +539,8 @@ class SamplePlugin(PluginInterface):
         self.signal_layout = QVBoxLayout(self.signal_tab)
         
         # Signal control group
-        signal_control_group = QGroupBox("Signal Monitoring")
-        signal_control_layout = QVBoxLayout(signal_control_group)
+        self.signal_control_section = CollapsibleSection("Signal Monitoring")
+        signal_control_layout = QVBoxLayout()
         
         # Signal monitoring controls
         signal_buttons_layout = QHBoxLayout()
@@ -556,11 +566,12 @@ class SamplePlugin(PluginInterface):
         # We'll populate this in _initialize_signal_monitoring
         signal_control_layout.addWidget(self.signal_list_widget)
         
-        self.signal_layout.addWidget(signal_control_group)
+        self.signal_control_section.content_layout.addLayout(signal_control_layout)
+        self.signal_layout.addWidget(self.signal_control_section)
         
         # Signal log table
-        signal_log_group = QGroupBox("Signal Log")
-        signal_log_layout = QVBoxLayout(signal_log_group)
+        self.signal_log_section = CollapsibleSection("Signal Log")
+        signal_log_layout = QVBoxLayout()
         
         self.signal_log_table = QTableWidget()
         self.signal_log_table.setColumnCount(4)
@@ -572,7 +583,8 @@ class SamplePlugin(PluginInterface):
         
         signal_log_layout.addWidget(self.signal_log_table)
         
-        self.signal_layout.addWidget(signal_log_group)
+        self.signal_log_section.content_layout.addLayout(signal_log_layout)
+        self.signal_layout.addWidget(self.signal_log_section)
         
         # --- Device Details Tab ---
         self.details_tab = QWidget()
@@ -589,8 +601,8 @@ class SamplePlugin(PluginInterface):
         self.details_layout_widget.addWidget(title_label)
         
         # Device info
-        self.details_info_group = QGroupBox("Device Information")
-        self.details_info_layout = QFormLayout(self.details_info_group)
+        self.details_info_section = CollapsibleSection("Device Information")
+        self.details_info_layout = QFormLayout()
         self.device_name_label = QLabel("No device selected")
         self.device_type_label = QLabel("N/A")
         self.device_status_label = QLabel("N/A")
@@ -601,11 +613,12 @@ class SamplePlugin(PluginInterface):
         self.details_info_layout.addRow(QLabel("<b>Status:</b>"), self.device_status_label)
         self.details_info_layout.addRow(QLabel("<b>Sample:</b>"), self.device_sample_label)
         
-        self.details_layout_widget.addWidget(self.details_info_group)
+        self.details_info_section.content_layout.addLayout(self.details_info_layout)
+        self.details_layout_widget.addWidget(self.details_info_section)
         
         # Device test group
-        self.details_test_group = QGroupBox("Device Details and Test Results")
-        self.details_test_layout = QVBoxLayout(self.details_test_group)
+        self.details_test_section = CollapsibleSection("Device Details and Test Results")
+        self.details_test_layout = QVBoxLayout()
         
         # Test buttons for device
         device_test_buttons = QHBoxLayout()
@@ -631,7 +644,8 @@ class SamplePlugin(PluginInterface):
         self.device_test_results.setMinimumHeight(250)  # Make it taller
         self.details_test_layout.addWidget(self.device_test_results)
         
-        self.details_layout_widget.addWidget(self.details_test_group)
+        self.details_test_section.content_layout.addLayout(self.details_test_layout)
+        self.details_layout_widget.addWidget(self.details_test_section)
         
         # Add to details tab
         self.details_layout.addWidget(self.details_widget)
@@ -646,7 +660,6 @@ class SamplePlugin(PluginInterface):
         self.dock_widget = QDockWidget("Sample Plugin")
         self.dock_widget.setObjectName("SamplePluginDock")
         self.dock_widget.setWidget(self.main_panel)
-        
     def _save_log(self):
         """Save the log contents to a file"""
         try:
@@ -830,6 +843,50 @@ class SamplePlugin(PluginInterface):
         """Handle sample menu action"""
         logger.info("Sample menu action triggered")
         self.log_widget.append("Sample menu action triggered")
+
+        parent = self.main_window if hasattr(self, "main_window") else None
+        dialog = PluginDialogBase("Sample Plugin Dialog", parent)
+        dialog.resize(520, 360)
+
+        overview_tab = QWidget()
+        overview_layout = QVBoxLayout(overview_tab)
+        overview_layout.addWidget(QLabel("Sample plugin dialog using PluginDialogBase."))
+
+        overview_table = QTableWidget(2, 2)
+        overview_table.setHorizontalHeaderLabels(["Setting", "Value"])
+        overview_table.setAlternatingRowColors(True)
+        overview_table.verticalHeader().setVisible(False)
+        overview_table.setItem(0, 0, QTableWidgetItem("Status"))
+        overview_table.setItem(0, 1, QTableWidgetItem("Ready"))
+        overview_table.setItem(1, 0, QTableWidgetItem("Last Run"))
+        overview_table.setItem(1, 1, QTableWidgetItem("Not started"))
+        overview_layout.addWidget(overview_table)
+
+        dialog.add_tab(overview_tab, "Overview")
+        dialog.add_action_button("Close", dialog.reject)
+        dialog.exec()
+
+        parent = self.main_window if hasattr(self, "main_window") else None
+        dialog = PluginDialogBase("Sample Plugin Dialog", parent)
+        dialog.resize(520, 360)
+
+        overview_tab = QWidget()
+        overview_layout = QVBoxLayout(overview_tab)
+        overview_layout.addWidget(QLabel("Sample plugin dialog using PluginDialogBase."))
+
+        overview_table = QTableWidget(2, 2)
+        overview_table.setHorizontalHeaderLabels(["Setting", "Value"])
+        overview_table.setAlternatingRowColors(True)
+        overview_table.verticalHeader().setVisible(False)
+        overview_table.setItem(0, 0, QTableWidgetItem("Status"))
+        overview_table.setItem(0, 1, QTableWidgetItem("Ready"))
+        overview_table.setItem(1, 0, QTableWidgetItem("Last Run"))
+        overview_table.setItem(1, 1, QTableWidgetItem("Not started"))
+        overview_layout.addWidget(overview_table)
+
+        dialog.add_tab(overview_tab, "Overview")
+        dialog.add_action_button("Close", dialog.reject)
+        dialog.exec()
         
     @safe_action_wrapper
     def show_signal_monitor(self):

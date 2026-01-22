@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QFont, QColor
 
+from src.ui.plugin_ui_theme import mark_plugin_ui
+
 class OutputHandler:
     """Handler for command outputs and device command panels"""
     
@@ -631,6 +633,7 @@ class OutputHandler:
             QCheckBox, QGroupBox, QFormLayout, QLineEdit, QPushButton
         )
         select_dialog = QDialog(self.plugin.main_window)
+        mark_plugin_ui(select_dialog)
         select_dialog.setWindowTitle("Export Commands")
         select_dialog.resize(600, 500)
         

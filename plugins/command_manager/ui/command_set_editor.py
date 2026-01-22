@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QIcon, QAction
 
 from ..utils.command_set import CommandSet, Command
+from src.ui.plugin_ui_theme import mark_plugin_ui
 
 
 class CommandDialog(QDialog):
@@ -28,6 +29,7 @@ class CommandDialog(QDialog):
     def __init__(self, command=None, parent=None):
         """Initialize the dialog"""
         super().__init__(parent)
+        mark_plugin_ui(self)
         
         self.command = command or Command("", "", "")
         
@@ -99,6 +101,7 @@ class CommandSetSettingsDialog(QDialog):
     def __init__(self, command_set=None, parent=None):
         """Initialize the dialog"""
         super().__init__(parent)
+        mark_plugin_ui(self)
         
         self.command_set = command_set or CommandSet("", "")
         
@@ -165,6 +168,7 @@ class CommandSetEditor(QDialog):
     def __init__(self, plugin, parent=None):
         """Initialize the dialog"""
         super().__init__(parent)
+        mark_plugin_ui(self)
         
         self.plugin = plugin
         self.current_command_set = None

@@ -184,6 +184,10 @@ class PluginInterface(six.with_metaclass(ABCQObjectMeta, QObject, ABC)):
         
         Returns:
             list: List of QAction objects
+        
+        Notes:
+            Actions may set `toolbar_priority` (int) to influence overflow order.
+            Higher values stay visible longer when the toolbar is crowded.
         """
         return []
         

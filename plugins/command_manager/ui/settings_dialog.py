@@ -18,6 +18,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QFont
 
+from src.ui.plugin_ui_theme import mark_plugin_ui
+
 
 class SettingsDialog(QDialog):
     """Settings dialog for Command Manager plugin"""
@@ -25,6 +27,7 @@ class SettingsDialog(QDialog):
     def __init__(self, plugin, parent=None):
         """Initialize the dialog"""
         super().__init__(parent)
+        mark_plugin_ui(self)
         
         self.plugin = plugin
         self.setWindowTitle("Command Manager Settings")

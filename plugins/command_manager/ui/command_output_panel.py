@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QAction, QIcon, QFont
 
+from src.ui.plugin_ui_theme import mark_plugin_ui
+
 
 class CommandOutputPanel(QWidget):
     """Panel for displaying command outputs"""
@@ -147,6 +149,7 @@ class CommandOutputPanel(QWidget):
         
         # Show output dialog
         dialog = QDialog(self)
+        mark_plugin_ui(dialog)
         dialog.setWindowTitle(f"Command Output: {command_text}")
         dialog.resize(700, 500)
         
@@ -227,6 +230,7 @@ class CommandOutputPanel(QWidget):
         )
         
         template_dialog = QDialog(self)
+        mark_plugin_ui(template_dialog)
         template_dialog.setWindowTitle(f"Export: {command_text}")
         template_dialog.resize(500, 400)
         

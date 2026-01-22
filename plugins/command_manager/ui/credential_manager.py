@@ -20,6 +20,8 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QIcon
 
+from src.ui.plugin_ui_theme import mark_plugin_ui
+
 
 class CredentialManager(QDialog):
     """Dialog for managing device credentials"""
@@ -35,6 +37,7 @@ class CredentialManager(QDialog):
             parent: Parent widget
         """
         super().__init__(parent)
+        mark_plugin_ui(self)
         
         self.plugin = plugin
         self.devices = devices or []

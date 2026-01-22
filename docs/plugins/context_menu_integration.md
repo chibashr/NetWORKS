@@ -49,8 +49,12 @@ def _on_custom_action(self, device_or_devices):
     elif device_or_devices is not None:
         devices = [device_or_devices]
     else:
-        # No device provided, try getting selected devices
-        devices = self.device_manager.get_selected_devices()
+        # No device provided, prefer checked devices and fall back to highlights
+        device_table = self.main_window.device_table if hasattr(self.main_window, 'device_table') else None
+        if device_table and hasattr(device_table, 'get_selected_devices'):
+            devices = device_table.get_selected_devices()
+        else:
+            devices = self.device_manager.get_selected_devices()
         
     if not devices:
         # Handle no devices case
@@ -115,6 +119,30 @@ def _on_group_action(self, group_name_or_item=None):
     
     # Your group action logic here
 ```
+
+## Icon Specifications
+
+Icons used by context menu actions should follow the application icon spec in
+`docs/Design Considerations.md`.
+
+**Sizes:**
+- Toolbar: 24x24px
+- Panel header: 16x16px
+- Inline: 16x16px
+- Status: 12x12px
+- Large (dialogs): 32x32px
+- Plugin icon: 48x48px minimum (store under `resources/icons`)
+
+**Style:**
+- Material Icons (filled)
+- Monochrome using theme text colors (black in light theme, white in dark theme)
+- Minimal detail
+- 2px stroke width when using outline variants
+- SVG preferred
+
+**Context Menus:**
+- Icon size: 16x16px aligned 8px from the left edge
+- Icon-only actions must include tooltips and aria-labels
 
 ## Best Practices
 

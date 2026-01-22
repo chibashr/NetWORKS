@@ -71,16 +71,24 @@ class DeviceTableModel:
 class DeviceTableView:
     # Signals
     double_clicked: Signal(object)      # Emitted when a device is double-clicked
+
+    # Methods
+    def get_selected_devices() -> list  # Checked devices, or highlighted rows if none checked
 ```
 
 The device table view uses uniform row heights, when supported by the Qt binding, to improve resize performance on large datasets.
 
 The device table filter controls are wrapped in a responsive container. When the main window is narrow, the filter and action buttons stack vertically instead of overlapping.
 
+The properties panel uses checked devices for selection. If no devices are checked, the currently highlighted rows are used to populate the Details tab.
+
 ## Device Tree
 
 The device tree uses `DeviceTreeModel`, `DeviceTreeView`, and `DeviceTreePanel`.
 `DeviceTreePanel` wraps the view with search, compact mode, and filter controls.
+Device rows show the device alias/hostname in the first column and the IP address in the second column.
+The device name column stretches to fill available space, while the IP column sizes to content.
+Device rows show a vendor-based icon when `mac_vendor` is available (falls back to status icon).
 
 ```python
 class DeviceTreeView:

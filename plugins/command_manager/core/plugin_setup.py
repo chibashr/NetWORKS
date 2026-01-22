@@ -6,13 +6,16 @@ Plugin UI setup and registration functions
 """
 
 from loguru import logger
-from PySide6.QtWidgets import QToolBar, QWidget
+from PySide6.QtWidgets import QWidget, QStyle
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QAction
 
 from plugins.command_manager.ui.command_dialog import CommandDialog
 from plugins.command_manager.ui.command_set_editor import CommandSetEditor
 from plugins.command_manager.ui.settings_dialog import SettingsDialog
 from plugins.command_manager.reports.command_batch_export import CommandBatchExport
+from src.ui.material_icons import material_icon
+from src.ui.scalable_toolbar import ScalableToolbar
 
 def register_ui(plugin):
     """Create and register UI components for the plugin
@@ -49,6 +52,13 @@ def register_ui(plugin):
     plugin.settings_action.setObjectName("SettingsAction")
     logger.debug(f"Created settings_action: {plugin.settings_action}")
     
+    if plugin.main_window:
+        style = plugin.main_window.style()
+        plugin.toolbar_action.setIcon(material_icon("devices", plugin.main_window, QStyle.SP_ComputerIcon))
+        plugin.credential_manager_action.setIcon(material_icon("vpn_key", plugin.main_window, QStyle.SP_DialogApplyButton))
+        plugin.batch_export_action.setIcon(material_icon("file_upload", plugin.main_window, QStyle.SP_DialogSaveButton))
+        plugin.settings_action.setIcon(material_icon("settings", plugin.main_window, QStyle.SP_FileDialogDetailedView))
+    
     # Create toolbar
     plugin.toolbar = create_toolbar(plugin)
     
@@ -78,8 +88,10 @@ def create_toolbar(plugin):
         QToolBar: The created toolbar
     """
     logger.debug("Creating Command Manager toolbar")
-    toolbar = QToolBar("Command Manager")
+    toolbar = ScalableToolbar("Command Manager")
     toolbar.setObjectName("CommandManagerToolbar")
+    toolbar.setIconSize(plugin.main_window.toolbar.iconSize() if plugin.main_window else toolbar.iconSize())
+    toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
     
     # Reduce vertical margins on toolbar buttons
     toolbar.setStyleSheet("""
@@ -101,40 +113,44 @@ def create_toolbar(plugin):
         run_action.setToolTip("Run commands on devices")
         run_action.triggered.connect(lambda: on_run_commands(plugin))
         logger.debug(f"Created run_action: {run_action}")
-        toolbar.addAction(run_action)
+        toolbar.add_toolbar_action(run_action)
         
         # Action to manage command sets
         sets_action = QAction("Command Sets", plugin.main_window)
         sets_action.setToolTip("Manage command sets")
         sets_action.triggered.connect(lambda: on_manage_sets(plugin))
         logger.debug(f"Created sets_action: {sets_action}")
-        toolbar.addAction(sets_action)
+        toolbar.add_toolbar_action(sets_action)
         
         # Action to batch export commands
         batch_export_action = QAction("Export Multiple Devices", plugin.main_window)
         batch_export_action.setToolTip("Export command outputs from multiple devices")
         batch_export_action.triggered.connect(lambda: on_batch_export(plugin))
+        if plugin.main_window:
+            batch_export_action.setIcon(material_icon("file_upload", plugin.main_window, QStyle.SP_DialogSaveButton))
         logger.debug(f"Created batch_export_action: {batch_export_action}")
-        toolbar.addAction(batch_export_action)
+        toolbar.add_toolbar_action(batch_export_action)
         
         # Add a separator before the credential management button to make it stand out
-        toolbar.addSeparator()
+        toolbar.add_toolbar_separator()
         
         # Add the standalone credential manager action (this will be in both toolbar and main window toolbar)
-        toolbar.addAction(plugin.credential_manager_action)
+        toolbar.add_toolbar_action(plugin.credential_manager_action)
         
         # Add a separator after the credential management button
-        toolbar.addSeparator()
+        toolbar.add_toolbar_separator()
         
         # Action to generate reports
         report_action = QAction("Generate Report", plugin.main_window)
         report_action.setToolTip("Generate command output reports")
         report_action.triggered.connect(lambda: on_generate_report(plugin))
+        if plugin.main_window:
+            report_action.setIcon(material_icon("description", plugin.main_window, QStyle.SP_FileDialogDetailedView))
         logger.debug(f"Created report_action: {report_action}")
-        toolbar.addAction(report_action)
+        toolbar.add_toolbar_action(report_action)
         
         # Settings action
-        toolbar.addAction(plugin.settings_action)
+        toolbar.add_toolbar_action(plugin.settings_action)
         
     except Exception as e:
         logger.error(f"Error creating toolbar actions: {e}")
@@ -146,7 +162,9 @@ def create_toolbar(plugin):
         fallback = QAction("Command Manager", plugin.main_window)
         fallback.setToolTip("Command Manager")
         fallback.triggered.connect(lambda: logger.info("Fallback action triggered"))
-        toolbar.addAction(fallback)
+        if plugin.main_window:
+            fallback.setIcon(material_icon("devices", plugin.main_window, QStyle.SP_ComputerIcon))
+        toolbar.add_toolbar_action(fallback)
     
     logger.debug(f"Toolbar created with {len(toolbar.actions())} actions")
     return toolbar

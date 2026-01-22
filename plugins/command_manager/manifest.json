@@ -3,6 +3,7 @@
   "name": "Command Manager",
   "version": "1.0.3",
   "description": "Run and manage commands on network devices",
+  "icon": "resources/icons/command_manager.svg",
   "author": "NetWORKS",
   "entry_point": "command_manager.py",
   "min_app_version": "0.1.0",

@@ -40,11 +40,13 @@ logging:
   level: INFO
   retention_days: 7
 ui:
+  accent_color: '#00aaff'
   device_table:
     alternate_row_colors: true
     auto_resize_columns: true
     row_height: 30
-  font_size: 10
+  font_size: 14
+  row_height: 22
   show_statusbar: true
   theme: light
   toolbar_position: top

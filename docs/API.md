@@ -53,7 +53,7 @@ class DeviceManager:
     def select_device(self, device, exclusive=False): bool  # Select a device
     def deselect_device(self, device): bool  # Deselect a device
     def clear_selection(): bool             # Clear device selection
-    def get_selected_devices(): list        # Get selected devices
+    def get_selected_devices(): list        # Get checkbox-selected devices
     def save_devices(): bool                # Save devices to file
     def load_devices(): bool                # Load devices from file
     def refresh_devices(): bool             # Refresh device status
@@ -172,6 +172,8 @@ class Config:
 ### MainWindow Class
 
 See [src/ui/API.md](src/ui/API.md) for detailed documentation of UI components.
+
+Note: Menu actions should prefer `DeviceTableView.get_selected_devices()` when available because it falls back to highlighted rows when no checkboxes are selected.
 
 ## Plugin Interface
 

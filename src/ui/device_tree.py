@@ -16,18 +16,11 @@ from PySide6.QtWidgets import (QTreeView, QAbstractItemView, QMenu, QWidget,
                               QDialogButtonBox, QInputDialog, QApplication,
                               QButtonGroup, QRadioButton, QPlainTextEdit,
                               QToolButton, QDockWidget, QSizePolicy, QStyle)
-from PySide6.QtGui import QIcon, QFont, QColor, QBrush, QPainter, QPixmap
+from PySide6.QtGui import QIcon, QFont, QColor, QPainter, QPixmap
 from ..core.device_manager import Device
+from .material_icons import material_icon
 import os
 import json
-
-# Try to import optional dependencies for icons
-try:
-    import qtawesome as qta
-    HAS_QTA = True
-except ImportError:
-    HAS_QTA = False
-    logger.debug("qtawesome not available - using fallback icons")
 
 
 class DeviceTreeItem:
@@ -117,9 +110,10 @@ class DeviceTreeModel(QAbstractItemModel):
         self._device_items = {}
         self._group_items = {}
         self._status_icon_cache = {}
+        self._device_icon_cache = {}
         
         # Create root item
-        self.root_item = DeviceTreeItem(["Name", "ID"])
+        self.root_item = DeviceTreeItem(["Name", "IP Address"])
         
         # Connect to device manager signals
         self.device_manager.device_added.connect(self.on_device_added)
@@ -173,13 +167,16 @@ class DeviceTreeModel(QAbstractItemModel):
         
     def add_device(self, device, parent_item):
         """Add a device to the tree"""
-        # Display alias/hostname/IP in priority order
-        display_name = device.get_property("alias", "") or device.get_property("hostname", "") or device.get_property("ip_address", "") or "Unnamed Device"
+        # Display alias/hostname in the name column, with IP address in a separate column
+        display_name = (
+            device.get_property("alias", "")
+            or device.get_property("hostname", "")
+            or device.get_property("ip_address", "")
+            or "Unnamed Device"
+        )
         ip_address = device.get_property("ip_address", "")
-        if ip_address and display_name != ip_address:
-            display_name = f"{display_name} [{ip_address}]"
         device_item = DeviceTreeItem(
-            [display_name, device.id],
+            [display_name, ip_address],
             parent_item,
             device=device
         )
@@ -227,6 +224,53 @@ class DeviceTreeModel(QAbstractItemModel):
         icon = QIcon(pixmap)
         self._status_icon_cache[status] = icon
         return icon
+
+    def _device_type_icon(self, device):
+        """Return a cached device icon based on mac_vendor/vendor attributes."""
+        vendor = (
+            device.get_property("mac_vendor", "")
+            or device.get_property("vendor", "")
+            or ""
+        ).strip()
+        if not vendor:
+            return None
+
+        vendor_key = vendor.lower()
+        if vendor_key in self._device_icon_cache:
+            return self._device_icon_cache[vendor_key]
+
+        icon = self._material_icon_for_vendor(vendor_key)
+        if icon is None or icon.isNull():
+            icon = self._fallback_icon_for_vendor(vendor_key)
+
+        self._device_icon_cache[vendor_key] = icon
+        return icon
+
+    def _material_icon_for_vendor(self, vendor_key):
+        vendor_map = [
+            (["apple"], "laptop_mac"),
+            (["raspberry", "raspberry pi"], "developer_board"),
+            (["samsung", "lg", "huawei", "xiaomi", "oneplus", "google"], "smartphone"),
+            (["cisco", "juniper", "ubiquiti", "mikrotik", "tp-link", "netgear", "d-link", "aruba"], "router"),
+            (["brother", "canon", "epson", "xerox", "lexmark", "hp"], "print"),
+            (["dell", "lenovo", "acer", "asus", "microsoft", "intel"], "desktop_windows"),
+            (["vmware", "virtual", "qemu", "parallels"], "dns"),
+            (["hikvision", "dahua", "axis", "sony", "panasonic"], "videocam"),
+        ]
+        for keywords, icon_name in vendor_map:
+            if any(keyword in vendor_key for keyword in keywords):
+                return material_icon(icon_name, self)
+        return material_icon("devices", self)
+
+    def _fallback_icon_for_vendor(self, vendor_key):
+        style = QApplication.style()
+        if any(keyword in vendor_key for keyword in ["cisco", "juniper", "ubiquiti", "mikrotik", "tp-link", "netgear", "d-link", "aruba"]):
+            return style.standardIcon(QStyle.SP_DriveNetIcon)
+        if any(keyword in vendor_key for keyword in ["brother", "canon", "epson", "xerox", "lexmark", "hp"]):
+            return style.standardIcon(QStyle.SP_PrinterIcon)
+        if any(keyword in vendor_key for keyword in ["vmware", "virtual", "qemu", "parallels"]):
+            return style.standardIcon(QStyle.SP_DriveHDIcon)
+        return style.standardIcon(QStyle.SP_ComputerIcon)
         
     def index(self, row, column, parent=QModelIndex()):
         """Create an index for an item"""
@@ -288,12 +332,11 @@ class DeviceTreeModel(QAbstractItemModel):
             font.setBold(True)
             return font
         elif role == Qt.DecorationRole and item.device and index.column() == 0:
+            device_icon = self._device_type_icon(item.device)
+            if device_icon is not None:
+                return device_icon
             status = (item.device.get_property("status", "unknown") or "unknown").lower()
             return self._status_icon(status)
-        elif role == Qt.BackgroundRole and item.device:
-            # Highlight selected devices
-            if item.device in self.device_manager.get_selected_devices():
-                return QBrush(QColor(240, 248, 255))  # Light blue
         elif role == Qt.ToolTipRole:
             if item.group:
                 return item.group.description or f"Group: {item.group.name}"
@@ -635,6 +678,7 @@ class DeviceTreeView(QTreeView):
         
         # Expand root item
         self.expandToDepth(0)
+        self._configure_columns()
 
     def setModel(self, model):
         """Track proxy/source models for filtering and selection sync"""
@@ -648,11 +692,13 @@ class DeviceTreeView(QTreeView):
             self._source_model = model
             
         super().setModel(model)
+        self._configure_columns()
         
         # Connect model reset signals for state preservation
         if self._source_model:
             self._source_model.modelAboutToBeReset.connect(self._capture_view_state)
             self._source_model.modelReset.connect(self._restore_view_state_from_capture)
+            self._source_model.modelReset.connect(self._configure_columns)
         
     def refresh(self):
         """Refresh the device tree view to reflect current data"""
@@ -661,6 +707,13 @@ class DeviceTreeView(QTreeView):
         self._capture_view_state()
         if model and hasattr(model, 'setup_model_data'):
             model.setup_model_data()
+
+    def _configure_columns(self):
+        header = self.header()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setMinimumSectionSize(140)
 
     def set_filter_table_on_group_select(self, enabled):
         """Toggle filtering the device table when selecting a group"""
@@ -962,6 +1015,8 @@ class DeviceTreeView(QTreeView):
                 
                 menu.addSeparator()
                 action_delete = menu.addAction("Delete")
+                menu.addSeparator()
+                action_import_devices = menu.addAction("Import Devices...")
                 
                 # Show menu and handle result
                 action = menu.exec_(self.viewport().mapToGlobal(position))
@@ -970,6 +1025,8 @@ class DeviceTreeView(QTreeView):
                     self.device_double_clicked.emit(item)
                 elif action == action_delete:
                     self.device_manager.remove_device(item)
+                elif action == action_import_devices:
+                    self._show_import_dialog()
                 elif action_remove_from_group and action == action_remove_from_group:
                     parent_group = parent_item
                     if parent_group and parent_group != self.device_manager.root_group:
@@ -982,6 +1039,8 @@ class DeviceTreeView(QTreeView):
                 menu.addSeparator()
                 action_new_device = menu.addAction("New Device")
                 action_new_group = menu.addAction("New Subgroup")
+                menu.addSeparator()
+                action_import_devices = menu.addAction("Import Devices...")
                 menu.addSeparator()
                 action_filter_group = menu.addAction("Filter Table by This Group")
                 menu.addSeparator()
@@ -1000,6 +1059,8 @@ class DeviceTreeView(QTreeView):
                     self.device_manager.add_device_to_group(device, item)
                 elif action == action_new_group:
                     self.device_manager.create_group("New Group", parent_group=item)
+                elif action == action_import_devices:
+                    self._show_import_dialog()
                 elif action == action_filter_group:
                     self.group_filter_requested.emit(item)
                 elif action == action_delete:
@@ -1045,13 +1106,9 @@ class DeviceTreeView(QTreeView):
 
     def _show_import_dialog(self):
         """Show dialog for importing devices"""
-        from ..core.importer import DeviceImporter
+        from .import_wizard import run_device_import_wizard
         
-        # Create an instance of the importer
-        importer = DeviceImporter(self.device_manager)
-        
-        # Let the importer handle the import process through its run_import_wizard method
-        importer.run_import_wizard(self)
+        run_device_import_wizard(self.device_manager, self)
 
     def _show_group_manager_dialog(self, group):
         """Show dialog for managing a group"""
@@ -1457,7 +1514,7 @@ class DeviceTreePanel(QWidget):
         self.search_edit.setPlaceholderText("Search groups or devices...")
         clear_button = QToolButton()
         clear_button.setAutoRaise(True)
-        clear_button.setIcon(self.style().standardIcon(QStyle.SP_DialogResetButton))
+        clear_button.setIcon(material_icon("close", self, QStyle.SP_DialogResetButton))
         clear_button.setToolTip("Clear search text")
         clear_button.clicked.connect(self._clear_search)
         
@@ -1471,16 +1528,16 @@ class DeviceTreePanel(QWidget):
         self.filter_toggle = QCheckBox("Filter Table")
         expand_button = QToolButton()
         expand_button.setAutoRaise(True)
-        expand_button.setIcon(self.style().standardIcon(QStyle.SP_ArrowDown))
+        expand_button.setIcon(material_icon("expand_more", self, QStyle.SP_ArrowDown))
         expand_button.setToolTip("Expand all groups")
         collapse_button = QToolButton()
         collapse_button.setAutoRaise(True)
-        collapse_button.setIcon(self.style().standardIcon(QStyle.SP_ArrowUp))
+        collapse_button.setIcon(material_icon("expand_less", self, QStyle.SP_ArrowUp))
         collapse_button.setToolTip("Collapse all groups")
         
         width_button = QToolButton()
         width_button.setAutoRaise(True)
-        width_button.setIcon(self.style().standardIcon(QStyle.SP_TitleBarMaxButton))
+        width_button.setIcon(material_icon("width_full", self, QStyle.SP_TitleBarMaxButton))
         width_button.setToolTip("Set a width preset for the device tree")
         width_button.setPopupMode(QToolButton.InstantPopup)
         width_menu = QMenu(self)

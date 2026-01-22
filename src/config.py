@@ -50,7 +50,10 @@ class Config(QObject):
                 "auto_enable_discovered_plugins": True
             },
             "ui": {
+                "theme": "light",
+                "accent_color": "#E87722",
                 "font_size": 10,
+                "row_height": 22,
                 "toolbar_position": "top",
                 "show_statusbar": True,
                 "device_table": {

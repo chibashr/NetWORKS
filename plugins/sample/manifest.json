@@ -3,6 +3,7 @@
   "name": "Sample Plugin",
   "version": "1.0.9",
   "description": "A comprehensive sample plugin that demonstrates the plugin system and provides testing capabilities",
+  "icon": "resources/icons/sample.svg",
   "author": "NetWORKS Team",
   "entry_point": "sample_plugin.py",
   "min_app_version": "0.8.16",

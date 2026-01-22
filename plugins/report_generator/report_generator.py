@@ -44,9 +44,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QSizePolicy,
+    QStyle,
 )
 
 from src.core.plugin_interface import PluginInterface
+from src.ui.plugin_ui_theme import mark_plugin_ui
+from src.ui.material_icons import material_icon
 
 
 DATA_SOURCE_LABELS = [
@@ -873,6 +876,7 @@ class ReportBuilderWidget(QWidget):
             QMessageBox.information(self, "Add Column", "All available properties are already added.")
             return
         dialog = QDialog(self)
+        mark_plugin_ui(dialog)
         dialog.setWindowTitle("Add Existing Columns")
         layout = QVBoxLayout(dialog)
         list_widget = QListWidget()
@@ -915,6 +919,7 @@ class ReportBuilderWidget(QWidget):
 
     def add_computed_column(self):
         dialog = QDialog(self)
+        mark_plugin_ui(dialog)
         dialog.setWindowTitle("Add Computed Column")
         layout = QVBoxLayout(dialog)
         form = QFormLayout()
@@ -948,6 +953,7 @@ class ReportBuilderWidget(QWidget):
 
     def add_transformed_column(self):
         dialog = QDialog(self)
+        mark_plugin_ui(dialog)
         dialog.setWindowTitle("Add Transformed Column")
         layout = QVBoxLayout(dialog)
         form = QFormLayout()
@@ -1197,6 +1203,7 @@ class ReportBuilderWidget(QWidget):
 
     def open_report_manager(self):
         dialog = QDialog(self)
+        mark_plugin_ui(dialog)
         dialog.setWindowTitle("Manage Reports")
         dialog.resize(520, 420)
 
@@ -1602,6 +1609,7 @@ class ReportBuilderWidget(QWidget):
 class ReportBuilderDialog(QDialog):
     def __init__(self, plugin, prefill_source=None, parent=None):
         super().__init__(parent or plugin.main_window)
+        mark_plugin_ui(self)
         self.setWindowTitle("Report Generator")
         self.resize(1100, 800)
 
@@ -1650,6 +1658,8 @@ class ReportGeneratorPlugin(PluginInterface):
         self.menu_action.triggered.connect(self.show_report_dialog)
         self.toolbar_action = QAction("Report Generator", self.main_window)
         self.toolbar_action.triggered.connect(self.show_report_dialog)
+        if self.main_window:
+            self.toolbar_action.setIcon(material_icon("description", self.main_window, QStyle.SP_FileDialogDetailedView))
         self.actions = [self.menu_action]
         return True
 
