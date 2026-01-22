@@ -1,0 +1,26 @@
+{
+  "id": "report_generator",
+  "name": "Report Generator",
+  "version": "1.0.0",
+  "description": "Build tabular and template-based reports from devices and export to common formats",
+  "author": "chibashr",
+  "entry_point": "report_generator.py",
+  "min_app_version": "0.8.16",
+  "dependencies": [],
+  "requirements": {
+    "python": [],
+    "system": []
+  },
+  "changelog": [
+    {
+      "version": "1.0.0",
+      "date": "2026-01-21",
+      "changes": [
+        "Initial release of the report generator plugin",
+        "Added report builder UI with table and template modes",
+        "Added HTML, JSON, CSV, and TXT export formats",
+        "Added per-workspace report storage"
+      ]
+    }
+  ]
+}

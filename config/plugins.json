@@ -11,6 +11,12 @@
     "path": "plugins\\network_scanner",
     "version": "1.2.3"
   },
+  "report_generator": {
+    "state": "ENABLED",
+    "last_loaded": "",
+    "path": "plugins\\report_generator",
+    "version": "1.0.0"
+  },
   "sample": {
     "state": "DISABLED",
     "last_loaded": "",

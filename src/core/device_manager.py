@@ -1228,14 +1228,22 @@ class DeviceManager(QObject):
                     else:
                         logger.debug("Plugin discovery already in progress, skipping duplicate call")
                     
-                    # Then enable plugins based on the workspace configuration
+                    # Enable all plugins first, then load them to avoid dependency order issues
                     for plugin_id in enabled_plugins:
                         try:
                             if plugin_id in plugin_manager.plugins:
                                 if not plugin_manager.plugins[plugin_id].state.is_enabled:
                                     logger.debug(f"Enabling plugin {plugin_id} from workspace configuration")
                                     plugin_manager.enable_plugin(plugin_id)
-                                
+                            else:
+                                logger.warning(f"Plugin {plugin_id} specified in workspace configuration not found")
+                        except Exception as e:
+                            logger.error(f"Error enabling plugin {plugin_id}: {e}", exc_info=True)
+                            # Continue with other plugins even if one fails
+                    
+                    for plugin_id in enabled_plugins:
+                        try:
+                            if plugin_id in plugin_manager.plugins:
                                 # Ensure the plugin is loaded if enabled
                                 if (not plugin_manager.plugins[plugin_id].state.is_loaded and 
                                     plugin_manager.plugins[plugin_id].state.is_enabled):
@@ -1244,7 +1252,7 @@ class DeviceManager(QObject):
                             else:
                                 logger.warning(f"Plugin {plugin_id} specified in workspace configuration not found")
                         except Exception as e:
-                            logger.error(f"Error enabling/loading plugin {plugin_id}: {e}", exc_info=True)
+                            logger.error(f"Error loading plugin {plugin_id}: {e}", exc_info=True)
                             # Continue with other plugins even if one fails
                 except Exception as e:
                     logger.error(f"Error during plugin discovery/loading: {e}", exc_info=True)
