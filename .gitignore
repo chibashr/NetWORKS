@@ -58,6 +58,9 @@ ehthumbs.db
 Thumbs.db
 
 # Configuration and workspace files
+config/user.yaml
+config/plugins.yaml
+config/devices/
 config/workspaces/*/devices/
 config/workspaces/*/*.bak
 
@@ -85,4 +88,5 @@ coverage.xml
 
 config/workspaces/
 config/backups/
+data/
 tests/

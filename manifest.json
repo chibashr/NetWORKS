@@ -1,6 +1,6 @@
 {
   "name": "NetWORKS",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Network management and monitoring tool",
   "author": "chibashr",
   "license": "MIT",
@@ -9,12 +9,12 @@
     "type": "git",
     "url": "https://github.com/networks/networks.git"
   },
-  "version_string": "0.9.0",
+  "version_string": "0.10.0",
   "version_info": {
     "major": 0,
-    "minor": 9,
+    "minor": 10,
     "patch": 0,
-    "build": 217
+    "build": 218
   },
   "app_directory": "src",
   "main_module": "main",
@@ -36,8 +36,8 @@
   "update_url": "https://api.networks.dev/updates",
   "telemetry_enabled": false,
   "analytics_enabled": false,
-  "build_date": "2025-05-29",
-  "release_notes": "Improved IP address sorting in device tables to properly handle octets in numerical order.",
+  "build_date": "2026-01-22",
+  "release_notes": "Added the Report Generator plugin with table/template reports and exports in common formats.",
   "release_type": "stable",
   "versioning_scheme": "semver",
   "update_channel": "stable"

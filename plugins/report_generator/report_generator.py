@@ -49,6 +49,7 @@ from PySide6.QtWidgets import (
 
 from src.core.plugin_interface import PluginInterface
 from src.ui.plugin_ui_theme import mark_plugin_ui
+from src.ui.theme import get_theme_tokens
 from src.ui.material_icons import material_icon
 
 
@@ -116,6 +117,7 @@ def default_report_definition():
         "computed_columns": [],
         "transformations": [],
         "sort": {"column": "", "direction": "asc"},
+        "sorts": [],
         "template": {"header": "", "item": "{{alias}}", "footer": ""},
         "output": {"format": "HTML"},
     }
@@ -341,14 +343,6 @@ class ReportBuilderWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
 
-        top_bar = QWidget()
-        top_bar_layout = QHBoxLayout(top_bar)
-        top_bar_layout.setContentsMargins(2, 0, 2, 0)
-        top_bar_layout.setSpacing(8)
-        top_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        top_bar.setMinimumHeight(26)
-        top_bar.setMaximumHeight(26)
-
         menu_bar = QMenuBar()
         menu_bar.setNativeMenuBar(False)
         menu_bar.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
@@ -364,7 +358,15 @@ class ReportBuilderWidget(QWidget):
         file_menu.addAction("Export Report", self.export_report)
         file_menu.addSeparator()
         file_menu.addAction("Clear Current", self.clear_current_report)
-        top_bar_layout.addWidget(menu_bar, alignment=Qt.AlignLeft)
+        layout.setMenuBar(menu_bar)
+
+        top_bar = QWidget()
+        top_bar_layout = QHBoxLayout(top_bar)
+        top_bar_layout.setContentsMargins(2, 0, 2, 0)
+        top_bar_layout.setSpacing(8)
+        top_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        top_bar.setMinimumHeight(26)
+        top_bar.setMaximumHeight(26)
 
         self.current_report_label = QLabel("No report selected")
         self.current_report_label.setWordWrap(True)
@@ -375,9 +377,6 @@ class ReportBuilderWidget(QWidget):
         top_bar_layout.addStretch()
         top_bar_layout.addWidget(self.current_report_label, alignment=Qt.AlignCenter)
         top_bar_layout.addStretch()
-        right_spacer = QWidget()
-        right_spacer.setFixedWidth(menu_bar.sizeHint().width())
-        top_bar_layout.addWidget(right_spacer)
         layout.addWidget(top_bar)
 
         splitter = QSplitter(Qt.Horizontal)
@@ -452,6 +451,18 @@ class ReportBuilderWidget(QWidget):
         source_layout.addRow("", source_help)
         form_layout.addWidget(source_group)
 
+        self.table_controls_group = QGroupBox("Table Editor")
+        table_controls_layout = QVBoxLayout(self.table_controls_group)
+
+        table_editor_splitter = QSplitter(Qt.Horizontal)
+        table_editor_splitter.setChildrenCollapsible(False)
+        table_controls_layout.addWidget(table_editor_splitter)
+
+        filter_sort_panel = QWidget()
+        filter_sort_layout = QVBoxLayout(filter_sort_panel)
+        filter_sort_layout.setContentsMargins(0, 0, 0, 0)
+        filter_sort_layout.setSpacing(8)
+
         filters_group = QGroupBox("Filters")
         filters_layout = QVBoxLayout(filters_group)
         filters_help = QLabel("Use property names like alias, ip_address, status, tags.")
@@ -470,13 +481,37 @@ class ReportBuilderWidget(QWidget):
         filters_layout.addLayout(filter_buttons)
         self.add_filter_button.clicked.connect(self.add_filter_row)
         self.remove_filter_button.clicked.connect(self.remove_selected_rows)
-        form_layout.addWidget(filters_group)
+        filter_sort_layout.addWidget(filters_group)
 
-        self.table_group = QGroupBox("Table Settings")
-        table_layout = QVBoxLayout(self.table_group)
+        self.sort_group = QGroupBox("Sorting Priority")
+        sort_layout = QVBoxLayout(self.sort_group)
+        self.sorts_table = QTableWidget(0, 2)
+        self.sorts_table.setHorizontalHeaderLabels(["Column", "Direction"])
+        self.sorts_table.horizontalHeader().setStretchLastSection(True)
+        self.sorts_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.sorts_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        sort_layout.addWidget(self.sorts_table)
+        sort_buttons = QHBoxLayout()
+        self.add_sort_button = QPushButton("Add Sort")
+        self.remove_sort_button = QPushButton("Remove Selected")
+        self.sort_up_button = QPushButton("Move Up")
+        self.sort_down_button = QPushButton("Move Down")
+        sort_buttons.addWidget(self.add_sort_button)
+        sort_buttons.addWidget(self.remove_sort_button)
+        sort_buttons.addWidget(self.sort_up_button)
+        sort_buttons.addWidget(self.sort_down_button)
+        sort_layout.addLayout(sort_buttons)
+        self.add_sort_button.clicked.connect(self.add_sort_row)
+        self.remove_sort_button.clicked.connect(self.remove_selected_sorts)
+        self.sort_up_button.clicked.connect(lambda: self._move_sort_rows(-1))
+        self.sort_down_button.clicked.connect(lambda: self._move_sort_rows(1))
+        filter_sort_layout.addWidget(self.sort_group)
 
-        columns_group = QGroupBox("Columns")
-        columns_layout = QVBoxLayout(columns_group)
+        filter_sort_layout.addStretch()
+        table_editor_splitter.addWidget(filter_sort_panel)
+
+        self.columns_group = QGroupBox("Columns")
+        columns_layout = QVBoxLayout(self.columns_group)
         self.columns_list = QListWidget()
         self.columns_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.columns_list.setDragDropMode(QAbstractItemView.InternalMove)
@@ -501,20 +536,11 @@ class ReportBuilderWidget(QWidget):
         self.remove_column_button.clicked.connect(self.remove_selected_columns)
         self.columns_up_button.clicked.connect(self.move_columns_up)
         self.columns_down_button.clicked.connect(self.move_columns_down)
-        table_layout.addWidget(columns_group)
+        table_editor_splitter.addWidget(self.columns_group)
+        table_editor_splitter.setStretchFactor(0, 1)
+        table_editor_splitter.setStretchFactor(1, 1)
 
-        sort_group = QGroupBox("Sorting")
-        sort_layout = QFormLayout(sort_group)
-        self.sort_combo = QComboBox()
-        self.sort_combo.currentTextChanged.connect(self._schedule_preview)
-        self.sort_order_combo = QComboBox()
-        self.sort_order_combo.addItems(["asc", "desc"])
-        self.sort_order_combo.currentTextChanged.connect(self._schedule_preview)
-        sort_layout.addRow("Sort By:", self.sort_combo)
-        sort_layout.addRow("Direction:", self.sort_order_combo)
-        table_layout.addWidget(sort_group)
-
-        form_layout.addWidget(self.table_group)
+        form_layout.addWidget(self.table_controls_group)
 
         self.template_group = QGroupBox("Template Settings")
         template_layout = QFormLayout(self.template_group)
@@ -695,7 +721,9 @@ class ReportBuilderWidget(QWidget):
 
     def _on_mode_changed(self, mode_label):
         mode = MODE_MAP.get(mode_label, "table")
-        self.table_group.setVisible(mode == "table")
+        self.table_controls_group.setVisible(True)
+        self.sort_group.setEnabled(mode == "table")
+        self.columns_group.setEnabled(mode == "table")
         self.template_group.setVisible(mode == "template")
 
     def _on_source_changed(self, source_label):
@@ -779,10 +807,13 @@ class ReportBuilderWidget(QWidget):
             report.get("transformations", []),
         )
 
-        sort_info = report.get("sort", {})
         self.update_sort_options()
-        self.sort_combo.setCurrentText(sort_info.get("column", ""))
-        self.sort_order_combo.setCurrentText(sort_info.get("direction", "asc"))
+        sort_definitions = report.get("sorts") or []
+        if not sort_definitions:
+            legacy_sort = report.get("sort", {})
+            if legacy_sort.get("column"):
+                sort_definitions = [legacy_sort]
+        self._load_sorts(sort_definitions)
 
         template = report.get("template", {})
         self.template_header_edit.setPlainText(template.get("header", ""))
@@ -854,6 +885,92 @@ class ReportBuilderWidget(QWidget):
         for row in rows:
             self.filters_table.removeRow(row)
         self._schedule_preview()
+
+    def add_sort_row(self, column="", direction="asc"):
+        row = self.sorts_table.rowCount()
+        self.sorts_table.insertRow(row)
+        column_combo = QComboBox()
+        column_combo.addItem("")
+        for name in self._get_available_sort_columns():
+            column_combo.addItem(name)
+        if column:
+            if column_combo.findText(column) == -1:
+                column_combo.addItem(column)
+            column_combo.setCurrentText(column)
+        column_combo.currentTextChanged.connect(self._schedule_preview)
+        self.sorts_table.setCellWidget(row, 0, column_combo)
+
+        direction_combo = QComboBox()
+        direction_combo.addItems(["asc", "desc"])
+        direction_combo.setCurrentText(direction or "asc")
+        direction_combo.currentTextChanged.connect(self._schedule_preview)
+        self.sorts_table.setCellWidget(row, 1, direction_combo)
+        self._schedule_preview()
+
+    def remove_selected_sorts(self):
+        rows = sorted({i.row() for i in self.sorts_table.selectedIndexes()}, reverse=True)
+        for row in rows:
+            self.sorts_table.removeRow(row)
+        self._schedule_preview()
+
+    def _move_sort_rows(self, direction):
+        if direction not in (-1, 1):
+            return
+        sorts = self._get_sort_rows(include_empty=True)
+        if not sorts:
+            return
+        selected = sorted({i.row() for i in self.sorts_table.selectedIndexes()})
+        if not selected:
+            return
+        if direction == 1:
+            selected = list(reversed(selected))
+        for row in selected:
+            new_row = row + direction
+            if new_row < 0 or new_row >= len(sorts):
+                continue
+            sorts[row], sorts[new_row] = sorts[new_row], sorts[row]
+        new_selected = []
+        for row in sorted({i.row() for i in self.sorts_table.selectedIndexes()}):
+            moved = row + direction
+            if 0 <= moved < len(sorts):
+                new_selected.append(moved)
+            else:
+                new_selected.append(row)
+        self._load_sorts(sorts)
+        for row in new_selected:
+            self.sorts_table.selectRow(row)
+        self._schedule_preview()
+
+    def _load_sorts(self, sorts):
+        self.sorts_table.setRowCount(0)
+        for sort_def in sorts:
+            self.add_sort_row(sort_def.get("column", ""), sort_def.get("direction", "asc"))
+
+    def _get_available_sort_columns(self):
+        columns = []
+        for row in range(self.columns_list.count()):
+            item = self.columns_list.item(row)
+            data = item.data(Qt.UserRole) or {}
+            name = (data.get("name") or "").strip()
+            if name:
+                columns.append(name)
+        if not columns:
+            columns = self._collect_device_properties()
+        return sorted(set(columns))
+
+    def _get_sort_rows(self, include_empty=False):
+        sorts = []
+        for row in range(self.sorts_table.rowCount()):
+            column_combo = self.sorts_table.cellWidget(row, 0)
+            direction_combo = self.sorts_table.cellWidget(row, 1)
+            column = column_combo.currentText().strip() if column_combo else ""
+            direction = direction_combo.currentText() if direction_combo else "asc"
+            if column or include_empty:
+                sorts.append({"column": column, "direction": direction})
+        return sorts
+
+    def _get_sort_definitions(self):
+        return [sort_def for sort_def in self._get_sort_rows(include_empty=True) if sort_def.get("column")]
 
     def show_add_column_menu(self):
         menu = QMenu(self)
@@ -1066,20 +1183,22 @@ class ReportBuilderWidget(QWidget):
         self._schedule_preview()
 
     def update_sort_options(self):
-        current = self.sort_combo.currentText()
-        self.sort_combo.clear()
-        self.sort_combo.addItem("")
-        columns = []
-        for row in range(self.columns_list.count()):
-            item = self.columns_list.item(row)
-            data = item.data(Qt.UserRole) or {}
-            name = (data.get("name") or "").strip()
-            if name:
-                columns.append(name)
-        for column in sorted(set(columns)):
-            self.sort_combo.addItem(column)
-        if current:
-            self.sort_combo.setCurrentText(current)
+        columns = self._get_available_sort_columns()
+        for row in range(self.sorts_table.rowCount()):
+            combo = self.sorts_table.cellWidget(row, 0)
+            if combo is None:
+                continue
+            current = combo.currentText()
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem("")
+            for column in columns:
+                combo.addItem(column)
+            if current and combo.findText(current) == -1:
+                combo.addItem(current)
+            if current:
+                combo.setCurrentText(current)
+            combo.blockSignals(False)
 
     def browse_output_path(self):
         selected_format = self.format_combo.currentText().lower()
@@ -1358,6 +1477,8 @@ class ReportBuilderWidget(QWidget):
                     {"target": name, "transform": transform_name, "value": transform.get("value", "")}
                 )
 
+        sort_definitions = self._get_sort_definitions()
+        sort_fallback = sort_definitions[0] if sort_definitions else {"column": "", "direction": "asc"}
         report_definition = {
             "id": report_id,
             "name": name,
@@ -1372,10 +1493,8 @@ class ReportBuilderWidget(QWidget):
             "columns": columns,
             "computed_columns": computed_columns,
             "transformations": transformations,
-            "sort": {
-                "column": self.sort_combo.currentText().strip(),
-                "direction": self.sort_order_combo.currentText(),
-            },
+            "sort": sort_fallback,
+            "sorts": sort_definitions,
             "template": {
                 "header": self.template_header_edit.toPlainText(),
                 "item": self.template_item_edit.toPlainText(),
@@ -1511,10 +1630,19 @@ class ReportBuilderWidget(QWidget):
                 transformed = apply_transforms_for_target(computed_value, name, transform_map, context)
                 row[name] = sanitize_value(transformed)
             rows.append(row)
-        sort_info = report.get("sort", {})
-        sort_column = sort_info.get("column") or ""
-        if sort_column:
-            rows.sort(key=lambda r: r.get(sort_column, ""), reverse=sort_info.get("direction") == "desc")
+        sort_definitions = report.get("sorts") or []
+        if not sort_definitions:
+            legacy_sort = report.get("sort", {})
+            if legacy_sort.get("column"):
+                sort_definitions = [legacy_sort]
+        for sort_def in reversed(sort_definitions):
+            sort_column = (sort_def.get("column") or "").strip()
+            if not sort_column:
+                continue
+            rows.sort(
+                key=lambda r, column=sort_column: r.get(column, ""),
+                reverse=sort_def.get("direction") == "desc",
+            )
         return rows
 
     def _render_table_report(self, report, rows, computed_columns):
@@ -1529,7 +1657,7 @@ class ReportBuilderWidget(QWidget):
             return self._rows_to_csv(rows, all_columns), None
         if output_format == "TXT":
             return self._rows_to_txt(rows, all_columns), None
-        return self._rows_to_html(rows, all_columns), None
+        return self._rows_to_html(rows, all_columns, report.get("name") or "Report"), None
 
     def _render_template_report(self, report, devices, rows, transform_map):
         template = report.get("template", {})
@@ -1566,21 +1694,107 @@ class ReportBuilderWidget(QWidget):
             return self._lines_to_csv(content_lines), None
         if output_format == "HTML":
             escaped = html.escape(content)
-            return f"<pre>{escaped}</pre>", None
+            content_html = f"<pre class='report-pre'>{escaped}</pre>"
+            return self._wrap_report_html(content_html, report.get("name") or "Report"), None
         return content, None
 
-    def _rows_to_html(self, rows, columns):
+    def _rows_to_html(self, rows, columns, title):
         header_cells = "".join(f"<th>{html.escape(col)}</th>" for col in columns)
         body_rows = []
         for row in rows:
             cells = "".join(f"<td>{html.escape(sanitize_value(row.get(col, '')))}</td>" for col in columns)
             body_rows.append(f"<tr>{cells}</tr>")
-        table_html = (
-            "<table border='1' cellspacing='0' cellpadding='4' style='white-space: nowrap;'>"
-            f"<thead><tr>{header_cells}</tr></thead>"
-            f"<tbody>{''.join(body_rows)}</tbody></table>"
+        table_html = f"<table><thead><tr>{header_cells}</tr></thead><tbody>{''.join(body_rows)}</tbody></table>"
+        return self._wrap_report_html(table_html, title)
+
+    def _wrap_report_html(self, body_html, title):
+        tokens = self._get_report_theme_tokens()
+        color_scheme = "dark" if tokens.name == "dark" else "light"
+        title_text = html.escape(title or "Report")
+        font_size = tokens.font_size
+        meta_size = max(font_size - 1, 8)
+        return f"""<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>{title_text}</title>
+    <style>
+        :root {{
+            color-scheme: {color_scheme};
+            --accent: {tokens.accent};
+            --accent-soft: {tokens.accent_soft};
+            --bg: {tokens.background};
+            --surface: {tokens.surface};
+            --surface-alt: {tokens.surface_alt};
+            --surface-raised: {tokens.surface_raised};
+            --border: {tokens.border};
+            --text: {tokens.text};
+            --text-muted: {tokens.text_muted};
+            --header-bg: {tokens.header_bg};
+            --header-text: {tokens.header_text};
+            --table-alt: {tokens.table_alt};
+        }}
+        * {{ box-sizing: border-box; }}
+        body {{
+            margin: 16px;
+            font-family: "Segoe UI", "San Francisco", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+            font-size: {font_size}px;
+            color: var(--text);
+            background: var(--bg);
+        }}
+        table {{
+            border-collapse: collapse;
+            width: 100%;
+            white-space: nowrap;
+        }}
+        th, td {{
+            border: 1px solid var(--border);
+            padding: 2px 4px;
+            text-align: left;
+        }}
+        th {{
+            background: var(--header-bg);
+            color: var(--header-text);
+            font-weight: 600;
+        }}
+        tbody tr:nth-child(even) {{
+            background: var(--table-alt);
+        }}
+        tbody tr:hover {{
+            background: var(--surface-raised);
+        }}
+        .report-pre {{
+            border: 1px solid var(--border);
+            background: var(--surface);
+            padding: 8px;
+            white-space: pre-wrap;
+        }}
+        .report-meta {{
+            color: var(--text-muted);
+            font-size: {meta_size}px;
+            margin-bottom: 8px;
+        }}
+    </style>
+</head>
+<body>
+    {body_html}
+</body>
+</html>
+"""
+
+    def _get_report_theme_tokens(self):
+        app = getattr(self.plugin, "app", None)
+        config = getattr(app, "config", None) if app else None
+        theme_name = config.get("ui.theme", "light") if config else "light"
+        font_size = config.get("ui.font_size", 10) if config else 10
+        row_height = config.get("ui.row_height", 22) if config else 22
+        accent_color = config.get("ui.accent_color", "") if config else ""
+        return get_theme_tokens(
+            theme_name,
+            font_size=font_size,
+            row_height=row_height,
+            accent_override=accent_color,
         )
-        return f"<!doctype html><html><body>{table_html}</body></html>"
 
     def _rows_to_csv(self, rows, columns):
         buffer = io.StringIO()
@@ -1611,7 +1825,7 @@ class ReportBuilderDialog(QDialog):
         super().__init__(parent or plugin.main_window)
         mark_plugin_ui(self)
         self.setWindowTitle("Report Generator")
-        self.resize(1100, 800)
+        self.resize(1300, 800)
 
         layout = QVBoxLayout(self)
         self.builder = ReportBuilderWidget(plugin, self)

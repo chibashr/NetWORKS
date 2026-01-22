@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.0] - 2026-01-22
+
+### Added
+- Report Generator plugin with table and template report modes.
+- Report exports in HTML, JSON, CSV, and TXT formats.
+- Per-workspace report storage for generated report definitions.
+
 ## [0.9.0] - 2025-05-29
 
 ### Added

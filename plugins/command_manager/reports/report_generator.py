@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.ui.plugin_ui_theme import mark_plugin_ui
+from src.ui.theme import get_theme_tokens
 
 class ReportGenerator(QDialog):
     """Dialog for generating command output reports"""
@@ -376,6 +377,8 @@ class ReportGenerator(QDialog):
     def _generate_html_report(self, file_path, devices, title, include_device_info, 
                              include_all, date_from, date_to, success_only):
         """Generate an HTML report"""
+        tokens = self._get_report_theme_tokens()
+        color_scheme = "dark" if tokens.name == "dark" else "light"
         with open(file_path, "w") as f:
             # Write HTML header
             f.write(f"""<!DOCTYPE html>
@@ -383,15 +386,35 @@ class ReportGenerator(QDialog):
 <head>
     <title>{title}</title>
     <style>
-        body {{ font-family: Arial, sans-serif; margin: 20px; }}
-        h1 {{ color: #2c3e50; }}
-        h2 {{ color: #3498db; margin-top: 30px; }}
-        h3 {{ color: #2980b9; }}
-        pre {{ background-color: #f5f5f5; padding: 10px; border: 1px solid #ddd; overflow-x: auto; }}
-        .device-info {{ background-color: #eef; padding: 10px; border: 1px solid #ddf; margin-bottom: 20px; }}
-        .command {{ background-color: #efe; padding: 10px; border: 1px solid #dfd; margin-top: 20px; }}
-        .command-failed {{ background-color: #fee; padding: 10px; border: 1px solid #fdd; margin-top: 20px; }}
-        .timestamp {{ color: #777; font-style: italic; }}
+        :root {{
+            color-scheme: {color_scheme};
+            --accent: {tokens.accent};
+            --accent-pressed: {tokens.accent_pressed};
+            --bg: {tokens.background};
+            --surface: {tokens.surface};
+            --surface-alt: {tokens.surface_alt};
+            --border: {tokens.border};
+            --text: {tokens.text};
+            --text-muted: {tokens.text_muted};
+            --header-bg: {tokens.header_bg};
+            --header-text: {tokens.header_text};
+            --table-alt: {tokens.table_alt};
+        }}
+        * {{ box-sizing: border-box; }}
+        body {{ font-family: "Segoe UI", "San Francisco", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif; margin: 16px; background: var(--bg); color: var(--text); }}
+        h1 {{ color: var(--text); margin: 0 0 8px; }}
+        h2 {{ color: var(--accent); margin-top: 20px; }}
+        h3 {{ color: var(--text); margin: 0 0 8px; }}
+        h4, h5 {{ margin: 8px 0; }}
+        .device-info {{ background: var(--surface); padding: 8px; border: 1px solid var(--border); margin-bottom: 12px; }}
+        .command {{ background: var(--surface); padding: 8px; border: 1px solid var(--border); margin-top: 12px; border-left: 3px solid var(--accent); }}
+        .command-failed {{ background: var(--surface); padding: 8px; border: 1px solid var(--border); margin-top: 12px; border-left: 3px solid var(--accent-pressed); }}
+        pre {{ background-color: var(--surface-alt); padding: 8px; border: 1px solid var(--border); overflow-x: auto; white-space: pre-wrap; }}
+        .timestamp {{ color: var(--text-muted); font-style: italic; }}
+        table {{ border-collapse: collapse; width: 100%; }}
+        th, td {{ text-align: left; padding: 2px 4px; border: 1px solid var(--border); }}
+        th {{ background-color: var(--header-bg); color: var(--header-text); font-weight: 600; }}
+        tr:nth-child(even) {{ background-color: var(--table-alt); }}
     </style>
 </head>
 <body>
@@ -743,3 +766,17 @@ class ReportGenerator(QDialog):
                 
         # Save document
         doc.save(file_path) 
+
+    def _get_report_theme_tokens(self):
+        app = getattr(self.plugin, "app", None)
+        config = getattr(app, "config", None) if app else None
+        theme_name = config.get("ui.theme", "light") if config else "light"
+        font_size = config.get("ui.font_size", 10) if config else 10
+        row_height = config.get("ui.row_height", 22) if config else 22
+        accent_color = config.get("ui.accent_color", "") if config else ""
+        return get_theme_tokens(
+            theme_name,
+            font_size=font_size,
+            row_height=row_height,
+            accent_override=accent_color,
+        )

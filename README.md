@@ -2,6 +2,8 @@
 
 An extensible device management application.
 
+Current Release: 0.10.0
+
 ## Features
 
 - Device inventory with groups, tags, and custom properties

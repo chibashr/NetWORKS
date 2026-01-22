@@ -49,6 +49,10 @@ Each report definition is stored as JSON in `reports.json`.
     { "target": "alias", "transform": "upper", "value": "" }
   ],
   "sort": { "column": "alias", "direction": "asc" },
+  "sorts": [
+    { "column": "alias", "direction": "asc" },
+    { "column": "ip_address", "direction": "asc" }
+  ],
   "template": {
     "header": "Device Report",
     "item": "{{alias}} ({{ip_address}})",

@@ -29,11 +29,26 @@ Choose where devices come from:
 - **Subnet**: devices whose `ip_address` matches the subnet (CIDR supported).
 - **Tag**: devices whose `tags` contain the tag.
 
-### Filters
+### Table Editor
+
+Filters, sorting, and columns are edited together in the **Table Editor** area.
+
+#### Filters
 
 Add property filters using operators such as `equals`, `contains`, `starts_with`, `regex`, and numeric comparisons.
 
-### Columns (Table Mode)
+#### Sorting (Table Mode)
+
+Add one or more sort rules to control priority. The first row is the primary sort, the next row breaks ties.
+
+Example priority:
+
+```
+alias (asc)
+ip_address (asc)
+```
+
+#### Columns (Table Mode)
 
 Use **Add Column** to choose:
 
