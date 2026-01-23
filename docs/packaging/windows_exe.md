@@ -51,4 +51,7 @@ The workflow `Release Windows EXE` builds and publishes a Windows zip when you p
 2. The workflow builds `dist/NetWORKS-windows.zip`.
 3. The zip is attached to the GitHub Release for that tag.
 
-You can also run the workflow manually from the Actions tab to produce an artifact without creating a release.
+You can also run the workflow manually from the Actions tab to create a release:
+
+- If you provide a version input, that version is used.
+- If you leave it blank, the workflow uses `manifest.json` version.
