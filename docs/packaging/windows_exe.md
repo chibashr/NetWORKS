@@ -19,7 +19,7 @@ If you maintain a local copy of `scripts/local/Build_Release.bat`, run it from t
    pyinstaller ^
      --noconfirm ^
      --clean ^
-     --onedir ^
+     --onefile ^
      --name NetWORKS ^
      --noconsole ^
      --add-data "manifest.json;." ^
@@ -36,7 +36,15 @@ If you maintain a local copy of `scripts/local/Build_Release.bat`, run it from t
 
 After a successful build, launch the app from:
 
-`dist/NetWORKS/NetWORKS.exe`
+`dist/NetWORKS.exe`
+
+## Installer (Optional)
+
+An installer is produced in CI using Inno Setup and allows users to choose an install location.
+The installer places `NetWORKS.exe`, `config/`, `plugins/`, and `manifest.json` under the selected folder and creates shortcuts.
+
+CI output:
+- `dist/NetWORKS-Setup-<version>.exe`
 
 ## Notes
 
