@@ -67,7 +67,8 @@ logger.add(
 )
 
 def _is_automated_run():
-    return os.environ.get("NETWORKS_AUTOMATED") == "1" or not sys.stdin.isatty()
+    stdin = sys.stdin
+    return os.environ.get("NETWORKS_AUTOMATED") == "1" or stdin is None or not stdin.isatty()
 
 
 def check_requirements():
