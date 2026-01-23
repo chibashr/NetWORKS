@@ -139,8 +139,11 @@ See `docs/plugins/README.md` and `docs/plugins/manifest.md` for plugin developme
 Operational scripts:
 - `setup.bat`: Environment setup.
 - `Start_NetWORKS.bat`: Primary launcher.
-- `Test_Installation.bat`: Installation validation.
+- `repair_installation.bat`: Repair and dependency recovery.
 - `scripts/`: Helper scripts like dependency checks and plugin tests.
+
+Local-only scripts (gitignored):
+- `scripts/local/`: Local build/test helpers for release validation.
 
 Packaging:
 - See `packaging/windows_exe.md` for Windows packaging instructions.

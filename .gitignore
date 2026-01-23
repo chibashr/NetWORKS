@@ -86,6 +86,9 @@ htmlcov/
 coverage.xml
 *,cover 
 
+# Local-only helper scripts
+scripts/local/
+
 config/workspaces/
 config/backups/
 data/

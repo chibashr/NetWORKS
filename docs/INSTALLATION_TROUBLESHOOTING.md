@@ -16,19 +16,17 @@ This script will:
 - Reinstall all dependencies
 - Verify the installation
 
-## Automated Full Install Test (Recommended)
+## Automated Full Install Test (Local-Only)
 
-If you want a one-click way to verify a full installation and run:
+Local helper scripts are kept under `scripts/local/` and are gitignored for release builds.
+If you maintain a local copy of `scripts/local/Test_Installation.bat`, run it from the repo root.
 
-1. Double-click `Test_Installation.bat` in the project root.
-
-What it does:
-- Creates a fresh test environment
-- Installs dependencies
-- Runs a smoke test automatically
-- Cleans up after completion
-
-It prints a clear `SUCCESS` or `FAILED` result.
+Manual alternative:
+1. `python -m venv .venv_test`
+2. `.\.venv_test\Scripts\activate`
+3. `pip install -r requirements.txt --no-cache-dir`
+4. `python networks.py --smoke-test`
+5. `deactivate` and remove `.venv_test` when done
 
 ## Common Issues and Solutions
 
