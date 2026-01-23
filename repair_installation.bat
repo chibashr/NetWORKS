@@ -69,6 +69,59 @@ if %MAJOR% EQU 3 (
     )
 )
 
+if %MAJOR% GTR 3 goto pyver_checked
+if %MAJOR% EQU 3 (
+    if %MINOR% GEQ 14 (
+        echo [WARNING] Python %PYVER% detected. PySide6 6.10.1 does not provide wheels for 3.14.
+        echo [WARNING] Use Python 3.12 or 3.13 to install dependencies successfully.
+        echo [INFO] Optional pandas/numpy are pinned to <3.13 and will be skipped on 3.13+.
+    )
+)
+:pyver_checked
+
+:: Check for environment variables that could block pip installation
+set PIP_BLOCKED=0
+if not "%PIP_NO_INDEX%"=="" (
+    if "%PIP_NO_INDEX%"=="1" (
+        set PIP_BLOCKED=1
+        echo [ERROR] PIP_NO_INDEX is set to 1, which prevents pip from accessing PyPI.
+        echo [ERROR] This will block dependency installation.
+        msg * "NetWORKS Installation Error: PIP_NO_INDEX is enabled. This prevents downloading dependencies from PyPI. Please unset PIP_NO_INDEX or set it to 0, then try again."
+    )
+)
+if not "%HTTP_PROXY%"=="" (
+    echo %HTTP_PROXY% | findstr /C:"127.0.0.1:9" >nul 2>&1
+    if %ERRORLEVEL% equ 0 (
+        set PIP_BLOCKED=1
+        echo [ERROR] HTTP_PROXY is set to a dummy address (127.0.0.1:9), which will block pip downloads.
+        echo [ERROR] This will prevent dependency installation.
+        msg * "NetWORKS Installation Error: HTTP_PROXY is set to 127.0.0.1:9 (dummy address). This blocks pip from downloading dependencies. Please unset HTTP_PROXY, HTTPS_PROXY, and ALL_PROXY, then try again."
+    )
+)
+if not "%HTTPS_PROXY%"=="" (
+    echo %HTTPS_PROXY% | findstr /C:"127.0.0.1:9" >nul 2>&1
+    if %ERRORLEVEL% equ 0 (
+        set PIP_BLOCKED=1
+        echo [ERROR] HTTPS_PROXY is set to a dummy address (127.0.0.1:9), which will block pip downloads.
+        echo [ERROR] This will prevent dependency installation.
+        msg * "NetWORKS Installation Error: HTTPS_PROXY is set to 127.0.0.1:9 (dummy address). This blocks pip from downloading dependencies. Please unset HTTP_PROXY, HTTPS_PROXY, and ALL_PROXY, then try again."
+    )
+)
+if %PIP_BLOCKED% equ 1 (
+    echo.
+    echo [INFO] To fix this issue:
+    echo   - Unset PIP_NO_INDEX: set PIP_NO_INDEX=
+    echo   - Unset proxy variables: set HTTP_PROXY= ^& set HTTPS_PROXY= ^& set ALL_PROXY=
+    echo   - Or restart your command prompt/terminal to clear environment variables
+    echo.
+    if "%NETWORKS_AUTOMATED%"=="1" (
+        echo [INFO] Automated mode: skipping pause.
+    ) else (
+        pause
+    )
+    exit /b 1
+)
+
 :: Check for requirements.txt
 echo.
 echo [STEP 2/4] Checking installation files...
@@ -174,8 +227,25 @@ if %ERRORLEVEL% neq 0 (
 
 :: Install dependencies
 echo [INFO] Installing all dependencies from requirements.txt...
-pip install -r requirements.txt --no-cache-dir
-if %ERRORLEVEL% neq 0 (
+pip install -r requirements.txt --no-cache-dir >pip_install.log 2>&1
+set PIP_EXIT=%ERRORLEVEL%
+findstr /C:"ProxyError" /C:"Cannot connect to proxy" /C:"No matching distribution found" pip_install.log >nul 2>&1
+if %ERRORLEVEL% equ 0 (
+    if %PIP_EXIT% neq 0 (
+        echo [ERROR] Pip installation failed due to proxy or network issues.
+        type pip_install.log
+        msg * "NetWORKS Installation Error: Failed to install dependencies. This may be due to proxy settings (HTTP_PROXY/HTTPS_PROXY) or PIP_NO_INDEX being enabled. Check your environment variables and network settings."
+        del pip_install.log >nul 2>&1
+        if "%NETWORKS_AUTOMATED%"=="1" (
+            echo [INFO] Automated mode: skipping pause.
+        ) else (
+            pause
+        )
+        exit /b 1
+    )
+)
+del pip_install.log >nul 2>&1
+if %PIP_EXIT% neq 0 (
     echo [WARNING] Failed to install some dependencies from requirements.txt. Will try individual installations...
 )
 
@@ -209,7 +279,7 @@ echo [INFO] Plugin dependencies installation completed.
 :: Verify installation
 echo.
 echo [INFO] Verifying installation...
-python -c "import importlib.util; packages=['PySide6', 'qtpy', 'qtawesome', 'yaml', 'jsonschema', 'loguru', 'six', 'chardet']; missing = [p for p in packages if importlib.util.find_spec(p) is None]; print('All required dependencies are installed!' if not missing else 'Missing: ' + ', '.join(missing))"
+python -c "import importlib.util; packages=['PySide6', 'qtawesome', 'yaml', 'loguru', 'six', 'chardet']; missing = [p for p in packages if importlib.util.find_spec(p) is None]; print('All required dependencies are installed!' if not missing else 'Missing: ' + ', '.join(missing))"
 
 echo.
 echo [INFO] Checking optional dependencies...

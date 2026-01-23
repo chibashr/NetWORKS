@@ -6,12 +6,10 @@
 # UI and application framework
 PySide6==6.9.0; python_version < "3.14"   # Qt framework for Python
 PySide6==6.10.1; python_version >= "3.14" # Qt framework for Python
-qtpy==2.4.3         # Abstraction layer for Qt bindings
 qtawesome==1.4.0    # Icon fonts for Qt applications
 
 # Configuration and data handling
 pyyaml==6.0.2       # YAML parser for configuration files
-jsonschema==4.23.0  # JSON schema validation library
 markdown==3.5.2     # Markdown parser for documentation
 
 # Utilities
