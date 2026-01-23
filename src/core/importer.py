@@ -22,9 +22,9 @@ from .device_manager import Device
 try:
     import pandas as pd
     HAS_PANDAS = True
-except ImportError:
+except Exception as e:
     HAS_PANDAS = False
-    logger.debug("pandas not available for importing Excel files")
+    logger.warning(f"pandas not available for importing Excel files: {e}")
 
 try:
     import openpyxl

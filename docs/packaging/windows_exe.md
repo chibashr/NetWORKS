@@ -1,13 +1,13 @@
 # NetWORKS Portable EXE (Windows)
 
-This guide explains the one-click portable build for NetWORKS.
+This guide explains the portable and installer builds for NetWORKS.
 
 ## One-Click Build (Local-Only)
 
 Local helper scripts are kept under `scripts/local/` and are gitignored for release builds.
 If you maintain a local copy of `scripts/local/Build_Release.bat`, run it from the repo root.
 
-## Manual Build
+## Manual Build (Portable Folder)
 
 1. `python -m venv .venv_build`
 2. `.\.venv_build\Scripts\activate`
@@ -19,7 +19,7 @@ If you maintain a local copy of `scripts/local/Build_Release.bat`, run it from t
    pyinstaller ^
      --noconfirm ^
      --clean ^
-     --onefile ^
+    --onedir ^
      --name NetWORKS ^
      --noconsole ^
      --add-data "manifest.json;." ^
@@ -36,7 +36,9 @@ If you maintain a local copy of `scripts/local/Build_Release.bat`, run it from t
 
 After a successful build, launch the app from:
 
-`dist/NetWORKS.exe`
+`dist/NetWORKS/NetWORKS.exe`
+
+The portable release zip contains the top-level `NetWORKS` folder.
 
 ## Installer (Optional)
 
@@ -53,11 +55,12 @@ CI output:
 
 ## GitHub Actions Release
 
-The workflow `Release Windows EXE` builds and publishes a Windows zip when you push a tag:
+The workflow `Release Windows EXE` builds and publishes portable and installer artifacts when you push a tag:
 
 1. Create a tag like `v1.0.0` and push it to GitHub.
-2. The workflow builds `dist/NetWORKS-windows.zip`.
-3. The zip is attached to the GitHub Release for that tag.
+2. The workflow builds `dist/NetWORKS-Portable-<version>.zip`.
+3. The workflow builds `dist/NetWORKS-Setup-<version>.exe`.
+4. Both files are attached to the GitHub Release for that tag.
 
 You can also run the workflow manually from the Actions tab to create a release:
 
