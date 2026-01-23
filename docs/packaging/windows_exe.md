@@ -1,66 +1,34 @@
-# NetWORKS Portable EXE (Windows)
+# NetWORKS Release Zip (Windows)
 
-This guide explains the portable and installer builds for NetWORKS.
+This guide explains the release zip for NetWORKS.
 
 ## One-Click Build (Local-Only)
 
 Local helper scripts are kept under `scripts/local/` and are gitignored for release builds.
 If you maintain a local copy of `scripts/local/Build_Release.bat`, run it from the repo root.
 
-## Manual Build (Portable Folder)
+## Local Run
 
-1. `python -m venv .venv_build`
-2. `.\.venv_build\Scripts\activate`
-3. `python -m pip install --upgrade pip`
-4. `python -m pip install -r requirements.txt --no-cache-dir`
-5. `python -m pip install "pyinstaller>=6.10.0" --no-cache-dir`
-6. Run:
-   ```
-   pyinstaller ^
-     --noconfirm ^
-     --clean ^
-    --onedir ^
-     --name NetWORKS ^
-     --noconsole ^
-     --add-data "manifest.json;." ^
-     --add-data "config;config" ^
-     --add-data "plugins;plugins" ^
-     --collect-all PySide6 ^
-     --collect-all qtpy ^
-     --collect-all qtawesome ^
-     networks.py
-   ```
-7. `deactivate` and remove `.venv_build` when done
+1. Unzip the release to a folder of your choice.
+2. Run `Start_NetWORKS.bat` to start the app.
 
 ## Result
 
-After a successful build, launch the app from:
-
-`dist/NetWORKS/NetWORKS.exe`
-
-The portable release zip contains the top-level `NetWORKS` folder.
-
-## Installer (Optional)
-
-An installer is produced in CI using Inno Setup and allows users to choose an install location.
-The installer places `NetWORKS.exe`, `config/`, `plugins/`, and `manifest.json` under the selected folder and creates shortcuts.
-
-CI output:
-- `dist/NetWORKS-Setup-<version>.exe`
+The release zip contains the top-level `NetWORKS` folder.
 
 ## Notes
 
 - The output folder is safe to copy to another Windows machine.
 - Build artifacts are gitignored by default.
+- The release zip contains source files and uses `Start_NetWORKS.bat` to manage setup.
 
 ## GitHub Actions Release
 
-The workflow `Release Windows EXE` builds and publishes portable and installer artifacts when you push a tag:
+The workflow `Release Windows Zip` builds and publishes a repository zip when you push a tag:
 
 1. Create a tag like `v1.0.0` and push it to GitHub.
-2. The workflow builds `dist/NetWORKS-Portable-<version>.zip`.
-3. The workflow builds `dist/NetWORKS-Setup-<version>.exe`.
-4. Both files are attached to the GitHub Release for that tag.
+2. The workflow builds `dist/NetWORKS-Repo-<version>.zip`.
+3. The zip is attached to the GitHub Release for that tag.
 
 You can also run the workflow manually from the Actions tab to create a release:
 

@@ -19,12 +19,8 @@ from pathlib import Path
 from .device_manager import Device
 
 # Try to import optional dependencies
-try:
-    import pandas as pd
-    HAS_PANDAS = True
-except Exception as e:
-    HAS_PANDAS = False
-    logger.warning(f"pandas not available for importing Excel files: {e}")
+HAS_PANDAS = False
+_PANDAS_IMPORT_ERROR = None
 
 try:
     import openpyxl
@@ -53,6 +49,24 @@ try:
 except ImportError:
     HAS_CHARDET = False
     logger.debug("chardet not available for detecting file encodings")
+
+
+def _try_import_pandas():
+    """Import pandas lazily to avoid startup warnings."""
+    global HAS_PANDAS, _PANDAS_IMPORT_ERROR
+    if HAS_PANDAS:
+        return True
+    if _PANDAS_IMPORT_ERROR is not None:
+        return False
+    try:
+        import pandas as pd  # type: ignore
+        globals()["pd"] = pd
+        HAS_PANDAS = True
+        return True
+    except Exception as e:
+        _PANDAS_IMPORT_ERROR = e
+        logger.warning(f"pandas not available for importing Excel files: {e}")
+        return False
 
 
 class DeviceImporter:
@@ -156,7 +170,9 @@ class DeviceImporter:
         
         try:
             # Handle different file types
-            if file_ext in ['.xlsx', '.xls'] and (HAS_PANDAS or HAS_OPENPYXL or (file_ext == '.xls' and HAS_XLRD)):
+            if file_ext in ['.xlsx', '.xls'] and (
+                _try_import_pandas() or HAS_OPENPYXL or (file_ext == '.xls' and HAS_XLRD)
+            ):
                 data, headers = self._extract_from_excel(file_path, file_ext, options)
             elif file_ext == '.docx' and HAS_DOCX:
                 data, headers = self._extract_from_docx(file_path, options)
@@ -181,9 +197,10 @@ class DeviceImporter:
         """
         has_header = options.get('has_header', True)
         
-        if file_ext == '.xlsx' or (file_ext == '.xls' and HAS_PANDAS):
+        has_pandas = _try_import_pandas()
+        if file_ext == '.xlsx' or (file_ext == '.xls' and has_pandas):
             # Use pandas for Excel files
-            if not HAS_PANDAS:
+            if not has_pandas:
                 logger.warning("pandas is not installed, falling back to other methods")
                 if file_ext == '.xls' and HAS_XLRD:
                     return self._extract_from_excel_xlrd(file_path, options)

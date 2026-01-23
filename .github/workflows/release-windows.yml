@@ -1,4 +1,4 @@
-name: Release Windows EXE
+name: Release Windows Zip
 
 on:
   push:
@@ -20,51 +20,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Build portable folder
-        shell: cmd
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt --no-cache-dir
-          python -m pip install "pyinstaller>=6.10.0" --no-cache-dir
-          if exist dist rmdir /s /q dist
-          pyinstaller ^
-            --noconfirm ^
-            --clean ^
-            --onedir ^
-            --name NetWORKS ^
-            --noconsole ^
-            --distpath dist\portable ^
-            --add-data "manifest.json;." ^
-            --add-data "config;config" ^
-            --add-data "plugins;plugins" ^
-            --collect-all PySide6 ^
-            --collect-all qtpy ^
-            --collect-all qtawesome ^
-            networks.py
-
-      - name: Build installer EXE
-        shell: cmd
-        run: |
-          pyinstaller ^
-            --noconfirm ^
-            --clean ^
-            --onefile ^
-            --name NetWORKS ^
-            --noconsole ^
-            --distpath dist ^
-            --add-data "manifest.json;." ^
-            --add-data "config;config" ^
-            --add-data "plugins;plugins" ^
-            --collect-all PySide6 ^
-            --collect-all qtpy ^
-            --collect-all qtawesome ^
-            networks.py
 
       - name: Determine release version
         id: version
@@ -95,34 +50,27 @@ jobs:
           }
           $notes | Out-File -FilePath "release_notes.md" -Encoding utf8
 
-      - name: Install Inno Setup
-        shell: pwsh
-        run: |
-          choco install innosetup -y
-
-      - name: Build installer
-        shell: pwsh
-        run: |
-          $version = "${{ steps.version.outputs.version }}"
-          iscc /DMyAppVersion=$version /DMyAppName=NetWORKS /DMyAppPublisher=chibashr /DMyAppURL=https://github.com/networks/networks /DMyAppExeName=NetWORKS.exe packaging\windows_installer.iss
-
-      - name: Package artifacts
+      - name: Package repository zip
         shell: pwsh
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          $portableZip = "dist\NetWORKS-Portable-$env:RELEASE_VERSION.zip"
-          $installer = "dist\NetWORKS-Setup-$env:RELEASE_VERSION.exe"
-          if (Test-Path $portableZip) { Remove-Item $portableZip -Force }
-          Compress-Archive -Path "dist\portable\NetWORKS" -DestinationPath $portableZip -Force
+          $zip = "dist\NetWORKS-Repo-$env:RELEASE_VERSION.zip"
+          $staging = "dist\NetWORKS"
+          $exclude = @(".git", "dist", ".venv", ".venv_test", "__pycache__", "build")
+          if (Test-Path "dist") { Remove-Item "dist" -Recurse -Force }
+          New-Item -ItemType Directory -Path $staging | Out-Null
+          Get-ChildItem -Path "." -Force |
+            Where-Object { $exclude -notcontains $_.Name } |
+            ForEach-Object { Copy-Item -Path $_.FullName -Destination $staging -Recurse -Force }
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path $staging -DestinationPath $zip -Force
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: NetWORKS-windows
-          path: |
-            dist/NetWORKS-Portable-${{ steps.version.outputs.version }}.zip
-            dist/NetWORKS-Setup-${{ steps.version.outputs.version }}.exe
+          path: dist/NetWORKS-Repo-${{ steps.version.outputs.version }}.zip
           if-no-files-found: error
 
       - name: Create GitHub release
@@ -130,8 +78,7 @@ jobs:
         with:
           token: ${{ secrets.RELEASE_TOKEN != '' && secrets.RELEASE_TOKEN || github.token }}
           files: |
-            dist/NetWORKS-Portable-${{ steps.version.outputs.version }}.zip
-            dist/NetWORKS-Setup-${{ steps.version.outputs.version }}.exe
+            dist/NetWORKS-Repo-${{ steps.version.outputs.version }}.zip
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || steps.version.outputs.tag }}
           name: NetWORKS ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || steps.version.outputs.tag }}
           body_path: release_notes.md

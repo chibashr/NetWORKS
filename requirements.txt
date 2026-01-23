@@ -21,7 +21,8 @@ chardet==5.2.0      # Character encoding detection
 
 # Optional File Format Handling Dependencies
 # Data analysis and file formats
-pandas==2.0.3; python_version < "3.13"  # Data analysis library (for Excel, CSV, etc.)
+pandas==2.2.2; python_version < "3.13"  # Data analysis library (for Excel, CSV, etc.)
+numpy==2.0.2; python_version < "3.13"   # Compatible with pandas 2.2.x in frozen builds
 openpyxl==3.1.2     # Excel XLSX file support
 xlrd==2.0.1         # Excel XLS file support
 python-docx==0.8.11 # Word document support
