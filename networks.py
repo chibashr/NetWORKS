@@ -57,8 +57,11 @@ manifest_data, version = load_manifest()
 
 # Temporary basic logger config until we initialize the proper logging manager
 logger.remove()
+startup_sink = sys.stderr if sys.stderr is not None else sys.stdout
+if startup_sink is None:
+    startup_sink = os.path.join("logs", "startup.log")
 logger.add(
-    sys.stderr,
+    startup_sink,
     format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
     level="INFO"
 )
