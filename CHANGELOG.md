@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.3] - 2026-01-26
+
+### Changed
+- Redesigned device table filter UI with simplified single-line layout
+- Search bar and group selector now on the same line (search on left, group selector on right)
+- Removed advanced filter and deduplication buttons from filter toolbar (still available via context menu)
+
+### Fixed
+- Improved filter UI consistency and usability
+
 ## [0.10.0] - 2026-01-22
 
 ### Added

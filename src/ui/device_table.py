@@ -967,37 +967,31 @@ class DeviceTableView(QTableView):
         header.toggled.connect(self._on_header_checkbox_toggled)
         header.sortIndicatorChanged.connect(self._save_sort_state)
         
-        # Create a responsive toolbar above the table to avoid overlap
-        self.filter_widget = ResponsiveToolbar(breakpoint=900)
-        self.filter_widget.setContentsMargins(5, 5, 5, 5)
-        self.filter_widget.setSpacing(6)
+        # Create filter widget with search bar and group selector on the same line
+        self.filter_widget = QWidget()
+        filter_layout = QHBoxLayout(self.filter_widget)
+        filter_layout.setContentsMargins(5, 5, 5, 5)
+        filter_layout.setSpacing(8)
 
-        # Create a compact, wrapping button group for table actions
-        self.button_group = _WrappingButtonGroup()
-        
-        self.filter_button = QToolButton()
-        self.filter_button.setAutoRaise(True)
-        self.filter_button.setCheckable(True)
-        self.filter_button.setToolButtonStyle(Qt.ToolButtonIconOnly)
-        filter_icon = material_icon("filter_list", self, QStyle.SP_FileDialogContentsView)
-        self.filter_button.setIcon(filter_icon)
-        self.filter_button.setIconSize(QRect(0, 0, 16, 16).size())
-        self.filter_button.setToolTip("Advanced Filtering")
-        self.filter_button.clicked.connect(self.show_advanced_filter_dialog)
-        self.button_group.addButton(self.filter_button)
+        # Search bar on the left
+        search_label = QLabel("Search:")
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Search devices...")
+        self.search_edit.setToolTip("Search devices by any column")
+        self.search_edit.textChanged.connect(self.filter_table)
+        filter_layout.addWidget(search_label)
+        filter_layout.addWidget(self.search_edit, 1)  # Stretch to fill available space
 
-        # Create a button for deduplication
-        self.deduplicate_button = QToolButton()
-        self.deduplicate_button.setAutoRaise(True)
-        self.deduplicate_button.setToolButtonStyle(Qt.ToolButtonIconOnly)
-        dedup_icon = material_icon("content_copy", self, QStyle.SP_FileDialogNewFolder)
-        self.deduplicate_button.setIcon(dedup_icon)
-        self.deduplicate_button.setIconSize(QRect(0, 0, 16, 16).size())
-        self.deduplicate_button.setToolTip("Identify and manage duplicate devices based on column values")
-        self.deduplicate_button.clicked.connect(self.show_deduplicate_dialog)
-        self.button_group.addButton(self.deduplicate_button)
-        
-        self.filter_widget.addWidget(self.button_group)
+        # Group selector on the right
+        group_filter_label = QLabel("Group:")
+        self.group_filter_combo = QComboBox()
+        self.group_filter_combo.setMinimumWidth(150)
+        self.group_filter_combo.setToolTip("Filter devices by group")
+        self.group_filter_combo.currentIndexChanged.connect(self._on_group_filter_combo_changed)
+        # Initialize with "All Devices" - will be populated properly in refresh_group_combo()
+        self.group_filter_combo.addItem("All Devices", None)
+        filter_layout.addWidget(group_filter_label)
+        filter_layout.addWidget(self.group_filter_combo)
         
         # Connect signals
         self.clicked.connect(self.on_item_clicked)
@@ -1050,14 +1044,34 @@ class DeviceTableView(QTableView):
         self._update_header_checkbox_state()
     
     def refresh_group_combo(self):
-        """Refresh group-related state for filtering (no visible UI)."""
+        """Refresh group-related state for filtering and update the combo box."""
         groups = [
             group for group in self.device_manager.get_groups()
             if group != self.device_manager.root_group
         ]
         self._group_list = groups
-        if self._group_filter_name and self._group_filter_name not in [g.name for g in groups]:
-            self.set_group_filter(None)
+        
+        # Update the combo box
+        current_text = self.group_filter_combo.currentText()
+        self.group_filter_combo.blockSignals(True)
+        self.group_filter_combo.clear()
+        self.group_filter_combo.addItem("All Devices", None)
+        for group in groups:
+            self.group_filter_combo.addItem(group.name, group)
+        self.group_filter_combo.blockSignals(False)
+        
+        # Restore previous selection if it still exists
+        if self._group_filter_name:
+            index = self.group_filter_combo.findText(self._group_filter_name)
+            if index >= 0:
+                self.group_filter_combo.setCurrentIndex(index)
+            else:
+                # Group was removed, clear filter
+                self.set_group_filter(None)
+                self.group_filter_combo.setCurrentIndex(0)
+        else:
+            # No filter active, ensure "All Devices" is selected
+            self.group_filter_combo.setCurrentIndex(0)
     
     def filter_table(self, text):
         """Filter the table based on the text"""
@@ -1090,8 +1104,25 @@ class DeviceTableView(QTableView):
             self.table_model.filter_by_group(group)
             self._group_filter_name = group.name
 
+        # Update combo box selection without triggering signal
+        self.group_filter_combo.blockSignals(True)
+        if group is None:
+            self.group_filter_combo.setCurrentIndex(0)
+        else:
+            index = self.group_filter_combo.findText(group.name)
+            if index >= 0:
+                self.group_filter_combo.setCurrentIndex(index)
+        self.group_filter_combo.blockSignals(False)
+
         self._save_group_filter_state(self._group_filter_name)
         self._update_header_checkbox_state()
+    
+    def _on_group_filter_combo_changed(self, index):
+        """Handle group filter combo box selection change."""
+        if index < 0:
+            return
+        group = self.group_filter_combo.itemData(index)
+        self._apply_group_filter(group)
 
     def _save_group_filter_state(self, group_name):
         settings = self._get_workspace_settings()
@@ -1579,7 +1610,6 @@ class DeviceTableView(QTableView):
 
     def show_advanced_filter_dialog(self):
         """Show the advanced filtering dialog."""
-        self.filter_button.setChecked(bool(self._advanced_filter_state.get("rules")))
         presets = self._load_filter_presets()
         fields = ["Any Column"] + self.table_model.get_all_headers()
 
@@ -1609,7 +1639,6 @@ class DeviceTableView(QTableView):
             rules=state.get("rules", []),
             logic=state.get("logic", "AND"),
         )
-        self.filter_button.setChecked(bool(state.get("rules")))
         if save:
             self._save_filter_state(state)
         self._update_header_checkbox_state()

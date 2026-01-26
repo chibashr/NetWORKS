@@ -1,6 +1,6 @@
 {
   "name": "NetWORKS",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "description": "Network management and monitoring tool",
   "author": "chibashr",
   "license": "MIT",
@@ -9,12 +9,12 @@
     "type": "git",
     "url": "https://github.com/networks/networks.git"
   },
-  "version_string": "0.10.2",
+  "version_string": "0.10.3",
   "version_info": {
     "major": 0,
     "minor": 10,
-    "patch": 2,
-    "build": 220
+    "patch": 3,
+    "build": 221
   },
   "app_directory": "src",
   "main_module": "main",
@@ -37,7 +37,7 @@
   "telemetry_enabled": false,
   "analytics_enabled": false,
   "build_date": "2026-01-26",
-  "release_notes": "Fixed update process to handle non-git installations gracefully. Fixed AttributeError in device tree when device properties contain numeric values. Fixed OverflowError in command dialog. Added missing toolbar icons.",
+  "release_notes": "Redesigned device table filter UI with simplified single-line layout. Search bar and group selector now on the same line for improved usability.",
   "release_type": "stable",
   "versioning_scheme": "semver",
   "update_channel": "stable"
