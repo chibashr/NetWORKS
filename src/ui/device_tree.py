@@ -227,11 +227,18 @@ class DeviceTreeModel(QAbstractItemModel):
 
     def _device_type_icon(self, device):
         """Return a cached device icon based on mac_vendor/vendor attributes."""
-        vendor = (
-            device.get_property("mac_vendor", "")
-            or device.get_property("vendor", "")
-            or ""
-        ).strip()
+        # Get vendor property, handling cases where it might be a float or other non-string type
+        mac_vendor = device.get_property("mac_vendor", "")
+        vendor_prop = device.get_property("vendor", "")
+        
+        # Convert to string and get the first non-empty value
+        vendor = ""
+        for prop_value in [mac_vendor, vendor_prop]:
+            if prop_value:
+                vendor = str(prop_value).strip()
+                if vendor:
+                    break
+        
         if not vendor:
             return None
 
