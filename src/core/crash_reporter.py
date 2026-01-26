@@ -26,9 +26,24 @@ def get_system_info():
         "os_release": platform.release(),
         "architecture": platform.machine(),
         "python_version": platform.python_version(),
-        "qt_version": QApplication.instance().applicationVersion(),
+        "qt_version": "unknown",
         "time": datetime.datetime.now().isoformat(),
     }
+    
+    # Try to get Qt version if QApplication exists
+    try:
+        app = QApplication.instance()
+        if app:
+            info["qt_version"] = app.applicationVersion()
+        else:
+            # Try to get Qt version from PySide6 module
+            try:
+                import PySide6
+                info["qt_version"] = PySide6.__version__
+            except:
+                pass
+    except:
+        pass
     
     # Try to get app version from manifest
     try:
@@ -126,6 +141,12 @@ def show_crash_dialog(title, exception, additional_info=None):
     """
     # Generate the crash report
     report_file = report_crash(title, exception, additional_info)
+    
+    # Ensure QApplication exists
+    app = QApplication.instance()
+    if app is None:
+        import sys
+        app = QApplication(sys.argv)
     
     # Create dialog
     dialog = QDialog()

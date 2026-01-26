@@ -265,8 +265,26 @@ if __name__ == "__main__":
             # If logger is not available, print to console as last resort
             print(f"FATAL ERROR: {e}")
         
-        # Show error to user
-        print(f"\n[FATAL ERROR] An unexpected error occurred during startup: {e}")
-        if not _is_automated_run():
-            input("Press Enter to exit...")
+        # Try to show a crash dialog if Qt is available
+        try:
+            from PySide6.QtWidgets import QApplication
+            from src.core.crash_reporter import show_crash_dialog
+            
+            # Check if QApplication already exists
+            app = QApplication.instance()
+            if app is None:
+                # Create a minimal QApplication just for showing the error dialog
+                app = QApplication(sys.argv)
+            
+            # Show crash dialog
+            show_crash_dialog("Fatal Error During Startup", e, {"context": "Application startup failed"})
+        except Exception as dialog_error:
+            # If we can't show a dialog, fall back to console output
+            print(f"\n[FATAL ERROR] An unexpected error occurred during startup: {e}")
+            import traceback
+            print("\nTraceback:")
+            traceback.print_exc()
+            if not _is_automated_run():
+                input("Press Enter to exit...")
+        
         sys.exit(1) 

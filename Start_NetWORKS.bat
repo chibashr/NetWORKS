@@ -1,6 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
-Fix these command managset NETWORKS_AUTOMATED=1
+set NETWORKS_AUTOMATED=1
 
 echo.
 echo ==========================================
@@ -255,7 +255,20 @@ if %APP_EXIT_CODE% neq 0 (
             )
         )
     ) else (
-        echo [ERROR] Application crashed with error code %APP_EXIT_CODE%. See logs for details.
+        echo [ERROR] Application crashed with error code %APP_EXIT_CODE%.
+        echo.
+        echo ==========================================
+        echo      Application Error Detected
+        echo ==========================================
+        echo.
+        echo The application exited with error code %APP_EXIT_CODE%.
+        echo.
+        echo If a crash dialog appeared, it contains the detailed error information.
+        echo Otherwise, please check the logs directory for error details.
+        echo.
+        
+        :: Show error message box
+        msg * "NetWORKS Error: Application crashed with exit code %APP_EXIT_CODE%. Check the console output and logs directory for details."
         
         echo [INFO] Checking if this is a dependency issue...
         venv\Scripts\python.exe -c "import sys; print('This is a test to see if Python is working properly.')" >nul 2>&1
@@ -265,13 +278,18 @@ if %APP_EXIT_CODE% neq 0 (
             if exist "repair_installation.bat" (
                 call venv\Scripts\deactivate.bat
                 call repair_installation.bat
-                echo [INFO] Please try running the application again after repair.
+                if %ERRORLEVEL% equ 0 (
+                    echo [INFO] Repair completed. Please try running the application again.
+                ) else (
+                    echo [ERROR] Repair failed. Please check the error messages above.
+                )
             )
         ) else (
             echo [INFO] Python environment seems functional. This may be an application issue.
             echo [INFO] Please check the logs in the 'logs' directory for more information.
         )
         
+        echo.
         pause
         exit /b %APP_EXIT_CODE%
     )
