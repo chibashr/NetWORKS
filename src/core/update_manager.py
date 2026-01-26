@@ -10,6 +10,7 @@ import subprocess
 import shutil
 import json
 import time
+from datetime import datetime
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
 
@@ -86,6 +87,84 @@ class UpdateManager(QObject):
         """Check if the application directory is a git repository"""
         return os.path.exists(self.git_dir)
     
+    def _create_backup(self):
+        """Create a backup of all local files before update
+        
+        Returns:
+            tuple: (success: bool, backup_path: str or None, error_message: str or None)
+        """
+        try:
+            # Create backup directory name with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_dir_name = f"backup_{timestamp}"
+            backup_path = os.path.join(self.app_dir, "backups", backup_dir_name)
+            
+            # Create backups directory if it doesn't exist
+            backups_dir = os.path.join(self.app_dir, "backups")
+            os.makedirs(backups_dir, exist_ok=True)
+            
+            self.progress.emit(f"Creating backup at {backup_dir_name}...")
+            logger.info(f"Creating backup at: {backup_path}")
+            
+            # List of files/directories to exclude from backup
+            exclude_patterns = [
+                ".git",
+                "backups",
+                "__pycache__",
+                "*.pyc",
+                "*.pyo",
+                ".pytest_cache",
+                "venv",
+                "env",
+                ".venv",
+                ".env",
+                "node_modules",
+                ".DS_Store",
+                "Thumbs.db"
+            ]
+            
+            # Create backup directory
+            os.makedirs(backup_path, exist_ok=True)
+            
+            # Copy all files and directories except excluded ones
+            items_copied = 0
+            for item in os.listdir(self.app_dir):
+                item_path = os.path.join(self.app_dir, item)
+                backup_item_path = os.path.join(backup_path, item)
+                
+                # Skip excluded items
+                should_exclude = False
+                for pattern in exclude_patterns:
+                    if pattern.startswith("*"):
+                        if item.endswith(pattern[1:]):
+                            should_exclude = True
+                            break
+                    elif item == pattern:
+                        should_exclude = True
+                        break
+                
+                if should_exclude:
+                    continue
+                
+                try:
+                    if os.path.isdir(item_path):
+                        shutil.copytree(item_path, backup_item_path, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(item_path, backup_item_path)
+                    items_copied += 1
+                except Exception as e:
+                    logger.warning(f"Could not backup {item}: {e}")
+                    # Continue with other items
+            
+            logger.info(f"Backup created successfully: {backup_path} ({items_copied} items)")
+            self.progress.emit(f"Backup created: {backup_dir_name}")
+            return True, backup_path, None
+            
+        except Exception as e:
+            error_msg = f"Failed to create backup: {str(e)}"
+            logger.error(error_msg)
+            return False, None, error_msg
+    
     def initialize_repository(self, branch=None):
         """Initialize git repository for extracted zip installations
         
@@ -110,6 +189,13 @@ class UpdateManager(QObject):
             )
             self.error_occurred.emit(error_msg)
             return False, error_msg
+        
+        # Always create backup before initializing/updating
+        self.status_changed.emit("Creating backup of local files...")
+        backup_success, backup_path, backup_error = self._create_backup()
+        if not backup_success:
+            logger.warning(f"Backup failed but continuing: {backup_error}")
+            # Continue anyway, but log the warning
         
         # Check if already a git repository
         if self.is_git_repository():
@@ -201,30 +287,55 @@ class UpdateManager(QObject):
                 self.error_occurred.emit(error_msg)
                 return False, error_msg
             
-            # Set upstream branch
-            self.progress.emit("Setting up branch tracking...")
+            # Reset to remote branch to overwrite local files
+            self.progress.emit("Overwriting local files with remote version...")
             result = subprocess.run(
-                ["git", "branch", "--set-upstream-to", f"origin/{branch}", branch],
+                ["git", "reset", "--hard", f"origin/{branch}"],
                 cwd=self.app_dir,
                 capture_output=True,
                 text=True,
-                timeout=30
+                timeout=60
             )
             
-            # If branch doesn't exist locally, create it
             if result.returncode != 0:
+                # If reset fails, try to checkout the branch
+                self.progress.emit("Setting up branch tracking...")
                 result = subprocess.run(
-                    ["git", "checkout", "-b", branch, f"origin/{branch}"],
+                    ["git", "branch", "--set-upstream-to", f"origin/{branch}", branch],
                     cwd=self.app_dir,
                     capture_output=True,
                     text=True,
                     timeout=30
                 )
+                
+                # If branch doesn't exist locally, create it
                 if result.returncode != 0:
-                    error_msg = f"Failed to checkout branch: {result.stderr}"
-                    logger.error(error_msg)
-                    self.error_occurred.emit(error_msg)
-                    return False, error_msg
+                    result = subprocess.run(
+                        ["git", "checkout", "-b", branch, f"origin/{branch}"],
+                        cwd=self.app_dir,
+                        capture_output=True,
+                        text=True,
+                        timeout=30
+                    )
+                    if result.returncode != 0:
+                        error_msg = f"Failed to checkout branch: {result.stderr}"
+                        logger.error(error_msg)
+                        self.error_occurred.emit(error_msg)
+                        return False, error_msg
+                else:
+                    # Try reset again after setting upstream
+                    result = subprocess.run(
+                        ["git", "reset", "--hard", f"origin/{branch}"],
+                        cwd=self.app_dir,
+                        capture_output=True,
+                        text=True,
+                        timeout=60
+                    )
+                    if result.returncode != 0:
+                        error_msg = f"Failed to reset to remote branch: {result.stderr}"
+                        logger.error(error_msg)
+                        self.error_occurred.emit(error_msg)
+                        return False, error_msg
             
             logger.info("Git repository initialized successfully")
             self.status_changed.emit("Repository initialized successfully")
@@ -243,6 +354,8 @@ class UpdateManager(QObject):
     
     def perform_update(self, branch=None):
         """Perform the update by pulling from git
+        
+        Always backs up local files and overwrites them with remote version.
         
         Args:
             branch: Branch to update from (defaults to configured branch)
@@ -267,30 +380,13 @@ class UpdateManager(QObject):
                 return False, msg
         
         try:
-            # Check for uncommitted changes
-            self.status_changed.emit("Checking for local changes...")
-            result = subprocess.run(
-                ["git", "status", "--porcelain"],
-                cwd=self.app_dir,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            
-            has_changes = bool(result.stdout.strip())
-            if has_changes:
-                logger.warning("Uncommitted changes detected")
-                # Stash changes to allow update
-                self.progress.emit("Stashing local changes...")
-                result = subprocess.run(
-                    ["git", "stash", "push", "-m", "Auto-stash before update"],
-                    cwd=self.app_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-                if result.returncode != 0:
-                    logger.warning(f"Failed to stash changes: {result.stderr}")
+            # ALWAYS create backup before updating (overwrites local files)
+            self.status_changed.emit("Creating backup of local files...")
+            backup_success, backup_path, backup_error = self._create_backup()
+            if not backup_success:
+                # Ask user if they want to continue without backup
+                logger.warning(f"Backup failed: {backup_error}")
+                # Continue anyway - backup is a safety measure, not required
             
             # Fetch latest changes
             self.status_changed.emit("Fetching latest changes...")
@@ -324,9 +420,10 @@ class UpdateManager(QObject):
             if commits_behind == 0:
                 return True, "Already up to date"
             
-            # Reset to remote branch (clean update)
-            self.status_changed.emit("Applying updates...")
-            self.progress.emit(f"Updating {commits_behind} commit(s)...")
+            # ALWAYS reset to remote branch to overwrite local files
+            # Local files are already backed up above
+            self.status_changed.emit("Applying updates (overwriting local files)...")
+            self.progress.emit(f"Updating {commits_behind} commit(s) - overwriting local files...")
             result = subprocess.run(
                 ["git", "reset", "--hard", f"origin/{branch}"],
                 cwd=self.app_dir,

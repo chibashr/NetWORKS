@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.5] - 2026-01-26
+
+### Changed
+- Update system now always creates a backup of local files before overwriting them
+- Local files are automatically backed up to `backups/` directory with timestamp before any update
+- Git initialization and updates now always overwrite local files after backing them up
+- Removed stashing behavior - updates now use hard reset to always match remote
+
+### Fixed
+- Fixed shutdown errors: improved signal disconnection handling, added guards for Qt object access during shutdown, and fixed recursive errors in device tree model
+
 ## [0.10.4] - 2026-01-26
 
 ### Fixed
