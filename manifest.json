@@ -1,6 +1,6 @@
 {
   "name": "NetWORKS",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Network management and monitoring tool",
   "author": "chibashr",
   "license": "MIT",
@@ -9,12 +9,12 @@
     "type": "git",
     "url": "https://github.com/networks/networks.git"
   },
-  "version_string": "0.10.0",
+  "version_string": "0.10.1",
   "version_info": {
     "major": 0,
     "minor": 10,
-    "patch": 0,
-    "build": 218
+    "patch": 1,
+    "build": 219
   },
   "app_directory": "src",
   "main_module": "main",
@@ -36,8 +36,8 @@
   "update_url": "https://api.networks.dev/updates",
   "telemetry_enabled": false,
   "analytics_enabled": false,
-  "build_date": "2026-01-22",
-  "release_notes": "Added the Report Generator plugin with table/template reports and exports in common formats.",
+  "build_date": "2026-01-26",
+  "release_notes": "Fixed AttributeError in device tree when device properties contain numeric values. Fixed git tag command syntax issue.",
   "release_type": "stable",
   "versioning_scheme": "semver",
   "update_channel": "stable"

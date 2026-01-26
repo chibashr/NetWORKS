@@ -228,3 +228,23 @@ When developing:
 4. Profile code for bottlenecks
 5. Consider memory usage for large device sets 
 
+## Git Workflow
+
+### Tagging Releases
+
+When creating or updating tags, note that tags are not remote refs like branches. After fetching tags:
+
+**Incorrect:**
+```bash
+git fetch --tags --force && git tag --force v0.10.1 origin/v0.10.1
+# Error: Failed to resolve 'origin/v0.10.1' as a valid ref
+```
+
+**Correct:**
+```bash
+git fetch --tags --force
+git tag --force v0.10.1
+```
+
+After fetching tags with `git fetch --tags --force`, the remote tags are available locally. To update a local tag to match the remote, simply use `git tag --force <tagname>` without the `origin/` prefix, as tags don't use remote ref syntax.
+

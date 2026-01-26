@@ -23,6 +23,22 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QAction, QIcon, QFont, QTextCursor
 
 from src.ui.plugin_ui_theme import mark_plugin_ui
+import math
+
+
+def safe_str(value, default=""):
+    """Safely convert a value to string, handling None, NaN, and other edge cases"""
+    if value is None:
+        return default
+    if isinstance(value, float):
+        # Check for NaN or infinity
+        if math.isnan(value) or math.isinf(value):
+            return default
+    try:
+        result = str(value).strip()
+        return result if result else default
+    except (ValueError, OverflowError):
+        return default
 
 
 class CommandWorker(QObject):
@@ -532,14 +548,20 @@ class CommandDialog(QDialog):
         
         for i, device in enumerate(devices):
             # Device name (use alias if available, otherwise hostname, otherwise "Unknown Device")
-            name = device.get_property("alias", device.get_property("hostname", "Unknown Device"))
+            alias = device.get_property("alias", "")
+            hostname = device.get_property("hostname", "")
+            
+            # Safely convert to string, handling None, NaN, and other non-string types
+            name = safe_str(alias) or safe_str(hostname) or "Unknown Device"
+            
             name_item = QTableWidgetItem(name)
             name_item.setData(Qt.UserRole, device)  # Store device object in the item
             self.device_table.setItem(i, 0, name_item)
             
-            # IP address
+            # IP address - safely convert to string
             ip = device.get_property("ip_address", "")
-            ip_item = QTableWidgetItem(ip)
+            ip_str = safe_str(ip)
+            ip_item = QTableWidgetItem(ip_str)
             self.device_table.setItem(i, 1, ip_item)
         
         # Add device groups
@@ -566,7 +588,7 @@ class CommandDialog(QDialog):
                             group_name = group.get_name()
                         else:
                             # Use string representation as fallback
-                            group_name = str(group)
+                            group_name = safe_str(group, "Unknown Group")
                             logger.warning(f"Group missing name attribute, using {group_name}")
                         
                         # Try to get device count
@@ -583,8 +605,8 @@ class CommandDialog(QDialog):
                         else:
                             logger.warning(f"Could not determine device count for group {group_name}")
                         
-                        # Create table items
-                        name_item = QTableWidgetItem(group_name)
+                        # Create table items - safely convert group_name to string
+                        name_item = QTableWidgetItem(safe_str(group_name, "Unknown Group"))
                         name_item.setData(Qt.UserRole, group)  # Store group object in the item
                         self.group_table.setItem(i, 0, name_item)
                         
@@ -604,14 +626,23 @@ class CommandDialog(QDialog):
             subnets = {}
             for device in devices:
                 ip = device.get_property("ip_address", "")
-                if ip:
+                ip_str = safe_str(ip)
+                if ip_str:
                     # Extract subnet (first three octets)
-                    parts = ip.split('.')
+                    parts = ip_str.split('.')
                     if len(parts) == 4:
-                        subnet = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
-                        if subnet not in subnets:
-                            subnets[subnet] = []
-                        subnets[subnet].append(device)
+                        try:
+                            # Validate that parts are numeric
+                            int(parts[0])
+                            int(parts[1])
+                            int(parts[2])
+                            subnet = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+                            if subnet not in subnets:
+                                subnets[subnet] = []
+                            subnets[subnet].append(device)
+                        except (ValueError, IndexError):
+                            # Skip invalid IP addresses
+                            continue
             
             self.subnet_table.setRowCount(len(subnets))
             
@@ -1014,10 +1045,10 @@ class CommandDialog(QDialog):
             row = self.command_table.rowCount()
             self.command_table.insertRow(row)
             
-            # Command info
-            alias = QTableWidgetItem(command.alias)
-            command_text = QTableWidgetItem(command.command)
-            description = QTableWidgetItem(command.description)
+            # Command info - safely convert to strings
+            alias = QTableWidgetItem(safe_str(command.alias, ""))
+            command_text = QTableWidgetItem(safe_str(command.command, ""))
+            description = QTableWidgetItem(safe_str(command.description, ""))
             
             # Store command data
             alias.setData(Qt.UserRole, {

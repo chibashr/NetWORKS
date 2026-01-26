@@ -112,6 +112,8 @@ def create_toolbar(plugin):
         run_action = QAction("Run Commands", plugin.main_window)
         run_action.setToolTip("Run commands on devices")
         run_action.triggered.connect(lambda: on_run_commands(plugin))
+        if plugin.main_window:
+            run_action.setIcon(material_icon("play_arrow", plugin.main_window, QStyle.SP_MediaPlay))
         logger.debug(f"Created run_action: {run_action}")
         toolbar.add_toolbar_action(run_action)
         
@@ -119,6 +121,8 @@ def create_toolbar(plugin):
         sets_action = QAction("Command Sets", plugin.main_window)
         sets_action.setToolTip("Manage command sets")
         sets_action.triggered.connect(lambda: on_manage_sets(plugin))
+        if plugin.main_window:
+            sets_action.setIcon(material_icon("list", plugin.main_window, QStyle.SP_FileDialogListView))
         logger.debug(f"Created sets_action: {sets_action}")
         toolbar.add_toolbar_action(sets_action)
         
