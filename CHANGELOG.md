@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.10.4] - 2026-01-26
+
+### Fixed
+- Fixed RuntimeWarning errors when disconnecting plugin signals during shutdown
+- Fixed recursive errors in device tree model when accessing Qt objects during shutdown
+- Fixed errors in scalable toolbar when accessing deleted Qt objects during shutdown
+- Improved signal disconnection by checking if signals are connected before disconnecting
+- Added shutdown guards to prevent accessing invalid Qt objects
+
 ## [0.10.3] - 2026-01-26
 
 ### Changed

@@ -1038,27 +1038,90 @@ class NetworkScannerPlugin(PluginInterface):
                 self.nmap_path = nmap_path
                 logger.info(f"Nmap executable found at: {nmap_path}")
                 
-                # Log additional diagnostic information
+                # Ensure we have an absolute path and normalize it
+                if not os.path.isabs(nmap_path):
+                    nmap_path = os.path.abspath(nmap_path)
+                    self.nmap_path = nmap_path
+                    logger.debug(f"Converted to absolute path: {nmap_path}")
+                
+                # Normalize the path (handle Windows path separators, etc.)
+                nmap_path = os.path.normpath(nmap_path)
+                self.nmap_path = nmap_path
+                
+                # Verify the path still exists
+                if not os.path.exists(nmap_path):
+                    warning_msg = (
+                        f"Nmap was found at {nmap_path} but the file no longer exists.\n\n"
+                        "Network scanning features will be disabled.\n\n"
+                        "Please reinstall nmap or check the installation."
+                    )
+                    logger.warning(warning_msg)
+                    if hasattr(self, "main_window") and self.main_window:
+                        QMessageBox.warning(
+                            self.main_window,
+                            "Network Scanner Warning",
+                            warning_msg
+                        )
+                    self.nmap_available = False
+                    return
+                
+                # Log additional diagnostic information and add to PATH if needed
                 import platform
-                if platform.system() == "Windows":
-                    nmap_dir = os.path.dirname(nmap_path)
-                    current_path = os.environ.get("PATH", "")
-                    if nmap_dir not in current_path.split(os.pathsep):
-                        logger.info(f"Nmap directory ({nmap_dir}) is not in system PATH - will add it when scanning")
+                nmap_dir = os.path.dirname(nmap_path)
+                # Normalize the directory path as well
+                nmap_dir = os.path.normpath(nmap_dir)
+                current_path = os.environ.get("PATH", "")
+                
+                # CRITICAL: Add nmap directory to PATH BEFORE creating PortScanner
+                # python-nmap looks for nmap in PATH when it initializes
+                # Normalize PATH entries for comparison
+                path_entries = [os.path.normpath(p) for p in current_path.split(os.pathsep) if p.strip()]
+                
+                if nmap_dir and nmap_dir not in path_entries:
+                    logger.info(f"Nmap directory ({nmap_dir}) is not in system PATH - adding it now")
+                    # Add to the beginning of PATH so it's found first
+                    os.environ["PATH"] = nmap_dir + os.pathsep + current_path
+                    logger.debug(f"Updated PATH to include nmap directory. New PATH starts with: {nmap_dir}")
+                    # Verify it was added
+                    updated_path = os.environ.get("PATH", "")
+                    if nmap_dir in updated_path:
+                        logger.debug("Successfully verified nmap directory is now in PATH")
                     else:
-                        logger.info(f"Nmap directory ({nmap_dir}) is already in system PATH")
+                        logger.warning(f"Warning: nmap directory may not have been added to PATH correctly")
+                else:
+                    logger.info(f"Nmap directory ({nmap_dir}) is already in system PATH")
                 
-                # Try to create a scanner and configure it to use the found nmap path
+                # Now try to create a scanner - nmap should be in PATH now
                 # This is especially important on Windows where nmap might not be in PATH
-                test_scanner = nmap.PortScanner()
-                
-                # If nmap is not in PATH, configure python-nmap to use the found path
-                # python-nmap looks for nmap in PATH, but we can help it by setting the path
-                if nmap_path and os.path.dirname(nmap_path) not in os.environ.get("PATH", "").split(os.pathsep):
-                    # Try to set the nmap path for python-nmap
-                    # Note: python-nmap doesn't have a direct way to set the path, but we can
-                    # add it to PATH temporarily or use it directly when needed
-                    logger.debug(f"Nmap found outside PATH, will use: {nmap_path}")
+                logger.debug("Creating nmap.PortScanner() instance...")
+                try:
+                    test_scanner = nmap.PortScanner()
+                    logger.debug("nmap.PortScanner() created successfully")
+                    
+                    # Try to set the nmap path directly if python-nmap supports it
+                    if hasattr(test_scanner, 'nmap_path'):
+                        test_scanner.nmap_path = nmap_path
+                        logger.debug(f"Set python-nmap path attribute to: {nmap_path}")
+                except Exception as port_scanner_error:
+                    # If PortScanner creation fails, it might be because python-nmap
+                    # checked PATH before we modified it. Try to work around this.
+                    error_msg = str(port_scanner_error).lower()
+                    if 'not found' in error_msg or 'path' in error_msg:
+                        logger.warning(f"PortScanner creation failed: {port_scanner_error}")
+                        logger.info("Attempting to work around PATH issue...")
+                        
+                        # Try creating PortScanner again - PATH should be updated now
+                        # Sometimes python-nmap caches PATH, so we need to force it
+                        try:
+                            test_scanner = nmap.PortScanner()
+                            logger.info("Successfully created PortScanner on retry")
+                        except Exception as retry_error:
+                            # If it still fails, re-raise the original error
+                            logger.error(f"PortScanner creation failed even after PATH update: {retry_error}")
+                            raise port_scanner_error
+                    else:
+                        # Some other error, re-raise it
+                        raise
                 
                 # Actually test if python-nmap can use nmap by trying to get version
                 try:
@@ -1110,15 +1173,31 @@ class NetworkScannerPlugin(PluginInterface):
                     return
                     
             except Exception as e:
+                # Provide more helpful error message
+                error_str = str(e)
+                nmap_path_info = ""
+                if hasattr(self, 'nmap_path') and self.nmap_path:
+                    nmap_path_info = f"\n\nNmap was found at: {self.nmap_path}\n"
+                    nmap_dir = os.path.dirname(self.nmap_path)
+                    current_path = os.environ.get("PATH", "")
+                    if nmap_dir not in current_path.split(os.pathsep):
+                        nmap_path_info += f"However, the nmap directory ({nmap_dir}) is not in PATH.\n"
+                        nmap_path_info += "The plugin attempted to add it, but python-nmap may have already initialized.\n"
+                        nmap_path_info += "Try restarting NetWORKS after ensuring nmap is installed."
+                
                 warning_msg = (
-                    f"Nmap initialization failed: {str(e)}\n\n"
+                    f"Nmap initialization failed: {error_str}{nmap_path_info}\n\n"
                     "Network scanning features will be disabled.\n\n"
                     "To fix this:\n"
                     "1. Install the nmap executable (see https://nmap.org/download.html)\n"
-                    "2. Make sure nmap is in your system PATH\n"
+                    "2. Make sure nmap is in your system PATH, or install it in a standard location:\n"
+                    "   • Windows: C:\\Program Files\\Nmap\\nmap.exe\n"
                     "3. Restart NetWORKS"
                 )
                 logger.warning(warning_msg)
+                logger.debug(f"Current PATH: {os.environ.get('PATH', '')}")
+                if hasattr(self, 'nmap_path'):
+                    logger.debug(f"Found nmap at: {self.nmap_path}")
                 self.nmap_available = False
                 if hasattr(self, "main_window") and self.main_window:
                     QMessageBox.warning(

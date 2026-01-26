@@ -1785,6 +1785,13 @@ class MainWindow(QMainWindow):
         
     def closeEvent(self, event):
         """Save window state and size on close"""
+        # Mark device tree model as shutting down to prevent recursive errors
+        if hasattr(self, 'device_tree_model') and self.device_tree_model:
+            try:
+                self.device_tree_model._is_shutting_down = True
+            except Exception:
+                pass
+        
         # Save window state, position and size
         settings = QSettings(self.app.applicationName(), "WindowState")
         settings.setValue("geometry", self.saveGeometry())

@@ -2,7 +2,7 @@
 
 An extensible device management application.
 
-Current Release: 0.10.3
+Current Release: 0.10.4
 
 ## Features
 

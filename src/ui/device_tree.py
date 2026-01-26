@@ -111,6 +111,7 @@ class DeviceTreeModel(QAbstractItemModel):
         self._group_items = {}
         self._status_icon_cache = {}
         self._device_icon_cache = {}
+        self._is_shutting_down = False
         
         # Create root item
         self.root_item = DeviceTreeItem(["Name", "IP Address"])
@@ -281,15 +282,26 @@ class DeviceTreeModel(QAbstractItemModel):
         
     def index(self, row, column, parent=QModelIndex()):
         """Create an index for an item"""
-        if not self.hasIndex(row, column, parent):
+        # Guard against accessing model during shutdown
+        if self._is_shutting_down:
             return QModelIndex()
-            
-        parent_item = self.get_item(parent)
-        child_item = parent_item.child(row)
         
-        if child_item:
-            return self.createIndex(row, column, child_item)
-        return QModelIndex()
+        try:
+            if not self.hasIndex(row, column, parent):
+                return QModelIndex()
+                
+            parent_item = self.get_item(parent)
+            if parent_item is None:
+                return QModelIndex()
+                
+            child_item = parent_item.child(row)
+            
+            if child_item:
+                return self.createIndex(row, column, child_item)
+            return QModelIndex()
+        except (RuntimeError, AttributeError):
+            # Qt objects may be deleted during shutdown
+            return QModelIndex()
         
     def parent(self, index):
         """Get parent index for an item"""
@@ -311,8 +323,18 @@ class DeviceTreeModel(QAbstractItemModel):
             
     def rowCount(self, parent=QModelIndex()):
         """Get row count for a parent index"""
-        parent_item = self.get_item(parent)
-        return parent_item.childCount()
+        # Guard against accessing model during shutdown
+        if self._is_shutting_down:
+            return 0
+        
+        try:
+            parent_item = self.get_item(parent)
+            if parent_item is None:
+                return 0
+            return parent_item.childCount()
+        except (RuntimeError, AttributeError):
+            # Qt objects may be deleted during shutdown
+            return 0
         
     def columnCount(self, parent=QModelIndex()):
         """Get column count for a parent index"""
@@ -500,12 +522,20 @@ class DeviceTreeModel(QAbstractItemModel):
         
     def get_item(self, index):
         """Get item for an index"""
-        if index.isValid():
-            item = index.internalPointer()
-            if item:
-                return item
-                
-        return self.root_item
+        # Guard against accessing model during shutdown
+        if self._is_shutting_down:
+            return self.root_item if hasattr(self, 'root_item') and self.root_item else None
+        
+        try:
+            if index.isValid():
+                item = index.internalPointer()
+                if item:
+                    return item
+                    
+            return self.root_item if hasattr(self, 'root_item') and self.root_item else None
+        except (RuntimeError, AttributeError):
+            # Qt objects may be deleted during shutdown
+            return self.root_item if hasattr(self, 'root_item') and self.root_item else None
 
     def get_group_item(self, group_name):
         """Get the tree item for a group name"""

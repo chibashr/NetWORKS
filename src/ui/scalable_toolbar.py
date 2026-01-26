@@ -48,20 +48,29 @@ class ScalableToolbar(QToolBar):
         return separator
 
     def actionEvent(self, event):
-        super().actionEvent(event)
+        try:
+            super().actionEvent(event)
+        except (RuntimeError, AttributeError):
+            # Qt objects may be deleted during shutdown
+            return
+        
         if event.type() in (QEvent.ActionAdded, QEvent.ActionRemoved, QEvent.ActionChanged):
             if self._overflow_action is None:
                 return
             if self._is_updating:
                 return
-            if event.type() == QEvent.ActionAdded:
-                action = event.action()
-                if action and action is not self._overflow_action:
-                    actions = self.actions()
-                    if actions and actions[-1] is not self._overflow_action:
-                        self.removeAction(action)
-                        self.insertAction(self._overflow_action, action)
-            self._update_overflow()
+            try:
+                if event.type() == QEvent.ActionAdded:
+                    action = event.action()
+                    if action and action is not self._overflow_action:
+                        actions = self.actions()
+                        if actions and actions[-1] is not self._overflow_action:
+                            self.removeAction(action)
+                            self.insertAction(self._overflow_action, action)
+                self._update_overflow()
+            except (RuntimeError, AttributeError):
+                # Qt objects may be deleted during shutdown
+                return
 
     def setToolButtonStyle(self, style):
         self._expanded_toolbutton_style = style
@@ -160,20 +169,43 @@ class ScalableToolbar(QToolBar):
     def _update_overflow(self):
         if self._is_updating:
             return
+        
+        # Guard against accessing deleted Qt objects during shutdown
+        if self._overflow_action is None:
+            return
+        
+        try:
+            # Check if the overflow action's widget still exists
+            if not hasattr(self._overflow_action, 'isVisible') or not hasattr(self._overflow_action, 'setVisible'):
+                return
+        except (RuntimeError, AttributeError):
+            # Qt object may be deleted
+            return
+        
         self._is_updating = True
-        actions = [action for action in self.actions() if action is not self._overflow_action]
-        if not actions:
-            self._overflow_action.setVisible(False)
-            self._overflow_menu.clear()
+        try:
+            actions = [action for action in self.actions() if action is not self._overflow_action]
+            if not actions:
+                if self._overflow_action:
+                    self._overflow_action.setVisible(False)
+                if self._overflow_menu:
+                    self._overflow_menu.clear()
+                self._is_updating = False
+                return
+
+            for action in actions:
+                if action:
+                    action.setVisible(True)
+            if self._overflow_action:
+                self._overflow_action.setVisible(False)
+            self._apply_separator_visibility(actions)
+            self._apply_compact_mode(False)
+            self._layout_toolbar()
+        except (RuntimeError, AttributeError) as e:
+            # Qt objects may be deleted during shutdown
+            logger.debug(f"Error updating overflow menu during shutdown: {e}")
             self._is_updating = False
             return
-
-        for action in actions:
-            action.setVisible(True)
-        self._overflow_action.setVisible(False)
-        self._apply_separator_visibility(actions)
-        self._apply_compact_mode(False)
-        self._layout_toolbar()
 
         if self._content_width(actions) <= self.width():
             self._populate_overflow_menu(actions)

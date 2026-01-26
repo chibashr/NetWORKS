@@ -16,6 +16,7 @@ import pkgutil
 import shutil
 import time
 import typing
+import warnings
 import yaml
 from datetime import datetime
 from enum import Enum, auto
@@ -1782,47 +1783,48 @@ class PluginManager(QObject):
                 # Fall back to the old method of trying to disconnect all potential signals
                 logger.debug(f"No tracked signals found for {plugin_info.id}, using fallback disconnection")
                 
-                if hasattr(self.app.device_manager, 'device_added') and hasattr(instance, 'on_device_added'):
+                # Helper function to safely disconnect a signal
+                def safe_disconnect(signal, slot, signal_name):
+                    """Safely disconnect a signal from a slot, suppressing warnings"""
+                    if signal is None or slot is None:
+                        return False
                     try:
-                        self.app.device_manager.device_added.disconnect(instance.on_device_added)
-                        logger.debug(f"Successfully disconnected device_added signal for {plugin_info.id}")
+                        # Check if signal has any receivers before attempting disconnect
+                        # receivers() returns the number of connected receivers
+                        if hasattr(signal, 'receivers') and signal.receivers(slot) > 0:
+                            with warnings.catch_warnings():
+                                warnings.simplefilter("ignore", RuntimeWarning)
+                                signal.disconnect(slot)
+                            logger.debug(f"Successfully disconnected {signal_name} signal for {plugin_info.id}")
+                            return True
+                        else:
+                            logger.debug(f"Signal {signal_name} not connected to {plugin_info.id}")
+                            return False
+                    except (RuntimeError, TypeError) as e:
+                        # Signal or slot may be invalid/deleted, ignore
+                        logger.debug(f"Signal {signal_name} disconnection skipped: {e}")
+                        return False
                     except Exception as e:
-                        logger.debug(f"Signal device_added not connected to {plugin_info.id}: {e}")
+                        logger.debug(f"Signal {signal_name} disconnection error: {e}")
+                        return False
+                
+                if hasattr(self.app.device_manager, 'device_added') and hasattr(instance, 'on_device_added'):
+                    safe_disconnect(self.app.device_manager.device_added, instance.on_device_added, "device_added")
                 
                 if hasattr(self.app.device_manager, 'device_removed') and hasattr(instance, 'on_device_removed'):
-                    try:
-                        self.app.device_manager.device_removed.disconnect(instance.on_device_removed)
-                        logger.debug(f"Successfully disconnected device_removed signal for {plugin_info.id}")
-                    except Exception as e:
-                        logger.debug(f"Signal device_removed not connected to {plugin_info.id}: {e}")
+                    safe_disconnect(self.app.device_manager.device_removed, instance.on_device_removed, "device_removed")
                 
                 if hasattr(self.app.device_manager, 'device_changed') and hasattr(instance, 'on_device_changed'):
-                    try:
-                        self.app.device_manager.device_changed.disconnect(instance.on_device_changed)
-                        logger.debug(f"Successfully disconnected device_changed signal for {plugin_info.id}")
-                    except Exception as e:
-                        logger.debug(f"Signal device_changed not connected to {plugin_info.id}: {e}")
+                    safe_disconnect(self.app.device_manager.device_changed, instance.on_device_changed, "device_changed")
                 
                 if hasattr(self.app.device_manager, 'group_added') and hasattr(instance, 'on_group_added'):
-                    try:
-                        self.app.device_manager.group_added.disconnect(instance.on_group_added)
-                        logger.debug(f"Successfully disconnected group_added signal for {plugin_info.id}")
-                    except Exception as e:
-                        logger.debug(f"Signal group_added not connected to {plugin_info.id}: {e}")
+                    safe_disconnect(self.app.device_manager.group_added, instance.on_group_added, "group_added")
                 
                 if hasattr(self.app.device_manager, 'group_removed') and hasattr(instance, 'on_group_removed'):
-                    try:
-                        self.app.device_manager.group_removed.disconnect(instance.on_group_removed)
-                        logger.debug(f"Successfully disconnected group_removed signal for {plugin_info.id}")
-                    except Exception as e:
-                        logger.debug(f"Signal group_removed not connected to {plugin_info.id}: {e}")
+                    safe_disconnect(self.app.device_manager.group_removed, instance.on_group_removed, "group_removed")
                 
                 if hasattr(self.app.device_manager, 'selection_changed') and hasattr(instance, 'on_device_selected'):
-                    try:
-                        self.app.device_manager.selection_changed.disconnect(instance.on_device_selected)
-                        logger.debug(f"Successfully disconnected selection_changed signal for {plugin_info.id}")
-                    except Exception as e:
-                        logger.debug(f"Signal selection_changed not connected to {plugin_info.id}: {e}")
+                    safe_disconnect(self.app.device_manager.selection_changed, instance.on_device_selected, "selection_changed")
                 
             logger.debug(f"Successfully disconnected device manager signals for plugin: {plugin_info.id}")
         except Exception as e:
@@ -1854,14 +1856,28 @@ class PluginManager(QObject):
                     # Only attempt disconnect if it's actually a Signal object
                     if hasattr(signal, 'disconnect'):
                         try:
-                            # Check if the signal has any connections
-                            # Use a safer approach to determine if it can be disconnected
-                            logger.debug(f"Attempting safe disconnect of {signal_name}")
-                            
-                            # In PySide6, we can safely disconnect without arguments to disconnect all connections
-                            # But this will fail if there are no receivers, so we need to catch exceptions
-                            signal.disconnect()
-                            logger.debug(f"Successfully disconnected signal {signal_name}")
+                            # Check if the signal has any receivers before attempting disconnect
+                            # receivers() without arguments returns total number of connections
+                            if hasattr(signal, 'receivers'):
+                                receiver_count = signal.receivers()
+                                if receiver_count > 0:
+                                    logger.debug(f"Attempting safe disconnect of {signal_name} ({receiver_count} receivers)")
+                                    with warnings.catch_warnings():
+                                        warnings.simplefilter("ignore", RuntimeWarning)
+                                        signal.disconnect()
+                                    logger.debug(f"Successfully disconnected signal {signal_name}")
+                                else:
+                                    logger.debug(f"Signal {signal_name} has no receivers, skipping disconnect")
+                            else:
+                                # Fallback: try to disconnect and catch exceptions
+                                logger.debug(f"Attempting disconnect of {signal_name} (no receivers() method)")
+                                with warnings.catch_warnings():
+                                    warnings.simplefilter("ignore", RuntimeWarning)
+                                    signal.disconnect()
+                                logger.debug(f"Successfully disconnected signal {signal_name}")
+                        except (RuntimeError, TypeError) as e:
+                            # Signal may be invalid/deleted, ignore
+                            logger.debug(f"Signal {signal_name} disconnection skipped: {e}")
                         except Exception as e:
                             # Downgrade to debug level since this is not a critical error
                             logger.debug(f"Signal {signal_name} disconnection error: {e}")
