@@ -784,7 +784,7 @@ class NetworkScannerPlugin(PluginInterface):
         """Initialize the plugin"""
         super().__init__()
         self.name = "Network Scanner"
-        self.version = "1.2.3"
+        self.version = "1.2.4"
         self.description = "Scan network segments for devices and add them to NetWORKS"
         self.author = "NetWORKS Team"
         
@@ -995,13 +995,15 @@ class NetworkScannerPlugin(PluginInterface):
                 # Check if the nmap executable is available
                 if not self._check_nmap_executable():
                     warning_msg = (
-                        "The nmap executable was not found in your system PATH.\n\n"
+                        "The nmap executable was not found on your system.\n\n"
                         "Network scanning features will be disabled until nmap is installed.\n\n"
                         "To install nmap:\n"
                         "  • Windows: Download from https://nmap.org/download.html\n"
+                        "    (Typical installation: C:\\Program Files\\Nmap\\nmap.exe)\n"
                         "  • macOS: brew install nmap\n"
                         "  • Linux: sudo apt install nmap (or equivalent)\n\n"
-                        "After installing, make sure nmap is in your system PATH and restart NetWORKS."
+                        "After installing, make sure nmap is accessible (either in your system PATH\n"
+                        "or in a standard installation location) and restart NetWORKS."
                     )
                     logger.warning(warning_msg)
                     if hasattr(self, "main_window") and self.main_window:
@@ -3100,40 +3102,106 @@ class NetworkScannerPlugin(PluginInterface):
         return False
 
     def _check_nmap_executable(self):
-        """Check if the nmap executable is available in the system PATH"""
+        """Check if the nmap executable is available in the system PATH or common installation locations"""
         import subprocess
         import shutil
+        import platform
         
-        try:
-            # First try using shutil which is more reliable
-            nmap_path = shutil.which("nmap")
-            
-            if nmap_path:
-                logger.info(f"Nmap executable found at: {nmap_path}")
-                return True
-            
-            # Try running nmap --version as a fallback
+        # List of possible nmap executable names (Windows needs .exe)
+        nmap_names = ["nmap", "nmap.exe"]
+        
+        # Common Windows installation paths
+        windows_paths = []
+        if platform.system() == "Windows":
+            program_files = os.environ.get("ProgramFiles", "C:\\Program Files")
+            program_files_x86 = os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)")
+            windows_paths = [
+                os.path.join(program_files, "Nmap", "nmap.exe"),
+                os.path.join(program_files_x86, "Nmap", "nmap.exe"),
+                os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Nmap", "nmap.exe"),
+            ]
+        
+        # Method 1: Try shutil.which for each executable name
+        for nmap_name in nmap_names:
+            try:
+                nmap_path = shutil.which(nmap_name)
+                if nmap_path:
+                    # Verify it actually works by running --version
+                    if self._verify_nmap_executable(nmap_path):
+                        logger.info(f"Nmap executable found at: {nmap_path}")
+                        return True
+            except Exception as e:
+                logger.debug(f"shutil.which({nmap_name}) failed: {e}")
+                continue
+        
+        # Method 2: Check common Windows installation paths
+        for nmap_path in windows_paths:
+            if os.path.exists(nmap_path) and os.path.isfile(nmap_path):
+                if self._verify_nmap_executable(nmap_path):
+                    logger.info(f"Nmap executable found at: {nmap_path}")
+                    return True
+        
+        # Method 3: Try running nmap directly (fallback for PATH issues)
+        # Prepare subprocess kwargs (Windows-specific flags)
+        subprocess_kwargs = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "timeout": 5,  # Increased timeout
+            "text": True
+        }
+        if platform.system() == "Windows":
+            # Suppress console window on Windows
+            if hasattr(subprocess, "CREATE_NO_WINDOW"):
+                subprocess_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        
+        for nmap_name in nmap_names:
             try:
                 result = subprocess.run(
-                    ["nmap", "--version"], 
-                    stdout=subprocess.PIPE, 
-                    stderr=subprocess.PIPE,
-                    timeout=2,  # 2 second timeout
-                    text=True
+                    [nmap_name, "--version"],
+                    **subprocess_kwargs
                 )
                 
                 if result.returncode == 0:
                     version_info = result.stdout.strip().split('\n')[0] if result.stdout else "Unknown version"
                     logger.info(f"Nmap executable available: {version_info}")
                     return True
-                else:
-                    logger.warning(f"Nmap check failed with return code {result.returncode}")
-                    return False
+            except FileNotFoundError:
+                continue
+            except subprocess.TimeoutExpired:
+                logger.warning(f"Nmap version check timed out for {nmap_name}")
+                continue
             except Exception as e:
-                logger.warning(f"Error checking nmap version: {e}")
-                return False
+                logger.debug(f"Error checking nmap version for {nmap_name}: {e}")
+                continue
+        
+        logger.warning("Nmap executable not found in PATH or common installation locations")
+        return False
+    
+    def _verify_nmap_executable(self, nmap_path):
+        """Verify that an nmap executable actually works by running --version"""
+        import subprocess
+        import platform
+        
+        # Prepare subprocess kwargs (Windows-specific flags)
+        subprocess_kwargs = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "timeout": 5,
+            "text": True
+        }
+        if platform.system() == "Windows":
+            # Suppress console window on Windows
+            if hasattr(subprocess, "CREATE_NO_WINDOW"):
+                subprocess_kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        
+        try:
+            result = subprocess.run(
+                [nmap_path, "--version"],
+                **subprocess_kwargs
+            )
+            return result.returncode == 0
         except Exception as e:
-            logger.error(f"Error checking for nmap executable: {e}")
+            logger.debug(f"Failed to verify nmap at {nmap_path}: {e}")
             return False
             
     def _get_network_interfaces(self):

@@ -1,7 +1,7 @@
 {
   "id": "network_scanner",
   "name": "Network Scanner",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "A plugin that scans the network for devices and adds them to NetWORKS",
   "icon": "resources/icons/network_scanner.svg",
   "author": "NetWORKS Team",
@@ -20,6 +20,17 @@
   },
   "dependencies": [],
   "changelog": [
+    {
+      "version": "1.2.4",
+      "date": "2026-01-26",
+      "changes": [
+        "Improved nmap detection to check multiple locations including common Windows installation paths",
+        "Enhanced nmap executable verification to ensure it actually works before reporting availability",
+        "Added support for detecting nmap.exe on Windows systems",
+        "Improved error handling and logging for nmap detection failures",
+        "Updated error messages to be more helpful for users"
+      ]
+    },
     {
       "version": "1.2.3",
       "date": "2025-05-28",

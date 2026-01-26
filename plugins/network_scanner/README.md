@@ -134,6 +134,13 @@ See the [API.md](API.md) file for information on programmatically integrating wi
 
 ## Changelog
 
+### Version 1.2.4 (2026-01-26)
+- Improved nmap detection to check multiple locations including common Windows installation paths
+- Enhanced nmap executable verification to ensure it actually works before reporting availability
+- Added support for detecting nmap.exe on Windows systems
+- Improved error handling and logging for nmap detection failures
+- Updated error messages to be more helpful for users
+
 ### Version 1.2.3 (2025-05-28)
 - Fixed critical bug: Only add devices that actually return data during a scan
 - Improved filtering to exclude non-responsive hosts from scan results

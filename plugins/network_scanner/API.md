@@ -298,6 +298,13 @@ scanner_plugin.scan_network("192.168.1.0/24")
 
 ## Changelog
 
+### Version 1.2.4 (2026-01-26)
+- Improved nmap detection to check multiple locations including common Windows installation paths
+- Enhanced nmap executable verification to ensure it actually works before reporting availability
+- Added support for detecting nmap.exe on Windows systems
+- Improved error handling and logging for nmap detection failures
+- Updated error messages to be more helpful for users
+
 ### Version 1.1.9 (2025-05-24)
 - Fixed import error for QIntValidator in plugin manager dialog
 - Corrected Qt module imports to ensure proper functionality
