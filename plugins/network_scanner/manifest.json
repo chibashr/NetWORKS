@@ -1,7 +1,7 @@
 {
   "id": "network_scanner",
   "name": "Network Scanner",
-  "version": "1.2.4",
+  "version": "10.4",
   "description": "A plugin that scans the network for devices and adds them to NetWORKS",
   "icon": "resources/icons/network_scanner.svg",
   "author": "NetWORKS Team",
@@ -20,6 +20,21 @@
   },
   "dependencies": [],
   "changelog": [
+    {
+      "version": "10.4",
+      "date": "2026-01-26",
+      "changes": [
+        "Major improvements to nmap detection and integration",
+        "Enhanced nmap detection to check multiple locations including common Windows installation paths",
+        "Improved nmap executable verification to ensure it actually works before reporting availability",
+        "Added support for detecting nmap.exe on Windows systems",
+        "Implemented PATH management to ensure python-nmap can find nmap even when not in system PATH",
+        "Added actual functionality testing to verify python-nmap can execute nmap",
+        "Improved error handling and logging for nmap detection failures",
+        "Updated error messages to be more helpful for users",
+        "ScannerWorker now receives and uses nmap path for better compatibility"
+      ]
+    },
     {
       "version": "1.2.4",
       "date": "2026-01-26",

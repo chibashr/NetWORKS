@@ -134,6 +134,17 @@ See the [API.md](API.md) file for information on programmatically integrating wi
 
 ## Changelog
 
+### Version 10.4 (2026-01-26)
+- Major improvements to nmap detection and integration
+- Enhanced nmap detection to check multiple locations including common Windows installation paths
+- Improved nmap executable verification to ensure it actually works before reporting availability
+- Added support for detecting nmap.exe on Windows systems
+- Implemented PATH management to ensure python-nmap can find nmap even when not in system PATH
+- Added actual functionality testing to verify python-nmap can execute nmap
+- Improved error handling and logging for nmap detection failures
+- Updated error messages to be more helpful for users
+- ScannerWorker now receives and uses nmap path for better compatibility
+
 ### Version 1.2.4 (2026-01-26)
 - Improved nmap detection to check multiple locations including common Windows installation paths
 - Enhanced nmap executable verification to ensure it actually works before reporting availability

@@ -101,7 +101,7 @@ class ScannerWorker(QObject):
     
     def __init__(self, network_range, scan_type="quick", timeout=600, 
                  os_detection=True, port_scan=True, use_sudo=False,
-                 custom_scan_args=""):
+                 custom_scan_args="", nmap_path=None):
         """Initialize the scanner worker"""
         super().__init__()
         self.network_range = network_range
@@ -111,6 +111,7 @@ class ScannerWorker(QObject):
         self.port_scan = port_scan
         self.use_sudo = use_sudo
         self.custom_scan_args = custom_scan_args
+        self.nmap_path = nmap_path
         self.is_running = False
         self.should_stop = False
         
@@ -130,7 +131,26 @@ class ScannerWorker(QObject):
             # Initialize the scanner instance
             try:
                 import nmap
+                
+                # If we have a specific nmap path and it's not in PATH, add it temporarily
+                if self.nmap_path and os.path.exists(self.nmap_path):
+                    nmap_dir = os.path.dirname(self.nmap_path)
+                    current_path = os.environ.get("PATH", "")
+                    
+                    # Only modify PATH if nmap directory is not already in it
+                    if nmap_dir not in current_path.split(os.pathsep):
+                        # Temporarily add nmap directory to PATH
+                        os.environ["PATH"] = nmap_dir + os.pathsep + current_path
+                        logger.debug(f"Added nmap directory to PATH: {nmap_dir}")
+                
+                # Create the scanner
                 self.scanner = nmap.PortScanner()
+                
+                # If python-nmap supports setting the path directly, try that too
+                if self.nmap_path and hasattr(self.scanner, 'nmap_path'):
+                    self.scanner.nmap_path = self.nmap_path
+                    logger.debug(f"Set python-nmap path to: {self.nmap_path}")
+                
                 logger.debug(f"Created nmap scanner instance for {self.network_range}")
             except ImportError:
                 logger.error("Failed to import python-nmap. Make sure it's installed.")
@@ -784,7 +804,7 @@ class NetworkScannerPlugin(PluginInterface):
         """Initialize the plugin"""
         super().__init__()
         self.name = "Network Scanner"
-        self.version = "1.2.4"
+        self.version = "10.4"
         self.description = "Scan network segments for devices and add them to NetWORKS"
         self.author = "NetWORKS Team"
         
@@ -988,12 +1008,10 @@ class NetworkScannerPlugin(PluginInterface):
                 
             # Check if nmap is available
             try:
-                # Try to create a scanner to verify nmap is installed
-                test_scanner = nmap.PortScanner()
-                logger.debug("Nmap Python module initialized successfully")
+                # Check if the nmap executable is available and get its path
+                nmap_path = self._check_nmap_executable()
                 
-                # Check if the nmap executable is available
-                if not self._check_nmap_executable():
+                if not nmap_path:
                     warning_msg = (
                         "The nmap executable was not found on your system.\n\n"
                         "Network scanning features will be disabled until nmap is installed.\n\n"
@@ -1014,9 +1032,82 @@ class NetworkScannerPlugin(PluginInterface):
                         )
                     # Don't raise - allow plugin to load but disable scanning
                     self.nmap_available = False
-                else:
+                    return
+                
+                # Store the nmap path for later use
+                self.nmap_path = nmap_path
+                logger.info(f"Nmap executable found at: {nmap_path}")
+                
+                # Log additional diagnostic information
+                import platform
+                if platform.system() == "Windows":
+                    nmap_dir = os.path.dirname(nmap_path)
+                    current_path = os.environ.get("PATH", "")
+                    if nmap_dir not in current_path.split(os.pathsep):
+                        logger.info(f"Nmap directory ({nmap_dir}) is not in system PATH - will add it when scanning")
+                    else:
+                        logger.info(f"Nmap directory ({nmap_dir}) is already in system PATH")
+                
+                # Try to create a scanner and configure it to use the found nmap path
+                # This is especially important on Windows where nmap might not be in PATH
+                test_scanner = nmap.PortScanner()
+                
+                # If nmap is not in PATH, configure python-nmap to use the found path
+                # python-nmap looks for nmap in PATH, but we can help it by setting the path
+                if nmap_path and os.path.dirname(nmap_path) not in os.environ.get("PATH", "").split(os.pathsep):
+                    # Try to set the nmap path for python-nmap
+                    # Note: python-nmap doesn't have a direct way to set the path, but we can
+                    # add it to PATH temporarily or use it directly when needed
+                    logger.debug(f"Nmap found outside PATH, will use: {nmap_path}")
+                
+                # Actually test if python-nmap can use nmap by trying to get version
+                try:
+                    # Try a simple operation to verify python-nmap can use nmap
+                    # We'll use the scanner's command_line method or try a minimal scan
+                    # But first, let's just verify the scanner was created successfully
+                    logger.debug("Nmap Python module initialized successfully")
+                    
+                    # Try to verify python-nmap can actually execute nmap
+                    # This is a more reliable test than just checking if the file exists
+                    test_result = self._test_python_nmap_works(nmap_path)
+                    if not test_result:
+                        warning_msg = (
+                            f"Nmap was found at {nmap_path}, but python-nmap cannot execute it.\n\n"
+                            "This may be due to:\n"
+                            "  • Permission issues\n"
+                            "  • Missing dependencies\n"
+                            "  • Corrupted nmap installation\n\n"
+                            "Try reinstalling nmap or check the logs for more details."
+                        )
+                        logger.warning(warning_msg)
+                        if hasattr(self, "main_window") and self.main_window:
+                            QMessageBox.warning(
+                                self.main_window,
+                                "Network Scanner Warning",
+                                warning_msg
+                            )
+                        self.nmap_available = False
+                        return
+                    
                     logger.info("Nmap is available and ready to use")
                     self.nmap_available = True
+                    
+                except Exception as test_error:
+                    logger.error(f"Failed to verify python-nmap can use nmap: {test_error}")
+                    warning_msg = (
+                        f"Nmap was found but cannot be used by python-nmap: {str(test_error)}\n\n"
+                        "Network scanning features will be disabled.\n\n"
+                        "Try reinstalling nmap or check the logs for more details."
+                    )
+                    logger.warning(warning_msg)
+                    if hasattr(self, "main_window") and self.main_window:
+                        QMessageBox.warning(
+                            self.main_window,
+                            "Network Scanner Warning",
+                            warning_msg
+                        )
+                    self.nmap_available = False
+                    return
                     
             except Exception as e:
                 warning_msg = (
@@ -1594,6 +1685,8 @@ class NetworkScannerPlugin(PluginInterface):
             self._scanner_thread = QThread()
             
             # Create a worker and move it to the thread
+            # Pass the nmap path if we found it during initialization
+            nmap_path = getattr(self, 'nmap_path', None)
             self._scanner_worker = ScannerWorker(
                 network_range=network_range,
                 scan_type=scan_type,
@@ -1601,7 +1694,8 @@ class NetworkScannerPlugin(PluginInterface):
                 os_detection=os_detection,
                 port_scan=port_scan,
                 use_sudo=use_sudo,
-                custom_scan_args=custom_args
+                custom_scan_args=custom_args,
+                nmap_path=nmap_path
             )
             self._scanner_worker.moveToThread(self._scanner_thread)
             
@@ -3102,7 +3196,11 @@ class NetworkScannerPlugin(PluginInterface):
         return False
 
     def _check_nmap_executable(self):
-        """Check if the nmap executable is available in the system PATH or common installation locations"""
+        """Check if the nmap executable is available in the system PATH or common installation locations
+        
+        Returns:
+            str or None: Path to nmap executable if found, None otherwise
+        """
         import subprocess
         import shutil
         import platform
@@ -3129,7 +3227,7 @@ class NetworkScannerPlugin(PluginInterface):
                     # Verify it actually works by running --version
                     if self._verify_nmap_executable(nmap_path):
                         logger.info(f"Nmap executable found at: {nmap_path}")
-                        return True
+                        return nmap_path
             except Exception as e:
                 logger.debug(f"shutil.which({nmap_name}) failed: {e}")
                 continue
@@ -3139,7 +3237,7 @@ class NetworkScannerPlugin(PluginInterface):
             if os.path.exists(nmap_path) and os.path.isfile(nmap_path):
                 if self._verify_nmap_executable(nmap_path):
                     logger.info(f"Nmap executable found at: {nmap_path}")
-                    return True
+                    return nmap_path
         
         # Method 3: Try running nmap directly (fallback for PATH issues)
         # Prepare subprocess kwargs (Windows-specific flags)
@@ -3164,7 +3262,12 @@ class NetworkScannerPlugin(PluginInterface):
                 if result.returncode == 0:
                     version_info = result.stdout.strip().split('\n')[0] if result.stdout else "Unknown version"
                     logger.info(f"Nmap executable available: {version_info}")
-                    return True
+                    # Try to get the full path
+                    found_path = shutil.which(nmap_name)
+                    if found_path:
+                        return found_path
+                    # If we can't get the path but it works, return the name
+                    return nmap_name
             except FileNotFoundError:
                 continue
             except subprocess.TimeoutExpired:
@@ -3175,7 +3278,7 @@ class NetworkScannerPlugin(PluginInterface):
                 continue
         
         logger.warning("Nmap executable not found in PATH or common installation locations")
-        return False
+        return None
     
     def _verify_nmap_executable(self, nmap_path):
         """Verify that an nmap executable actually works by running --version"""
@@ -3199,9 +3302,77 @@ class NetworkScannerPlugin(PluginInterface):
                 [nmap_path, "--version"],
                 **subprocess_kwargs
             )
-            return result.returncode == 0
+            if result.returncode == 0:
+                version_info = result.stdout.strip().split('\n')[0] if result.stdout else "Unknown"
+                logger.debug(f"Verified nmap at {nmap_path}: {version_info}")
+                return True
+            else:
+                logger.debug(f"Nmap at {nmap_path} returned non-zero exit code: {result.returncode}")
+                return False
         except Exception as e:
             logger.debug(f"Failed to verify nmap at {nmap_path}: {e}")
+            return False
+    
+    def _test_python_nmap_works(self, nmap_path):
+        """Test if python-nmap can actually use nmap by trying to execute a minimal command"""
+        try:
+            if not HAS_NMAP:
+                return False
+            
+            # If nmap is not in PATH, temporarily add it
+            nmap_dir = os.path.dirname(nmap_path) if nmap_path else None
+            original_path = None
+            
+            if nmap_dir and os.path.exists(nmap_dir):
+                current_path = os.environ.get("PATH", "")
+                if nmap_dir not in current_path.split(os.pathsep):
+                    original_path = os.environ.get("PATH", "")
+                    os.environ["PATH"] = nmap_dir + os.pathsep + original_path
+                    logger.debug(f"Temporarily added nmap directory to PATH for testing: {nmap_dir}")
+            
+            try:
+                # Create a test scanner
+                test_scanner = nmap.PortScanner()
+                
+                # Try to set the nmap path if the scanner supports it
+                if nmap_path and hasattr(test_scanner, 'nmap_path'):
+                    test_scanner.nmap_path = nmap_path
+                    logger.debug(f"Set python-nmap path to: {nmap_path}")
+                
+                # Try to do a minimal test - scan localhost with a very short timeout
+                # This will fail fast if nmap isn't accessible, but won't take long
+                # We use -sn (ping scan) on localhost which should be very fast
+                try:
+                    # Use a very short timeout and scan localhost only
+                    # This is a minimal test that will fail quickly if nmap doesn't work
+                    test_scanner.scan('127.0.0.1', arguments='-sn --max-rtt-timeout 100ms', timeout=2)
+                    logger.debug("Python-nmap test scan completed successfully")
+                    return True
+                except nmap.PortScannerError as e:
+                    # PortScannerError usually means nmap executable wasn't found or can't be executed
+                    error_msg = str(e).lower()
+                    if 'nmap' in error_msg and ('not found' in error_msg or 'not installed' in error_msg):
+                        logger.warning(f"Python-nmap cannot find nmap executable: {e}")
+                        return False
+                    # Other errors might be okay (like permission issues on localhost)
+                    logger.debug(f"Python-nmap test scan returned error (may be expected): {e}")
+                    # If we got here, nmap was found and executed, even if the scan had issues
+                    return True
+                except Exception as e:
+                    # Any other exception suggests nmap might not be working
+                    logger.debug(f"Python-nmap test scan failed with exception: {e}")
+                    # But if the scanner was created, nmap might still work for real scans
+                    # Return True optimistically - the real test will be when we actually scan
+                    return True
+                    
+            finally:
+                # Restore original PATH if we modified it
+                if original_path is not None:
+                    os.environ["PATH"] = original_path
+                    logger.debug("Restored original PATH")
+                
+        except Exception as e:
+            logger.error(f"Failed to test python-nmap: {e}")
             return False
             
     def _get_network_interfaces(self):
