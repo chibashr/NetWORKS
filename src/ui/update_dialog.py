@@ -120,18 +120,24 @@ class UpdateDialog(QDialog):
                 )
                 self.accept()
             else:
-                QMessageBox.warning(
-                    self,
-                    "Update Failed",
-                    "Failed to update. Please try again later or download the latest version manually."
-                )
+                # _update_from_git() will show appropriate message for non-git installations
+                # Only show generic message if git update failed for other reasons
+                app_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+                git_dir = os.path.join(app_dir, ".git")
+                if os.path.exists(git_dir):
+                    # It's a git repo but update failed
+                    QMessageBox.warning(
+                        self,
+                        "Update Failed",
+                        "Failed to update. Please try again later or download the latest version manually."
+                    )
         except Exception as e:
             logger.error(f"Error during update: {e}")
             QMessageBox.critical(
                 self,
                 "Update Error",
                 f"An error occurred during the update:\n{str(e)}\n\n"
-                "Please update manually by running 'git pull' in the application directory."
+                "Please update manually by downloading the latest release from GitHub."
             )
             
     def _update_from_git(self):
@@ -144,6 +150,15 @@ class UpdateDialog(QDialog):
             # Get the application directory
             app_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
             logger.info(f"Updating from git in directory: {app_dir}")
+            
+            # Check if this is a git repository
+            git_dir = os.path.join(app_dir, ".git")
+            if not os.path.exists(git_dir):
+                logger.warning(f"Not a git repository: {app_dir}")
+                # This is likely an installed/release version, not a development clone
+                # Provide instructions for manual update
+                self._show_manual_update_instructions()
+                return False
             
             # Determine which branch to pull from
             branch = "stable"  # Default branch
@@ -181,6 +196,41 @@ class UpdateDialog(QDialog):
         except Exception as e:
             logger.error(f"Error updating from git: {e}")
             return False
+    
+    def _show_manual_update_instructions(self):
+        """Show instructions for manually updating the application"""
+        repo_url = "https://github.com/chibashr/NetWORKS"
+        branch = "stable"
+        
+        # Get branch from parent window's config if available
+        parent = self.parent()
+        if parent and hasattr(parent, 'config'):
+            branch_map = {
+                "Stable": "stable",
+                "Beta": "beta",
+                "Alpha": "alpha",
+                "Development": "main"
+            }
+            update_channel = parent.config.get("general.update_channel", "Stable")
+            branch = branch_map.get(update_channel, "stable")
+        
+        release_url = f"{repo_url}/releases/latest" if branch == "stable" else f"{repo_url}/tree/{branch}"
+        
+        message = (
+            f"This installation is not a git repository.\n\n"
+            f"To update to version {self.new_version}:\n\n"
+            f"1. Visit the releases page:\n   {release_url}\n\n"
+            f"2. Download the latest release zip file\n\n"
+            f"3. Extract and replace the application files\n\n"
+            f"Alternatively, if you have a git clone, you can update by running:\n"
+            f"   git pull origin {branch}"
+        )
+        
+        QMessageBox.information(
+            self,
+            "Manual Update Required",
+            message
+        )
             
     def _on_skip(self):
         """Handle skip this version button"""
