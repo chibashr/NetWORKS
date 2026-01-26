@@ -23,63 +23,47 @@ if %ERRORLEVEL% neq 0 (
 )
 
 :: Read version from manifest.json if Python is available
+set APP_VERSION=
+set VERSION_SCRIPT=import json^; f=open(r'manifest.json'^)^; data=json.load(f^)^; print(data.get('version', '0.1.0'^)^)^; f.close(^)
 if exist "venv\Scripts\python.exe" (
-    for /f "tokens=*" %%a in ('venv\Scripts\python.exe -c "import json; f=open(r'.\\manifest.json'); data=json.load(f); print(data.get('version', '0.1.0')); f.close()" 2^>nul') do (
-        set APP_VERSION=%%a
+    for /f "tokens=*" %%a in ('venv\Scripts\python.exe -c "%VERSION_SCRIPT%" 2^>nul') do (
+        set "APP_VERSION=%%a"
     )
 ) else (
-    for /f "tokens=*" %%a in ('python -c "import json; f=open(r'.\\manifest.json'); data=json.load(f); print(data.get('version', '0.1.0')); f.close()" 2^>nul') do (
-        set APP_VERSION=%%a
+    for /f "tokens=*" %%a in ('python -c "%VERSION_SCRIPT%" 2^>nul') do (
+        set "APP_VERSION=%%a"
     )
 )
-if defined APP_VERSION (
+if not "%APP_VERSION%"=="" (
     echo [INFO] NetWORKS version %APP_VERSION%
 ) else (
     echo [INFO] NetWORKS application
 )
 
 :: Surface known dependency limitations for newer Python versions
-for /f "tokens=2" %%V in ('python --version 2^>^&1') do set PYVER=%%V
-for /f "tokens=1,2 delims=." %%a in ("%PYVER%") do (
-    set MAJOR=%%a
-    set MINOR=%%b
-)
-if %MAJOR% GTR 3 goto pyver_checked
-if %MAJOR% EQU 3 (
-    if %MINOR% GEQ 14 (
-        echo [WARNING] Python %PYVER% detected. PySide6 6.10.1 does not provide wheels for 3.14.
-        echo [WARNING] Use Python 3.12 or 3.13 to install dependencies successfully.
-        echo [INFO] Optional pandas/numpy are pinned to <3.13 and will be skipped on 3.13+.
-    )
-)
 :pyver_checked
 
 :: Check for environment variables that could block pip installation
 set PIP_BLOCKED=0
-if not "%PIP_NO_INDEX%"=="" (
-    if "%PIP_NO_INDEX%"=="1" (
-        set PIP_BLOCKED=1
-        echo [ERROR] PIP_NO_INDEX is set to 1, which prevents pip from accessing PyPI.
-        echo [ERROR] This will block dependency installation.
-        msg * "NetWORKS Installation Error: PIP_NO_INDEX is enabled. This prevents downloading dependencies from PyPI. Please unset PIP_NO_INDEX or set it to 0, then try again."
-    )
+if "%PIP_NO_INDEX%"=="1" (
+    set PIP_BLOCKED=1
+    echo [ERROR] PIP_NO_INDEX is set to 1. This prevents pip from accessing PyPI.
+    echo [ERROR] This will block dependency installation.
 )
 if not "%HTTP_PROXY%"=="" (
     echo %HTTP_PROXY% | findstr /C:"127.0.0.1:9" >nul 2>&1
-    if %ERRORLEVEL% equ 0 (
+    if not errorlevel 1 (
         set PIP_BLOCKED=1
-        echo [ERROR] HTTP_PROXY is set to a dummy address (127.0.0.1:9), which will block pip downloads.
+        echo [ERROR] HTTP_PROXY is set to a dummy address that will block pip downloads.
         echo [ERROR] This will prevent dependency installation.
-        msg * "NetWORKS Installation Error: HTTP_PROXY is set to 127.0.0.1:9 (dummy address). This blocks pip from downloading dependencies. Please unset HTTP_PROXY, HTTPS_PROXY, and ALL_PROXY, then try again."
     )
 )
 if not "%HTTPS_PROXY%"=="" (
     echo %HTTPS_PROXY% | findstr /C:"127.0.0.1:9" >nul 2>&1
-    if %ERRORLEVEL% equ 0 (
+    if not errorlevel 1 (
         set PIP_BLOCKED=1
-        echo [ERROR] HTTPS_PROXY is set to a dummy address (127.0.0.1:9), which will block pip downloads.
+        echo [ERROR] HTTPS_PROXY is set to a dummy address that will block pip downloads.
         echo [ERROR] This will prevent dependency installation.
-        msg * "NetWORKS Installation Error: HTTPS_PROXY is set to 127.0.0.1:9 (dummy address). This blocks pip from downloading dependencies. Please unset HTTP_PROXY, HTTPS_PROXY, and ALL_PROXY, then try again."
     )
 )
 if %PIP_BLOCKED% equ 1 (
