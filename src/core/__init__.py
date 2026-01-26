@@ -6,4 +6,5 @@ Core components for NetWORKS
 """
 
 from .logging_manager import LoggingManager
-from .importer import DeviceImporter 
+from .importer import DeviceImporter
+from .update_manager import UpdateManager 

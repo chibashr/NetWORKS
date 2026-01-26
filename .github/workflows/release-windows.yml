@@ -48,6 +48,8 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($notes)) {
             $notes = "Release ${{ steps.version.outputs.tag }}."
           }
+          # Add automatic update information
+          $notes += "`n`n---`n`n**Automatic Updates:** This release supports automatic updates via Git. When you extract the zip and run NetWORKS, the update system will automatically initialize a Git repository on first update, enabling seamless future updates."
           $notes | Out-File -FilePath "release_notes.md" -Encoding utf8
 
       - name: Package repository zip

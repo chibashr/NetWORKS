@@ -40,6 +40,63 @@ When you first launch NetWORKS, you'll see the main application window with the 
 - **Save**: Click "Save" in the toolbar or File menu to save your device configuration
 - **Auto-save**: Your configuration is automatically saved when you exit the application
 
+## Automatic Updates
+
+NetWORKS supports automatic updates using Git. This makes keeping your installation up-to-date seamless and easy.
+
+### How It Works
+
+1. **First Update**: When you first check for updates on an extracted zip installation, NetWORKS will automatically initialize a Git repository for your installation. This is a one-time setup that happens in the background.
+
+2. **Future Updates**: Once initialized, updates are performed automatically by pulling the latest changes from the repository. You'll see progress indicators during the update process.
+
+3. **Update Channels**: You can choose which update channel to follow:
+   - **Stable**: Recommended for production use (default)
+   - **Beta**: Pre-release versions for testing
+   - **Alpha**: Early development versions
+   - **Development**: Latest from main branch
+
+### Requirements
+
+- **Git**: Git must be installed on your system for automatic updates to work. If Git is not installed, you'll be prompted with instructions.
+  - Download Git from: https://git-scm.com/downloads
+  - After installing Git, restart NetWORKS
+
+### Checking for Updates
+
+- **Manual Check**: Go to **Help → Check for Updates** to manually check for available updates
+- **Automatic Check**: NetWORKS can automatically check for updates on startup (configurable in Settings)
+
+### Update Process
+
+When an update is available:
+
+1. You'll see an update notification dialog with release notes
+2. Click **"Update Now"** to start the update
+3. The system will:
+   - Initialize Git repository (if needed, first time only)
+   - Fetch the latest changes from the remote repository
+   - Apply the updates
+   - Verify the update was successful
+4. Restart NetWORKS to apply the changes
+
+### Manual Updates
+
+If you prefer not to use automatic updates or Git is not available:
+
+1. Visit the [GitHub Releases page](https://github.com/chibashr/netWORKS/releases)
+2. Download the latest release zip file
+3. Extract and replace the application files
+4. Restart NetWORKS
+
+### Configuration
+
+Update settings can be configured in **Tools → Settings → General**:
+
+- **Update Channel**: Choose which branch to update from
+- **Auto-initialize Git**: Automatically set up Git repository on first update (recommended)
+- **Repository URL**: Custom repository URL (for forks or custom installations)
+
 ## Plugins
 
 NetWORKS functionality can be extended through plugins.

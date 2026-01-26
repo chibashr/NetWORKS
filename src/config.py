@@ -70,6 +70,17 @@ class Config(QObject):
                 "file_rotation_size": "10 MB",
                 "diagnose": True,
                 "backtrace": True
+            },
+            "update": {
+                "auto_initialize_git": True,
+                "git_remote_url": "",
+                "update_strategy": "git"
+            },
+            "general": {
+                "update_channel": "Stable",
+                "repository_url": "",
+                "check_for_updates": True,
+                "auto_update": False
             }
         }
         

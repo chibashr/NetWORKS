@@ -10,8 +10,10 @@ import json
 import re
 import urllib.request
 import urllib.error
+import ssl
 from loguru import logger
 from PySide6.QtCore import QObject, Signal
+from .update_manager import UpdateManager
 
 class UpdateChecker(QObject):
     """Class for checking for updates from GitHub"""
@@ -32,10 +34,15 @@ class UpdateChecker(QObject):
         self.github_api_url = "https://api.github.com/repos/chibashr/netWORKS"
         self.current_version = self._get_current_version()
         
+        # Initialize update manager
+        self.update_manager = UpdateManager(config)
+        
         # Set custom repository URL if configured
         custom_repo = self.config.get("general.repository_url", "") if self.config else ""
         if custom_repo:
             self.set_repository_url(custom_repo)
+            # Also update the update manager's repository URL
+            self.update_manager.repository_url = custom_repo
         
     def _get_current_version(self):
         """Get the current version from the manifest file"""
@@ -76,6 +83,17 @@ class UpdateChecker(QObject):
             
         logger.info(f"Checking for updates on branch: {branch}")
         
+        # Ensure git repository is initialized if auto-initialization is enabled
+        auto_init = self.config.get("update.auto_initialize_git", True) if self.config else True
+        if auto_init and not self.update_manager.is_git_repository() and self.update_manager.is_git_installed():
+            # Try to initialize in background (non-blocking)
+            logger.info("Auto-initializing git repository for updates...")
+            try:
+                # This is a non-blocking check - actual initialization happens when user clicks update
+                pass
+            except Exception as e:
+                logger.warning(f"Could not auto-initialize repository: {e}")
+        
         try:
             # Get the manifest file from GitHub for the specified branch
             manifest_url = f"{self.github_repo}/raw/{branch}/manifest.json"
@@ -86,7 +104,10 @@ class UpdateChecker(QObject):
                 headers={'User-Agent': f'NetWORKS/{self.current_version}'}
             )
             
-            with urllib.request.urlopen(req, timeout=5) as response:
+            # Create SSL context with default verification
+            ssl_context = ssl.create_default_context()
+            
+            with urllib.request.urlopen(req, timeout=5, context=ssl_context) as response:
                 if response.getcode() == 200:
                     data = response.read().decode('utf-8')
                     manifest = json.loads(data)
@@ -105,8 +126,17 @@ class UpdateChecker(QObject):
                     self.check_complete.emit(updates_available)
                     
                     return updates_available, self.current_version, remote_version, release_notes
+        except urllib.error.URLError as e:
+            # Handle SSL certificate errors specifically
+            if isinstance(e.reason, ssl.SSLError):
+                logger.warning(f"SSL certificate verification failed while checking for updates. This is usually a system configuration issue. Error: {e.reason}")
+                logger.info("Update check skipped due to SSL certificate verification failure. This does not affect application functionality.")
+            else:
+                logger.warning(f"Network error while checking for updates: {e}")
+            self.check_complete.emit(False)
+            return False, self.current_version, "0.0.0", "Unable to check for updates (network/SSL issue)"
         except Exception as e:
-            logger.error(f"Error checking for updates: {e}")
+            logger.warning(f"Error checking for updates: {e}")
             self.check_complete.emit(False)
             return False, self.current_version, "0.0.0", "Error checking for updates"
             

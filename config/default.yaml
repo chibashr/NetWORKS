@@ -7,6 +7,15 @@ application:
 devices:
   auto_discover: true
   refresh_interval: 60
+general:
+  update_channel: Stable
+  repository_url: ""
+  check_for_updates: true
+  auto_update: false
+update:
+  auto_initialize_git: true
+  git_remote_url: ""
+  update_strategy: git
 ui:
   device_table:
     default_columns:
