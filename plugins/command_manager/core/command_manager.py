@@ -171,6 +171,21 @@ class CommandManagerPlugin(PluginInterface):
                     logger.error(f"Error adding toolbar to main window: {e}")
                     logger.exception("Exception details:")
             
+            # Try to connect to device table highlight changes if not already connected
+            # (in case device table wasn't available during initialize)
+            if hasattr(self, 'main_window') and self.main_window and hasattr(self.main_window, 'device_table'):
+                device_table = self.main_window.device_table
+                if device_table and device_table.selectionModel():
+                    try:
+                        # Check if already connected by trying to disconnect first
+                        device_table.selectionModel().selectionChanged.disconnect(self._on_table_highlight_changed)
+                        # If we get here, it was connected, so reconnect it
+                        device_table.selectionModel().selectionChanged.connect(self._on_table_highlight_changed)
+                    except (RuntimeError, TypeError):
+                        # Not connected yet, so connect it now
+                        device_table.selectionModel().selectionChanged.connect(self._on_table_highlight_changed)
+                        logger.debug("Connected to device table highlight changes in start()")
+            
             # Legacy device context menu items via device_manager (keeping for compatibility)
             logger.debug("Adding device context menu items via device_manager")
             try:
@@ -313,6 +328,17 @@ class CommandManagerPlugin(PluginInterface):
                 self.device_manager.selection_changed.connect(self._on_selection_changed)
             else:
                 logger.warning("selection_changed signal not found")
+            
+            # Connect to device table highlight changes to handle highlighted (but unchecked) devices
+            if hasattr(self, 'main_window') and self.main_window and hasattr(self.main_window, 'device_table'):
+                device_table = self.main_window.device_table
+                if device_table and device_table.selectionModel():
+                    device_table.selectionModel().selectionChanged.connect(self._on_table_highlight_changed)
+                    logger.debug("Connected to device table highlight changes")
+                else:
+                    logger.warning("Device table or selection model not available for highlight tracking")
+            else:
+                logger.warning("Main window or device table not available for highlight tracking")
                 
             logger.debug("Signals connected successfully")
         except Exception as e:
@@ -351,6 +377,16 @@ class CommandManagerPlugin(PluginInterface):
                     logger.debug("Disconnected selection_changed signal")
                 except (RuntimeError, TypeError):
                     logger.debug("selection_changed signal was not connected")
+            
+            # Disconnect from device table highlight changes
+            if hasattr(self, 'main_window') and self.main_window and hasattr(self.main_window, 'device_table'):
+                device_table = self.main_window.device_table
+                if device_table and device_table.selectionModel():
+                    try:
+                        device_table.selectionModel().selectionChanged.disconnect(self._on_table_highlight_changed)
+                        logger.debug("Disconnected device table highlight changes")
+                    except (RuntimeError, TypeError):
+                        logger.debug("Device table highlight signal was not connected")
                     
             logger.debug("Signals disconnected successfully")
         except Exception as e:
@@ -387,7 +423,7 @@ class CommandManagerPlugin(PluginInterface):
             self.output_panel.refresh()
     
     def _on_selection_changed(self, devices):
-        """Handle device selection changed"""
+        """Handle device selection changed (checked devices)"""
         # Update commands and output panels if available
         try:
             # Update the output panel with the selected device
@@ -399,6 +435,34 @@ class CommandManagerPlugin(PluginInterface):
                 self.output_handler.update_commands_panel(devices[0])
         except Exception as e:
             logger.error(f"Error updating panels: {e}")
+            logger.exception("Exception details:")
+    
+    def _on_table_highlight_changed(self, selected, deselected):
+        """Handle device table highlight changes (for highlighted but unchecked devices)"""
+        # Only respond to highlights when no devices are checked
+        checked_devices = self.device_manager.get_selected_devices()
+        if checked_devices:
+            # If devices are checked, use those instead (handled by _on_selection_changed)
+            return
+        
+        # Get highlighted devices from the table
+        try:
+            if hasattr(self, 'main_window') and self.main_window and hasattr(self.main_window, 'device_table'):
+                device_table = self.main_window.device_table
+                if device_table:
+                    # Use the table's get_selected_devices method which returns highlighted devices when none are checked
+                    highlighted_devices = device_table.get_selected_devices()
+                    
+                    if highlighted_devices and len(highlighted_devices) > 0:
+                        # Update the output panel with the highlighted device
+                        if self.output_panel:
+                            self.output_panel.set_device(highlighted_devices[0])
+                        
+                        # Update the commands panel if it exists
+                        if hasattr(self, 'commands_panel_widget') and self.commands_panel_widget:
+                            self.output_handler.update_commands_panel(highlighted_devices[0])
+        except Exception as e:
+            logger.error(f"Error updating panels from highlight: {e}")
             logger.exception("Exception details:")
     
     # Plugin API methods - to be called by other components
