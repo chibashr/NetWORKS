@@ -122,11 +122,12 @@ if %PIP_BLOCKED% equ 1 (
     exit /b 1
 )
 
-:: Check for requirements.txt
+:: Check for requirements.txt (in parent directory)
 echo.
 echo [STEP 2/4] Checking installation files...
+cd /d "%~dp0\.."
 if not exist "requirements.txt" (
-    echo [ERROR] requirements.txt not found in the current directory.
+    echo [ERROR] requirements.txt not found in the root directory.
     echo Please run this script from the root directory of NetWORKS.
     echo.
     if "%NETWORKS_AUTOMATED%"=="1" (

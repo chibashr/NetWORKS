@@ -2,24 +2,37 @@
 setlocal enabledelayedexpansion
 set NETWORKS_AUTOMATED=1
 
+:: Change to script directory to ensure we're in the right location
+cd /d "%~dp0"
+
 echo.
 echo ==========================================
 echo       Starting NetWORKS Application
 echo ==========================================
 echo.
 
-:: Read version from manifest.json if Python is available
+:: Check if Python is installed first
 where python >nul 2>&1
-if %ERRORLEVEL% equ 0 (
-    if exist "venv\Scripts\python.exe" (
-        for /f "tokens=*" %%a in ('venv\Scripts\python.exe -c "import json; f=open(r'.\\manifest.json'); data=json.load(f); print(data.get('version', '0.1.0')); f.close()"') do (
-            set APP_VERSION=%%a
-        )
-    ) else (
-        for /f "tokens=*" %%a in ('python -c "import json; f=open(r'.\\manifest.json'); data=json.load(f); print(data.get('version', '0.1.0')); f.close()"') do (
-            set APP_VERSION=%%a
-        )
+if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Python is not installed or not in PATH.
+    echo [ERROR] Please install Python 3.8 or later from https://www.python.org/downloads/
+    echo.
+    echo This window will remain open for 60 seconds so you can read this message...
+    timeout /t 60 >nul
+    exit /b 1
+)
+
+:: Read version from manifest.json if Python is available
+if exist "venv\Scripts\python.exe" (
+    for /f "tokens=*" %%a in ('venv\Scripts\python.exe -c "import json; f=open(r'.\\manifest.json'); data=json.load(f); print(data.get('version', '0.1.0')); f.close()" 2^>nul') do (
+        set APP_VERSION=%%a
     )
+) else (
+    for /f "tokens=*" %%a in ('python -c "import json; f=open(r'.\\manifest.json'); data=json.load(f); print(data.get('version', '0.1.0')); f.close()" 2^>nul') do (
+        set APP_VERSION=%%a
+    )
+)
+if defined APP_VERSION (
     echo [INFO] NetWORKS version %APP_VERSION%
 ) else (
     echo [INFO] NetWORKS application
@@ -81,7 +94,7 @@ if %PIP_BLOCKED% equ 1 (
 )
 
 :: Check if repair_installation.bat exists
-if not exist "repair_installation.bat" (
+if not exist "scripts\repair_installation.bat" (
     echo [WARNING] Repair script not found. Some automatic repairs will not be available.
 )
 
@@ -89,15 +102,22 @@ if not exist "repair_installation.bat" (
 if not exist "venv" (
     echo [INFO] Virtual environment not found. Running setup first...
     
-    if exist "repair_installation.bat" (
+    if exist "scripts\repair_installation.bat" (
         echo [INFO] Using repair installation script for setup...
-        call repair_installation.bat
+        call scripts\repair_installation.bat
+    ) else if exist "scripts\setup.bat" (
+        call scripts\setup.bat
     ) else (
-        call setup.bat
+        echo [ERROR] Neither repair_installation.bat nor setup.bat found in scripts folder.
+        echo [ERROR] Please ensure the scripts are in the scripts directory.
+        pause
+        exit /b 1
     )
     
     if %ERRORLEVEL% neq 0 (
-        echo [ERROR] Setup failed. Please run setup.bat manually.
+        echo [ERROR] Setup failed. Please check the error messages above.
+        echo [ERROR] You can try running scripts\setup.bat or scripts\repair_installation.bat manually.
+        echo.
         pause
         exit /b 1
     )
@@ -110,11 +130,12 @@ if not exist "venv" (
         echo [INFO] Virtual environment structure looks valid.
     ) else (
         echo [WARNING] Virtual environment may be corrupt.
-        if exist "repair_installation.bat" (
+        if exist "scripts\repair_installation.bat" (
             echo [INFO] Running repair installation script...
-            call repair_installation.bat
+            call scripts\repair_installation.bat
             if %ERRORLEVEL% neq 0 (
-                echo [ERROR] Repair failed. Please try running repair_installation.bat manually.
+                echo [ERROR] Repair failed. Please try running scripts\repair_installation.bat manually.
+                echo.
                 pause
                 exit /b 1
             )
@@ -128,31 +149,34 @@ if not exist "venv" (
 :: Activate virtual environment
 echo [INFO] Activating virtual environment...
 call venv\Scripts\activate.bat
-if errorlevel 1 (
-    echo [ERROR] Failed to activate virtual environment.
-    echo [INFO] This may indicate a corrupt environment. Attempting repair...
-    
-    if exist "repair_installation.bat" (
-        call repair_installation.bat
-        if %ERRORLEVEL% equ 0 (
-            echo [INFO] Repair successful. Retrying activation...
-            call venv\Scripts\activate.bat
-            if %ERRORLEVEL% neq 0 (
-                echo [ERROR] Still unable to activate environment after repair.
+    if errorlevel 1 (
+        echo [ERROR] Failed to activate virtual environment.
+        echo [INFO] This may indicate a corrupt environment. Attempting repair...
+        
+        if exist "scripts\repair_installation.bat" (
+            call scripts\repair_installation.bat
+            if %ERRORLEVEL% equ 0 (
+                echo [INFO] Repair successful. Retrying activation...
+                call venv\Scripts\activate.bat
+                if %ERRORLEVEL% neq 0 (
+                    echo [ERROR] Still unable to activate environment after repair.
+                    echo.
+                    pause
+                    exit /b 1
+                )
+            ) else (
+                echo [ERROR] Repair failed. Please try running scripts\repair_installation.bat manually.
+                echo.
                 pause
                 exit /b 1
             )
         ) else (
-            echo [ERROR] Repair failed. Please try running repair_installation.bat manually.
+            echo [ERROR] Cannot automatically repair. Please reinstall the application.
+            echo.
             pause
             exit /b 1
         )
-    ) else (
-        echo [ERROR] Cannot automatically repair. Please reinstall the application.
-        pause
-        exit /b 1
     )
-)
 
 :: Quick validation of critical dependencies
 echo [INFO] Validating core dependencies...
@@ -199,13 +223,14 @@ goto deps_done
 
 :deps_failed
 echo [ERROR] Critical dependencies still missing after installation attempts.
-if exist "repair_installation.bat" (
+if exist "scripts\repair_installation.bat" (
     echo [INFO] Running full repair...
     call venv\Scripts\deactivate.bat
-    call repair_installation.bat
+    call scripts\repair_installation.bat
     call venv\Scripts\activate.bat
 ) else (
     echo [ERROR] Cannot automatically repair. Please reinstall the application.
+    echo.
     pause
     exit /b 1
 )
@@ -213,7 +238,10 @@ if exist "repair_installation.bat" (
 :deps_done
 
 echo [INFO] Starting NetWORKS...
-venv\Scripts\python.exe networks.py
+echo.
+
+:: Run the application and capture any immediate errors
+venv\Scripts\python.exe networks.py 2>&1
 set APP_EXIT_CODE=%ERRORLEVEL%
 
 :: Check if the application exited with an error code
@@ -228,9 +256,9 @@ if %APP_EXIT_CODE% neq 0 (
             echo [ERROR] Application failed to start after dependency installation.
             echo [INFO] Attempting repair...
             
-            if exist "repair_installation.bat" (
+            if exist "scripts\repair_installation.bat" (
                 call venv\Scripts\deactivate.bat
-                call repair_installation.bat
+                call scripts\repair_installation.bat
                 if %ERRORLEVEL% equ 0 (
                     echo [INFO] Repair successful. Reactivating environment and restarting application...
                     call venv\Scripts\activate.bat
@@ -240,28 +268,30 @@ if %APP_EXIT_CODE% neq 0 (
                     if %APP_EXIT_CODE% neq 0 (
                         echo [ERROR] Application still fails after repair.
                         echo [INFO] Please check the logs in the 'logs' directory for more information.
+                        echo.
                         pause
                         exit /b %APP_EXIT_CODE%
                     )
                 ) else (
-                    echo [ERROR] Repair failed. Please try running repair_installation.bat manually.
+                    echo [ERROR] Repair failed. Please try running scripts\repair_installation.bat manually.
+                    echo.
                     pause
                     exit /b 1
                 )
             ) else (
                 echo [ERROR] Cannot automatically repair. Please check the logs for details.
+                echo.
                 pause
                 exit /b %APP_EXIT_CODE%
             )
         )
     ) else (
-        echo [ERROR] Application crashed with error code %APP_EXIT_CODE%.
         echo.
         echo ==========================================
         echo      Application Error Detected
         echo ==========================================
         echo.
-        echo The application exited with error code %APP_EXIT_CODE%.
+        echo [ERROR] Application crashed with error code %APP_EXIT_CODE%.
         echo.
         echo If a crash dialog appeared, it contains the detailed error information.
         echo Otherwise, please check the logs directory for error details.
@@ -271,26 +301,42 @@ if %APP_EXIT_CODE% neq 0 (
         msg * "NetWORKS Error: Application crashed with exit code %APP_EXIT_CODE%. Check the console output and logs directory for details."
         
         echo [INFO] Checking if this is a dependency issue...
-        venv\Scripts\python.exe -c "import sys; print('This is a test to see if Python is working properly.')" >nul 2>&1
-        
-        if %ERRORLEVEL% neq 0 (
-            echo [WARNING] Python environment may be corrupt. Attempting repair...
-            if exist "repair_installation.bat" (
-                call venv\Scripts\deactivate.bat
-                call repair_installation.bat
-                if %ERRORLEVEL% equ 0 (
-                    echo [INFO] Repair completed. Please try running the application again.
+        if exist "venv\Scripts\python.exe" (
+            venv\Scripts\python.exe -c "import sys; print('This is a test to see if Python is working properly.')" >nul 2>&1
+            
+            if %ERRORLEVEL% neq 0 (
+                echo [WARNING] Python environment may be corrupt. Attempting repair...
+                if exist "scripts\repair_installation.bat" (
+                    call venv\Scripts\deactivate.bat 2>nul
+                    call scripts\repair_installation.bat
+                    if %ERRORLEVEL% equ 0 (
+                        echo [INFO] Repair completed. Please try running the application again.
+                    ) else (
+                        echo [ERROR] Repair failed. Please check the error messages above.
+                    )
                 ) else (
-                    echo [ERROR] Repair failed. Please check the error messages above.
+                    echo [ERROR] Repair script not found. Cannot automatically repair.
                 )
+            ) else (
+                echo [INFO] Python environment seems functional. This may be an application issue.
+                echo [INFO] Please check the logs in the 'logs' directory for more information.
             )
         ) else (
-            echo [INFO] Python environment seems functional. This may be an application issue.
-            echo [INFO] Please check the logs in the 'logs' directory for more information.
+            echo [ERROR] Virtual environment Python executable not found.
+            echo [INFO] Attempting to run repair script...
+            if exist "scripts\repair_installation.bat" (
+                call scripts\repair_installation.bat
+            )
         )
         
         echo.
-        pause
+        echo ==========================================
+        echo      Error Information Displayed
+        echo ==========================================
+        echo.
+        echo This window will remain open for 60 seconds so you can read the error information.
+        echo Press any key to close immediately, or wait for the timeout.
+        timeout /t 60
         exit /b %APP_EXIT_CODE%
     )
 )
@@ -302,4 +348,7 @@ echo.
 echo ==========================================
 echo      NetWORKS Application Closed
 echo ==========================================
-echo. 
+echo.
+echo Application exited normally.
+echo This window will close in 3 seconds...
+timeout /t 3 >nul 

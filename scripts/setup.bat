@@ -7,6 +7,9 @@ echo       NetWORKS Setup Assistant
 echo ==========================================
 echo.
 
+:: Change to parent directory (root of NetWORKS)
+cd /d "%~dp0\.."
+
 :: Check if Python is installed
 where python >nul 2>nul
 if %ERRORLEVEL% neq 0 (
@@ -91,4 +94,4 @@ echo   2. Run the application: python networks.py
 echo ==========================================
 echo.
 
-pause 
+pause
