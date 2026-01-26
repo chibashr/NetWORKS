@@ -28,9 +28,11 @@ if errorlevel 1 (
     echo [INFO] Make sure to check "Add Python to PATH" during installation.
     echo.
     echo ==========================================
+    echo.
     echo This window will remain open so you can read this message.
-    echo Press any key to close...
-    pause >nul
+    echo.
+    echo Press any key to close this window...
+    pause
     exit /b 1
 )
 
@@ -56,42 +58,77 @@ if not "%APP_VERSION%"=="" (
 :pyver_checked
 
 :: Check for environment variables that could block pip installation
+:: Automatically unset problematic proxy variables for this session (NetWORKS does not use HTTP proxy)
 set PIP_BLOCKED=0
+set PROXY_FIXED=0
+
 if "%PIP_NO_INDEX%"=="1" (
     set PIP_BLOCKED=1
     echo [ERROR] PIP_NO_INDEX is set to 1. This prevents pip from accessing PyPI.
     echo [ERROR] This will block dependency installation.
 )
+
 if not "%HTTP_PROXY%"=="" (
     echo %HTTP_PROXY% | findstr /C:"127.0.0.1:9" >nul 2>&1
     if not errorlevel 1 (
-        set PIP_BLOCKED=1
-        echo [ERROR] HTTP_PROXY is set to a dummy address that will block pip downloads.
-        echo [ERROR] This will prevent dependency installation.
+        echo [INFO] HTTP_PROXY is set to a dummy address. Unsetting for this session...
+        echo [INFO] NetWORKS will not use HTTP proxy.
+        set HTTP_PROXY=
+        set PROXY_FIXED=1
     )
 )
+
 if not "%HTTPS_PROXY%"=="" (
     echo %HTTPS_PROXY% | findstr /C:"127.0.0.1:9" >nul 2>&1
     if not errorlevel 1 (
-        set PIP_BLOCKED=1
-        echo [ERROR] HTTPS_PROXY is set to a dummy address that will block pip downloads.
-        echo [ERROR] This will prevent dependency installation.
+        echo [INFO] HTTPS_PROXY is set to a dummy address. Unsetting for this session...
+        echo [INFO] NetWORKS will not use HTTP proxy.
+        set HTTPS_PROXY=
+        set PROXY_FIXED=1
     )
 )
+
+if not "%ALL_PROXY%"=="" (
+    echo %ALL_PROXY% | findstr /C:"127.0.0.1:9" >nul 2>&1
+    if not errorlevel 1 (
+        echo [INFO] ALL_PROXY is set to a dummy address. Unsetting for this session...
+        set ALL_PROXY=
+        set PROXY_FIXED=1
+    )
+)
+
+if %PROXY_FIXED% equ 1 (
+    echo [INFO] Proxy variables have been unset for this session.
+    echo.
+)
+
 if %PIP_BLOCKED% equ 1 (
     echo.
     echo ==========================================
     echo      Environment Variable Issue
     echo ==========================================
     echo.
-    echo [INFO] To fix this issue:
-    echo   - Unset PIP_NO_INDEX: set PIP_NO_INDEX=
-    echo   - Unset proxy variables: set HTTP_PROXY= ^& set HTTPS_PROXY= ^& set ALL_PROXY=
-    echo   - Or restart your command prompt/terminal to clear environment variables
+    echo [ERROR] PIP_NO_INDEX is set to 1, which prevents pip from accessing PyPI.
+    echo.
+    echo [INFO] To permanently fix this issue:
+    echo   1. Open System Properties ^> Environment Variables
+    echo   2. Find PIP_NO_INDEX in User or System variables
+    echo   3. Either delete it or set its value to 0
+    echo   4. Restart your computer
+    echo.
+    echo [INFO] Or unset it for this session by running:
+    echo   set PIP_NO_INDEX=
+    echo.
+    echo [INFO] Then try running Start_NetWORKS.bat again.
     echo.
     echo ==========================================
-    echo Press any key to close...
-    pause >nul
+    echo.
+    msg * "NetWORKS Error: PIP_NO_INDEX is set to 1, which blocks dependency installation. Please unset this variable and try again."
+    echo.
+    echo IMPORTANT: You must fix PIP_NO_INDEX before NetWORKS can run.
+    echo.
+    echo Press any key to close this window...
+    pause
     exit /b 1
 )
 
@@ -110,8 +147,16 @@ if not exist "venv" (
     ) else if exist "scripts\setup.bat" (
         call scripts\setup.bat
     ) else (
+        echo.
+        echo ==========================================
+        echo      Scripts Not Found
+        echo ==========================================
+        echo.
         echo [ERROR] Neither repair_installation.bat nor setup.bat found in scripts folder.
         echo [ERROR] Please ensure the scripts are in the scripts directory.
+        echo.
+        echo ==========================================
+        echo Press any key to close...
         pause
         exit /b 1
     )
@@ -126,8 +171,9 @@ if not exist "venv" (
         echo [ERROR] You can try running scripts\setup.bat or scripts\repair_installation.bat manually.
         echo.
         echo ==========================================
+        echo.
         echo Press any key to close...
-        pause >nul
+        pause
         exit /b 1
     )
 ) else (
@@ -152,7 +198,7 @@ if not exist "venv" (
                 echo.
                 echo ==========================================
                 echo Press any key to close...
-                pause >nul
+                pause
                 exit /b 1
             )
         ) else (
@@ -184,7 +230,7 @@ call venv\Scripts\activate.bat
                     echo.
                     echo ==========================================
                     echo Press any key to close...
-                    pause >nul
+                    pause
                     exit /b 1
                 )
             ) else (
@@ -197,7 +243,7 @@ call venv\Scripts\activate.bat
                 echo.
                 echo ==========================================
                 echo Press any key to close...
-                pause >nul
+                pause
                 exit /b 1
             )
         ) else (
@@ -210,7 +256,7 @@ call venv\Scripts\activate.bat
             echo.
             echo ==========================================
             echo Press any key to close...
-            pause >nul
+            pause
             exit /b 1
         )
     )
@@ -236,8 +282,9 @@ if %ERRORLEVEL% equ 0 (
         del pip_install.log >nul 2>&1
         echo.
         echo ==========================================
+        echo.
         echo Press any key to close...
-        pause >nul
+        pause
         exit /b 1
     )
 )
@@ -277,8 +324,11 @@ if exist "scripts\repair_installation.bat" (
     echo [ERROR] Cannot automatically repair. Please reinstall the application.
     echo.
     echo ==========================================
-    echo Press any key to close...
-    pause >nul
+    echo.
+    echo IMPORTANT: You must fix these environment variables before NetWORKS can run.
+    echo.
+    echo Press any key to close this window...
+    pause
     exit /b 1
 )
 
@@ -318,7 +368,7 @@ if %APP_EXIT_CODE% neq 0 (
                         echo.
                         echo ==========================================
                         echo Press any key to close...
-                        pause >nul
+                        pause
                         exit /b %APP_EXIT_CODE%
                     )
                 ) else (
@@ -331,7 +381,7 @@ if %APP_EXIT_CODE% neq 0 (
                     echo.
                     echo ==========================================
                     echo Press any key to close...
-                    pause >nul
+                    pause
                     exit /b 1
                 )
             ) else (
@@ -344,7 +394,7 @@ if %APP_EXIT_CODE% neq 0 (
                 echo.
                 echo ==========================================
                 echo Press any key to close...
-                pause >nul
+                pause
                 exit /b %APP_EXIT_CODE%
             )
         )
@@ -400,8 +450,9 @@ if %APP_EXIT_CODE% neq 0 (
         echo ==========================================
         echo.
         echo This window will remain open so you can read the error information.
+        echo.
         echo Press any key to close...
-        pause >nul
+        pause
         exit /b %APP_EXIT_CODE%
     )
 )
@@ -416,4 +467,4 @@ echo ==========================================
 echo.
 echo Application exited normally.
 echo This window will close in 3 seconds...
-timeout /t 3 >nul 
+timeout /t 3 >nul

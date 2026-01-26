@@ -38,80 +38,76 @@ if %ERRORLEVEL% neq 0 (
 :: Check Python version
 for /f "tokens=2" %%V in ('python --version 2^>^&1') do set PYVER=%%V
 echo [INFO] Detected Python version: %PYVER%
+set MAJOR=
+set MINOR=
 for /f "tokens=1,2 delims=." %%a in ("%PYVER%") do (
     set MAJOR=%%a
     set MINOR=%%b
 )
 
-if %MAJOR% LSS 3 (
-    echo [ERROR] Python 3.8 or later is required.
-    echo Current version: %PYVER%
-    echo.
-    if "%NETWORKS_AUTOMATED%"=="1" (
-        echo [INFO] Automated mode: skipping pause.
-    ) else (
-        pause
-    )
-    exit /b 1
-)
+if "%MAJOR%"=="" goto pyver_checked
+if "%MINOR%"=="" goto pyver_checked
 
-if %MAJOR% EQU 3 (
-    if %MINOR% LSS 8 (
-        echo [ERROR] Python 3.8 or later is required.
-        echo Current version: %PYVER%
-        echo.
-        if "%NETWORKS_AUTOMATED%"=="1" (
-            echo [INFO] Automated mode: skipping pause.
-        ) else (
-            pause
-        )
-        exit /b 1
-    )
-)
-
-if %MAJOR% GTR 3 goto pyver_checked
-if %MAJOR% EQU 3 (
-    if %MINOR% GEQ 14 (
+if "%MAJOR%"=="3" (
+    if "%MINOR%"=="14" (
         echo [WARNING] Python %PYVER% detected. PySide6 6.10.1 does not provide wheels for 3.14.
         echo [WARNING] Use Python 3.12 or 3.13 to install dependencies successfully.
-        echo [INFO] Optional pandas/numpy are pinned to <3.13 and will be skipped on 3.13+.
+        echo [INFO] Optional pandas/numpy are pinned to ^<3.13 and will be skipped on 3.13+.
     )
 )
 :pyver_checked
 
 :: Check for environment variables that could block pip installation
+:: Automatically unset problematic proxy variables for this session (NetWORKS does not use HTTP proxy)
 set PIP_BLOCKED=0
+set PROXY_FIXED=0
+
 if not "%PIP_NO_INDEX%"=="" (
     if "%PIP_NO_INDEX%"=="1" (
         set PIP_BLOCKED=1
         echo [ERROR] PIP_NO_INDEX is set to 1, which prevents pip from accessing PyPI.
         echo [ERROR] This will block dependency installation.
-        msg * "NetWORKS Installation Error: PIP_NO_INDEX is enabled. This prevents downloading dependencies from PyPI. Please unset PIP_NO_INDEX or set it to 0, then try again."
     )
 )
+
 if not "%HTTP_PROXY%"=="" (
     echo %HTTP_PROXY% | findstr /C:"127.0.0.1:9" >nul 2>&1
-    if %ERRORLEVEL% equ 0 (
-        set PIP_BLOCKED=1
-        echo [ERROR] HTTP_PROXY is set to a dummy address (127.0.0.1:9), which will block pip downloads.
-        echo [ERROR] This will prevent dependency installation.
-        msg * "NetWORKS Installation Error: HTTP_PROXY is set to 127.0.0.1:9 (dummy address). This blocks pip from downloading dependencies. Please unset HTTP_PROXY, HTTPS_PROXY, and ALL_PROXY, then try again."
+    if not errorlevel 1 (
+        echo [INFO] HTTP_PROXY is set to a dummy address. Unsetting for this session...
+        echo [INFO] NetWORKS will not use HTTP proxy.
+        set HTTP_PROXY=
+        set PROXY_FIXED=1
     )
 )
+
 if not "%HTTPS_PROXY%"=="" (
     echo %HTTPS_PROXY% | findstr /C:"127.0.0.1:9" >nul 2>&1
-    if %ERRORLEVEL% equ 0 (
-        set PIP_BLOCKED=1
-        echo [ERROR] HTTPS_PROXY is set to a dummy address (127.0.0.1:9), which will block pip downloads.
-        echo [ERROR] This will prevent dependency installation.
-        msg * "NetWORKS Installation Error: HTTPS_PROXY is set to 127.0.0.1:9 (dummy address). This blocks pip from downloading dependencies. Please unset HTTP_PROXY, HTTPS_PROXY, and ALL_PROXY, then try again."
+    if not errorlevel 1 (
+        echo [INFO] HTTPS_PROXY is set to a dummy address. Unsetting for this session...
+        echo [INFO] NetWORKS will not use HTTP proxy.
+        set HTTPS_PROXY=
+        set PROXY_FIXED=1
     )
 )
+
+if not "%ALL_PROXY%"=="" (
+    echo %ALL_PROXY% | findstr /C:"127.0.0.1:9" >nul 2>&1
+    if not errorlevel 1 (
+        echo [INFO] ALL_PROXY is set to a dummy address. Unsetting for this session...
+        set ALL_PROXY=
+        set PROXY_FIXED=1
+    )
+)
+
+if %PROXY_FIXED% equ 1 (
+    echo [INFO] Proxy variables have been unset for this session.
+    echo.
+)
+
 if %PIP_BLOCKED% equ 1 (
     echo.
     echo [INFO] To fix this issue:
     echo   - Unset PIP_NO_INDEX: set PIP_NO_INDEX=
-    echo   - Unset proxy variables: set HTTP_PROXY= ^& set HTTPS_PROXY= ^& set ALL_PROXY=
     echo   - Or restart your command prompt/terminal to clear environment variables
     echo.
     if "%NETWORKS_AUTOMATED%"=="1" (
