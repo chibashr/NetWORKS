@@ -3,7 +3,10 @@ setlocal enabledelayedexpansion
 set NETWORKS_AUTOMATED=1
 
 :: Change to script directory to ensure we're in the right location
-cd /d "%~dp0"
+cd /d "%~dp0" 2>nul
+if errorlevel 1 (
+    echo [WARNING] Could not change to script directory. Continuing from current directory...
+)
 
 echo.
 echo ==========================================
@@ -13,12 +16,21 @@ echo.
 
 :: Check if Python is installed first
 where python >nul 2>&1
-if %ERRORLEVEL% neq 0 (
+if errorlevel 1 (
+    echo.
+    echo ==========================================
+    echo      Python Not Found
+    echo ==========================================
+    echo.
     echo [ERROR] Python is not installed or not in PATH.
     echo [ERROR] Please install Python 3.8 or later from https://www.python.org/downloads/
     echo.
-    echo This window will remain open for 60 seconds so you can read this message...
-    timeout /t 60 >nul
+    echo [INFO] Make sure to check "Add Python to PATH" during installation.
+    echo.
+    echo ==========================================
+    echo This window will remain open so you can read this message.
+    echo Press any key to close...
+    pause >nul
     exit /b 1
 )
 
@@ -68,12 +80,18 @@ if not "%HTTPS_PROXY%"=="" (
 )
 if %PIP_BLOCKED% equ 1 (
     echo.
+    echo ==========================================
+    echo      Environment Variable Issue
+    echo ==========================================
+    echo.
     echo [INFO] To fix this issue:
     echo   - Unset PIP_NO_INDEX: set PIP_NO_INDEX=
     echo   - Unset proxy variables: set HTTP_PROXY= ^& set HTTPS_PROXY= ^& set ALL_PROXY=
     echo   - Or restart your command prompt/terminal to clear environment variables
     echo.
-    pause
+    echo ==========================================
+    echo Press any key to close...
+    pause >nul
     exit /b 1
 )
 
@@ -98,11 +116,18 @@ if not exist "venv" (
         exit /b 1
     )
     
-    if %ERRORLEVEL% neq 0 (
+    if errorlevel 1 (
+        echo.
+        echo ==========================================
+        echo      Setup Failed
+        echo ==========================================
+        echo.
         echo [ERROR] Setup failed. Please check the error messages above.
         echo [ERROR] You can try running scripts\setup.bat or scripts\repair_installation.bat manually.
         echo.
-        pause
+        echo ==========================================
+        echo Press any key to close...
+        pause >nul
         exit /b 1
     )
 ) else (
@@ -117,10 +142,17 @@ if not exist "venv" (
         if exist "scripts\repair_installation.bat" (
             echo [INFO] Running repair installation script...
             call scripts\repair_installation.bat
-            if %ERRORLEVEL% neq 0 (
+            if errorlevel 1 (
+                echo.
+                echo ==========================================
+                echo      Repair Failed
+                echo ==========================================
+                echo.
                 echo [ERROR] Repair failed. Please try running scripts\repair_installation.bat manually.
                 echo.
-                pause
+                echo ==========================================
+                echo Press any key to close...
+                pause >nul
                 exit /b 1
             )
         ) else (
@@ -142,22 +174,43 @@ call venv\Scripts\activate.bat
             if %ERRORLEVEL% equ 0 (
                 echo [INFO] Repair successful. Retrying activation...
                 call venv\Scripts\activate.bat
-                if %ERRORLEVEL% neq 0 (
+                if errorlevel 1 (
+                    echo.
+                    echo ==========================================
+                    echo      Activation Failed
+                    echo ==========================================
+                    echo.
                     echo [ERROR] Still unable to activate environment after repair.
                     echo.
-                    pause
+                    echo ==========================================
+                    echo Press any key to close...
+                    pause >nul
                     exit /b 1
                 )
             ) else (
+                echo.
+                echo ==========================================
+                echo      Repair Failed
+                echo ==========================================
+                echo.
                 echo [ERROR] Repair failed. Please try running scripts\repair_installation.bat manually.
                 echo.
-                pause
+                echo ==========================================
+                echo Press any key to close...
+                pause >nul
                 exit /b 1
             )
         ) else (
+            echo.
+            echo ==========================================
+            echo      Cannot Repair
+            echo ==========================================
+            echo.
             echo [ERROR] Cannot automatically repair. Please reinstall the application.
             echo.
-            pause
+            echo ==========================================
+            echo Press any key to close...
+            pause >nul
             exit /b 1
         )
     )
@@ -181,7 +234,10 @@ if %ERRORLEVEL% equ 0 (
         type pip_install.log
         msg * "NetWORKS Installation Error: Failed to install dependencies. This may be due to proxy settings (HTTP_PROXY/HTTPS_PROXY) or PIP_NO_INDEX being enabled. Check your environment variables and network settings."
         del pip_install.log >nul 2>&1
-        pause
+        echo.
+        echo ==========================================
+        echo Press any key to close...
+        pause >nul
         exit /b 1
     )
 )
@@ -213,9 +269,16 @@ if exist "scripts\repair_installation.bat" (
     call scripts\repair_installation.bat
     call venv\Scripts\activate.bat
 ) else (
+    echo.
+    echo ==========================================
+    echo      Cannot Repair
+    echo ==========================================
+    echo.
     echo [ERROR] Cannot automatically repair. Please reinstall the application.
     echo.
-    pause
+    echo ==========================================
+    echo Press any key to close...
+    pause >nul
     exit /b 1
 )
 
@@ -253,19 +316,35 @@ if %APP_EXIT_CODE% neq 0 (
                         echo [ERROR] Application still fails after repair.
                         echo [INFO] Please check the logs in the 'logs' directory for more information.
                         echo.
-                        pause
+                        echo ==========================================
+                        echo Press any key to close...
+                        pause >nul
                         exit /b %APP_EXIT_CODE%
                     )
                 ) else (
+                    echo.
+                    echo ==========================================
+                    echo      Repair Failed
+                    echo ==========================================
+                    echo.
                     echo [ERROR] Repair failed. Please try running scripts\repair_installation.bat manually.
                     echo.
-                    pause
+                    echo ==========================================
+                    echo Press any key to close...
+                    pause >nul
                     exit /b 1
                 )
             ) else (
+                echo.
+                echo ==========================================
+                echo      Cannot Repair
+                echo ==========================================
+                echo.
                 echo [ERROR] Cannot automatically repair. Please check the logs for details.
                 echo.
-                pause
+                echo ==========================================
+                echo Press any key to close...
+                pause >nul
                 exit /b %APP_EXIT_CODE%
             )
         )
@@ -318,9 +397,11 @@ if %APP_EXIT_CODE% neq 0 (
         echo      Error Information Displayed
         echo ==========================================
         echo.
-        echo This window will remain open for 60 seconds so you can read the error information.
-        echo Press any key to close immediately, or wait for the timeout.
-        timeout /t 60
+        echo ==========================================
+        echo.
+        echo This window will remain open so you can read the error information.
+        echo Press any key to close...
+        pause >nul
         exit /b %APP_EXIT_CODE%
     )
 )
