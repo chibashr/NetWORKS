@@ -9,7 +9,7 @@
     "state": "ENABLED",
     "last_loaded": "",
     "path": "plugins\\network_scanner",
-    "version": "1.2.3"
+    "version": "10.5"
   },
   "report_generator": {
     "state": "ENABLED",

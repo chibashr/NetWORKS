@@ -1,7 +1,7 @@
 {
   "id": "network_scanner",
   "name": "Network Scanner",
-  "version": "10.4",
+  "version": "10.5",
   "description": "A plugin that scans the network for devices and adds them to NetWORKS",
   "icon": "resources/icons/network_scanner.svg",
   "author": "NetWORKS Team",
@@ -20,6 +20,17 @@
   },
   "dependencies": [],
   "changelog": [
+    {
+      "version": "10.5",
+      "date": "2026-01-27",
+      "changes": [
+        "Fixed subnet determination from interface when Start Scan uses the interface combo display text",
+        "Replaced target-selection radio buttons with a single Target dropdown in panel and scan dialog",
+        "Removed OS Detection and Port Scanning toggles; scan behavior is defined by profile/scan-type arguments only",
+        "Chunked range scanning with status updates (e.g. Scanning 192.168.1.0/28 (1/16)) and devices added to the table as they are found",
+        "Table refresh after each new device during nmap range scans for incremental feedback"
+      ]
+    },
     {
       "version": "10.4",
       "date": "2026-01-26",

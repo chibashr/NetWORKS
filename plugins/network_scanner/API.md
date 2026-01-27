@@ -221,8 +221,6 @@ The plugin provides the following settings that can be configured:
 - **Default Scan Type**: The default scan type to use
 - **Preferred Interface**: The preferred network interface to use for scanning
 - **Scan Timeout**: Timeout in seconds for scan operations
-- **OS Detection**: Enable OS detection
-- **Port Scanning**: Enable port scanning
 - **Use Elevated Permissions**: Run scans with elevated permissions
 - **Custom Scan Arguments**: Advanced nmap arguments
 - **Auto Tag**: Automatically tag discovered devices

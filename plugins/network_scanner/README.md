@@ -11,7 +11,7 @@ The Network Scanner plugin allows NetWORKS to discover devices on your network u
 - **Device Rescanning**: Rescan specific devices to update their information
 - **Multiple Scan Types**: Choose from quick, standard, or comprehensive scan profiles
 - **Quick Ping Scan**: Ultra-fast host discovery without nmap for immediate results
-- **Granular Permissions**: Configure OS detection, port scanning, and other options
+- **Profile-Driven Scans**: Scan behavior (ports, OS, etc.) is defined by the selected scan profile’s nmap arguments
 - **Custom Arguments**: Advanced users can provide custom nmap arguments
 - **Elevated Permissions**: Optionally use sudo/administrator privileges for more accurate scans
 - **Device Discovery**: Automatically add discovered devices to the inventory
@@ -54,10 +54,9 @@ The Network Scanner plugin allows NetWORKS to discover devices on your network u
 1. From the NetWORKS main window, open the Network Scanner dock widget or use the Tools menu.
 2. Configure your scan settings:
    - Select your desired network interface
-   - The network range will be automatically populated, or you can enter a custom range
-   - Optionally select a device group and enable "Scan Group Devices"
-   - Choose a scan type from the dropdown
-   - Adjust OS detection and port scanning options as needed
+   - Choose a target from the Target dropdown: Interface Subnet, Custom Range, or Selected Devices (when devices are selected)
+   - The network range is shown for Interface Subnet and can be edited for Custom Range
+   - Choose a scan type from the dropdown (scan behavior is defined by the profile’s nmap arguments)
 3. Click "Start Scan" to begin scanning using the current panel settings.
 4. For faster discovery without nmap, click "Quick Ping" to perform a basic ping scan.
 5. For more advanced options, click "Advanced..." to open the full scan dialog.
@@ -108,11 +107,10 @@ Discovered devices are automatically added to the NetWORKS device inventory with
 Settings are managed in the Plugin Manager dialog. Key settings include:
 - Default scan type (quick, standard, comprehensive, or custom)
 - Preferred interface
-- OS detection and port scanning toggles
 - Elevated permissions (sudo/admin)
 - Custom nmap arguments
 - Auto-tagging for discovered devices
-- Scan profiles (create, edit, and select profiles)
+- Scan profiles (create, edit, and select profiles; profiles define nmap arguments and timeout)
 
 Profiles define arguments, timeouts, and detection options. Use "Manage Profiles" in the plugin settings to customize them.
 
@@ -133,6 +131,13 @@ The Network Scanner plugin primarily writes results into device properties and t
 See the [API.md](API.md) file for information on programmatically integrating with the Network Scanner plugin.
 
 ## Changelog
+
+### Version 10.5 (2026-01-27)
+- Fixed subnet determination from interface when Start Scan uses the interface combo display text
+- Replaced target-selection radio buttons with a single Target dropdown in panel and scan dialog
+- Removed OS Detection and Port Scanning toggles; scan behavior is defined by profile/scan-type arguments only
+- Chunked range scanning with status updates (e.g. Scanning 192.168.1.0/28 (1/16)) and devices added to the table as they are found
+- Table refresh after each new device during nmap range scans for incremental feedback
 
 ### Version 10.4 (2026-01-26)
 - Major improvements to nmap detection and integration

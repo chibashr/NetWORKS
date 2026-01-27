@@ -36,7 +36,7 @@ except ImportError as e:
     HAS_PSUTIL = False
 
 from PySide6.QtWidgets import (
-    QLabel, QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QDockWidget,
+    QApplication, QLabel, QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, QDockWidget,
     QPushButton, QTabWidget, QScrollArea, QTreeWidget, QTreeWidgetItem,
     QGridLayout, QFormLayout, QGroupBox, QCheckBox, QComboBox,
     QSplitter, QProgressBar, QMessageBox, QLineEdit, QTableWidget,
@@ -46,6 +46,58 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, Signal, Slot, QSize, QTimer, QThread, QObject
 from PySide6.QtGui import QIcon, QAction, QFont, QColor, QIntValidator
+
+
+def _split_range_into_chunks(network_range, max_hosts_per_chunk=32):
+    """Split a network range into smaller chunks for incremental scanning.
+    Returns a list of strings (chunk targets). Single-host or small ranges return [network_range].
+    """
+    import re
+    target_text = (network_range or "").strip()
+    if not target_text:
+        return [network_range]
+    try:
+        if "/" in target_text:
+            net = ipaddress.IPv4Network(target_text, strict=False)
+            n = net.num_addresses
+            if n <= max_hosts_per_chunk:
+                return [network_range]
+            # Split into /28 subnets (16 hosts each) or similar
+            new_prefix = min(28, net.prefixlen + 4)  # aim for ~16–256 hosts per subnet
+            while new_prefix < 31:
+                subnets = list(net.subnets(new_prefix=new_prefix))
+                if len(subnets) < 2:
+                    new_prefix += 1
+                    continue
+                return [str(s) for s in subnets]
+            return [network_range]
+        targets = [t for t in re.split(r"[,\s]+", target_text) if t]
+        if len(targets) <= 1:
+            if len(targets) == 1 and "-" in targets[0]:
+                start_s, end_s = targets[0].split("-", 1)
+                start_s, end_s = start_s.strip(), end_s.strip()
+                start_ip = ipaddress.IPv4Address(start_s)
+                end_ip = ipaddress.IPv4Address(end_s)
+                n = int(end_ip) - int(start_ip) + 1
+                if n <= max_hosts_per_chunk:
+                    return [network_range]
+                out = []
+                step = max_hosts_per_chunk
+                for i in range(0, n, step):
+                    a = ipaddress.IPv4Address(int(start_ip) + i)
+                    b = ipaddress.IPv4Address(min(int(start_ip) + i + step - 1, int(end_ip)))
+                    out.append(f"{a}-{b}")
+                return out
+            return [network_range]
+        if len(targets) <= max_hosts_per_chunk:
+            return [network_range]
+        out = []
+        for i in range(0, len(targets), max_hosts_per_chunk):
+            out.append(",".join(targets[i : i + max_hosts_per_chunk]))
+        return out
+    except Exception:
+        return [network_range]
+
 
 # Import the plugin interface
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -99,16 +151,13 @@ class ScannerWorker(QObject):
     scan_complete = Signal(dict)  # scan results
     scan_error = Signal(str)  # error message
     
-    def __init__(self, network_range, scan_type="quick", timeout=600, 
-                 os_detection=True, port_scan=True, use_sudo=False,
-                 custom_scan_args="", nmap_path=None):
-        """Initialize the scanner worker"""
+    def __init__(self, network_range, scan_type="quick", timeout=600,
+                 use_sudo=False, custom_scan_args="", nmap_path=None):
+        """Initialize the scanner worker. Scan behavior is defined by profile/scan-type arguments only."""
         super().__init__()
         self.network_range = network_range
         self.scan_type = scan_type
         self.timeout = timeout
-        self.os_detection = os_detection
-        self.port_scan = port_scan
         self.use_sudo = use_sudo
         self.custom_scan_args = custom_scan_args
         self.nmap_path = nmap_path
@@ -179,15 +228,7 @@ class ScannerWorker(QObject):
                 elif self.scan_type == "service":
                     arguments = "-sV -p 21,22,23,25,53,80,110,111,135,139,143,443,445,993,995,1723,3306,3389,5900,8080 -T4"
             
-            # Only add OS detection if requested AND not already in arguments
-            if self.os_detection and "-O" not in arguments:
-                arguments += " -O"
-                
-            # Only add port scan if requested AND not already in arguments
-            if self.port_scan and not any(x in arguments for x in ["-p", "-sS", "-sT", "-sV"]):
-                arguments += " -p 22,23,80,443,8080"
-                
-            # Add custom arguments if provided
+            # Add custom arguments if provided (profile/scan-type arguments define nmap behavior)
             if self.custom_scan_args:
                 arguments += f" {self.custom_scan_args}"
                 
@@ -345,51 +386,153 @@ class ScannerWorker(QObject):
                     # Let the user know we're starting
                     self.device_found.emit({"status_update": f"Starting nmap scan of {host_count_estimate} hosts..."})
                     
-                    # Create a timer to provide updates during the scan
-                    import threading
-                    update_timer = None
+                    chunks = _split_range_into_chunks(self.network_range, max_hosts_per_chunk=32)
+                    total_hosts_acc = 0
                     
-                    def provide_status_update():
-                        if not self.is_running or self.should_stop:
-                            return
-                            
-                        # Calculate elapsed time
-                        elapsed = time.time() - scan_start_time
-                        # Generate a status message
-                        status = f"Scanning in progress... ({int(elapsed)}s elapsed)"
+                    for chunk_idx, chunk in enumerate(chunks):
+                        if self.should_stop:
+                            break
+                        if len(chunks) > 1:
+                            self.device_found.emit({
+                                "status_update": f"Scanning {chunk} ({chunk_idx + 1}/{len(chunks)})..."
+                            })
+                        else:
+                            self.device_found.emit({"status_update": f"Scanning {chunk}..."})
                         
-                        # Emit a progress update based on time
-                        progress_percent = min(95, int((elapsed / timeout_val) * 100))
-                        self.progress.emit(progress_percent, 100)
-                        
-                        # Only emit a new status message if it's different
-                        nonlocal last_status_message
-                        if status != last_status_message:
-                            self.device_found.emit({"status_update": status})
-                            last_status_message = status
-                        
-                        # Schedule the next update
-                        nonlocal update_timer
-                        if self.is_running and not self.should_stop:
+                        # Timer only for single-chunk (long) scans
+                        update_timer = None
+                        if len(chunks) == 1:
+                            def provide_status_update():
+                                if not self.is_running or self.should_stop:
+                                    return
+                                elapsed = time.time() - scan_start_time
+                                status = f"Scanning in progress... ({int(elapsed)}s elapsed)"
+                                progress_percent = min(95, int((elapsed / timeout_val) * 100))
+                                self.progress.emit(progress_percent, 100)
+                                nonlocal last_status_message
+                                if status != last_status_message:
+                                    self.device_found.emit({"status_update": status})
+                                    last_status_message = status
+                                nonlocal update_timer
+                                if self.is_running and not self.should_stop:
+                                    update_timer = threading.Timer(1.0, provide_status_update)
+                                    update_timer.daemon = True
+                                    update_timer.start()
                             update_timer = threading.Timer(1.0, provide_status_update)
                             update_timer.daemon = True
                             update_timer.start()
+                        
+                        self.scanner.scan(hosts=chunk, arguments=arguments, sudo=self.use_sudo)
+                        
+                        if len(chunks) == 1 and update_timer:
+                            update_timer.cancel()
+                        
+                        # Process this chunk's results (devices appear incrementally)
+                        all_hosts = self.scanner.all_hosts()
+                        total_hosts_acc += len(all_hosts)
+                        total_hosts = len(all_hosts)
+                        if total_hosts > 0 and len(chunks) > 1:
+                            self.device_found.emit({
+                                "status_update": f"Processing {total_hosts} hosts from {chunk}..."
+                            })
+                        elif total_hosts > 0 and len(chunks) == 1:
+                            self.device_found.emit({
+                                "status_update": f"Scan complete - processing {total_hosts} discovered hosts..."
+                            })
+                        self.progress.emit(0, total_hosts)
+                        for i, host in enumerate(all_hosts):
+                            if self.should_stop:
+                                break
+                            self.progress.emit(i + 1, total_hosts)
+                            current_time = time.time()
+                            if current_time - last_progress_update > 0.5:
+                                self.device_found.emit({
+                                    "status_update": f"Processing host {i+1} of {total_hosts}: {host}"
+                                })
+                                last_progress_update = current_time
+                            try:
+                                if 'status' not in self.scanner[host] or not self.scanner[host]['status'] or self.scanner[host]['status'].get('state') != 'up':
+                                    continue
+                                host_data = {}
+                                host_data["ip_address"] = host
+                                host_data["scan_source"] = "nmap"
+                                host_data["scan_type"] = self.scan_type
+                                if 'status' in self.scanner[host] and self.scanner[host]['status']:
+                                    host_data["status"] = self.scanner[host]['status'].get('state', 'unknown')
+                                    host_data["status_reason"] = self.scanner[host]['status'].get('reason', '')
+                                try:
+                                    if 'hostnames' in self.scanner[host] and self.scanner[host]['hostnames']:
+                                        hostnames = self.scanner[host]['hostnames']
+                                        if isinstance(hostnames, list) and hostnames:
+                                            for hostname_entry in hostnames:
+                                                if 'name' in hostname_entry and hostname_entry['name']:
+                                                    host_data["hostname"] = hostname_entry['name']
+                                                    break
+                                except Exception:
+                                    pass
+                                try:
+                                    if 'addresses' in self.scanner[host]:
+                                        addresses = self.scanner[host]['addresses']
+                                        if 'ipv4' in addresses:
+                                            host_data["ipv4_address"] = addresses['ipv4']
+                                        if 'ipv6' in addresses:
+                                            host_data["ipv6_address"] = addresses['ipv6']
+                                        if 'mac' in addresses:
+                                            host_data["mac_address"] = addresses['mac']
+                                    if 'vendor' in self.scanner[host] and self.scanner[host]['vendor'] and host_data.get("mac_address") in self.scanner[host]['vendor']:
+                                        host_data["mac_vendor"] = self.scanner[host]['vendor'][host_data["mac_address"]]
+                                except Exception:
+                                    pass
+                                try:
+                                    if 'osmatch' in self.scanner[host] and self.scanner[host]['osmatch']:
+                                        os_matches = self.scanner[host]['osmatch']
+                                        if isinstance(os_matches, list) and os_matches:
+                                            best = max(os_matches, key=lambda x: int(x.get('accuracy', 0) or 0))
+                                            if 'name' in best:
+                                                host_data["os"] = best['name']
+                                except Exception:
+                                    pass
+                                try:
+                                    if 'tcp' in self.scanner[host]:
+                                        tcp_ports = [int(p) for p, d in self.scanner[host]['tcp'].items() if d.get('state') == 'open']
+                                        tcp_services = {int(p): d.get('name', '') for p, d in self.scanner[host]['tcp'].items() if d.get('state') == 'open' and d.get('name')}
+                                        if tcp_ports:
+                                            host_data["open_tcp_ports"] = sorted(tcp_ports)
+                                        if tcp_services:
+                                            host_data["tcp_services"] = tcp_services
+                                    if 'udp' in self.scanner[host]:
+                                        udp_ports = [int(p) for p, d in self.scanner[host]['udp'].items() if d.get('state') == 'open']
+                                        udp_services = {int(p): d.get('name', '') for p, d in self.scanner[host]['udp'].items() if d.get('state') == 'open' and d.get('name')}
+                                        if udp_ports:
+                                            host_data["open_udp_ports"] = sorted(udp_ports)
+                                        if udp_services:
+                                            host_data["udp_services"] = udp_services
+                                    open_ports = host_data.get("open_tcp_ports", []) + host_data.get("open_udp_ports", [])
+                                    if open_ports:
+                                        host_data["open_ports"] = sorted(open_ports)
+                                    host_data["services"] = {**host_data.get("tcp_services", {}), **host_data.get("udp_services", {})}
+                                except Exception:
+                                    pass
+                                host_data["last_scan_time"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                host_data["tags"] = ["scanned", "nmap"]
+                                host_data["alias"] = host_data.get("hostname") or (f"{host_data.get('mac_vendor', '')} Device" if host_data.get("mac_vendor") else f"Device at {host}")
+                                if host_data.get("ip_address"):
+                                    self.device_found.emit(host_data)
+                                    devices_found += 1
+                            except Exception as e:
+                                logger.error(f"Error processing host {host}: {e}", exc_info=True)
                     
-                    # Start the timer for updates
-                    update_timer = threading.Timer(1.0, provide_status_update)
-                    update_timer.daemon = True
-                    update_timer.start()
-                    
-                    # Execute nmap scan
-                    # Note: Don't pass timeout parameter - it causes assertion failures with large networks
-                    # Instead, use --host-timeout in arguments if needed, or let nmap use defaults
-                    # The timeout_val is used for our own progress tracking, not passed to nmap
-                    self.scanner.scan(hosts=self.network_range, arguments=arguments, 
-                                     sudo=self.use_sudo)
-                    
-                    # Stop the update timer
-                    if update_timer:
-                        update_timer.cancel()
+                    # After all chunks, emit scan complete
+                    scan_time = time.time() - scan_start_time
+                    scan_results = {
+                        "network_range": self.network_range,
+                        "scan_type": self.scan_type,
+                        "total_hosts": total_hosts_acc,
+                        "devices_found": devices_found,
+                        "scan_time": scan_time,
+                        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                    self.scan_complete.emit(scan_results)
                         
                 except Exception as scan_error:
                     logger.error(f"Error during nmap scan: {scan_error}")
@@ -444,324 +587,6 @@ class ScannerWorker(QObject):
                     
                     self.is_running = False
                     return
-                    
-                # Check for stop request after scan
-                if self.should_stop:
-                    logger.info("Scan stopped after initial scan")
-                    self.is_running = False
-                    return
-                    
-                # Process results
-                try:
-                    all_hosts = self.scanner.all_hosts()
-                    total_hosts = len(all_hosts)
-                    
-                    if total_hosts == 0:
-                        self.device_found.emit({"status_update": "Scan complete - no hosts found"})
-                    else:
-                        self.device_found.emit({"status_update": f"Scan complete - processing {total_hosts} discovered hosts..."})
-                    
-                    # Emit initial progress
-                    self.progress.emit(0, total_hosts)
-                    
-                    for i, host in enumerate(all_hosts):
-                        # Check if we should stop
-                        if self.should_stop:
-                            logger.info("Scan stopped during host processing")
-                            break
-                        
-                        # Emit progress
-                        self.progress.emit(i+1, total_hosts)
-                        
-                        # Update status message periodically
-                        current_time = time.time()
-                        if current_time - last_progress_update > 0.5:  # Update every half second
-                            self.device_found.emit({"status_update": f"Processing host {i+1} of {total_hosts}: {host}"})
-                            last_progress_update = current_time
-                        
-                        # Get host data (with proper error handling to avoid memory corruption)
-                        try:
-                            # Verify the host is actually up before processing
-                            if 'status' not in self.scanner[host] or not self.scanner[host]['status'] or self.scanner[host]['status'].get('state') != 'up':
-                                logger.debug(f"Host {host} is not up, skipping")
-                                continue
-                                
-                            host_data = {}
-                            host_data["ip_address"] = host
-                            host_data["scan_source"] = "nmap"
-                            
-                            # Store the scan type used to find the device
-                            host_data["scan_type"] = self.scan_type
-                            
-                            # Store the exact state of the host
-                            if 'status' in self.scanner[host] and self.scanner[host]['status']:
-                                host_data["status"] = self.scanner[host]['status'].get('state', 'unknown')
-                                host_data["status_reason"] = self.scanner[host]['status'].get('reason', '')
-                            
-                            # Get all available hostnames (if available)
-                            try:
-                                if 'hostnames' in self.scanner[host] and self.scanner[host]['hostnames']:
-                                    hostnames = self.scanner[host]['hostnames']
-                                    if isinstance(hostnames, list) and hostnames:
-                                        # Primary hostname
-                                        for hostname_entry in hostnames:
-                                            if 'name' in hostname_entry and hostname_entry['name']:
-                                                host_data["hostname"] = hostname_entry['name']
-                                                break
-                                        
-                                        # Store all hostnames as a list if there are multiple
-                                        all_hostnames = []
-                                        for hostname_entry in hostnames:
-                                            if 'name' in hostname_entry and hostname_entry['name']:
-                                                all_hostnames.append(hostname_entry['name'])
-                                        
-                                        if len(all_hostnames) > 1:
-                                            host_data["all_hostnames"] = all_hostnames
-                            except Exception as e:
-                                logger.warning(f"Error getting hostname for {host}: {e}")
-                            
-                            # Get all address information (IPv4, IPv6, MAC)
-                            try:
-                                if 'addresses' in self.scanner[host]:
-                                    addresses = self.scanner[host]['addresses']
-                                    
-                                    # IPv4 address (already captured in ip_address)
-                                    if 'ipv4' in addresses:
-                                        host_data["ipv4_address"] = addresses['ipv4']
-                                    
-                                    # IPv6 address if available
-                                    if 'ipv6' in addresses:
-                                        host_data["ipv6_address"] = addresses['ipv6']
-                                    
-                                    # MAC address
-                                    if 'mac' in addresses:
-                                        host_data["mac_address"] = addresses['mac']
-                                
-                                # Get vendor information
-                                if 'vendor' in self.scanner[host] and self.scanner[host]['vendor']:
-                                    vendors = self.scanner[host]['vendor']
-                                    if isinstance(vendors, dict) and host_data.get("mac_address") in vendors:
-                                        host_data["mac_vendor"] = vendors[host_data["mac_address"]]
-                                        
-                                        # Also store the raw vendor data
-                                        host_data["vendor_info"] = vendors
-                            except Exception as e:
-                                logger.warning(f"Error getting address info for {host}: {e}")
-                            
-                            # Get detailed OS detection results
-                            try:
-                                if 'osmatch' in self.scanner[host] and self.scanner[host]['osmatch']:
-                                    os_matches = self.scanner[host]['osmatch']
-                                    if isinstance(os_matches, list) and os_matches:
-                                        # Get the highest accuracy match for the primary OS field
-                                        best_match = max(os_matches, key=lambda x: int(x.get('accuracy', 0)) if x.get('accuracy') else 0)
-                                        if 'name' in best_match:
-                                            host_data["os"] = best_match['name']
-                                            host_data["os_accuracy"] = best_match.get('accuracy', '')
-                                            
-                                        # Store all OS matches with details
-                                        all_os_matches = []
-                                        for os_match in os_matches:
-                                            if 'name' in os_match:
-                                                os_info = {
-                                                    'name': os_match['name'],
-                                                    'accuracy': os_match.get('accuracy', ''),
-                                                    'type': os_match.get('osclass', {}).get('type', '') if isinstance(os_match.get('osclass', {}), dict) else '',
-                                                    'vendor': os_match.get('osclass', {}).get('vendor', '') if isinstance(os_match.get('osclass', {}), dict) else '',
-                                                    'family': os_match.get('osclass', {}).get('osfamily', '') if isinstance(os_match.get('osclass', {}), dict) else ''
-                                                }
-                                                all_os_matches.append(os_info)
-                                                
-                                        if all_os_matches:
-                                            host_data["os_matches"] = all_os_matches
-                                            
-                                # Also check for osclass data directly
-                                if 'osclass' in self.scanner[host] and self.scanner[host]['osclass']:
-                                    os_classes = self.scanner[host]['osclass']
-                                    if isinstance(os_classes, list) and os_classes:
-                                        # Store OS classification data
-                                        os_classes_data = []
-                                        for os_class in os_classes:
-                                            if isinstance(os_class, dict):
-                                                os_classes_data.append(os_class)
-                                                
-                                        if os_classes_data:
-                                            host_data["os_classes"] = os_classes_data
-                            except Exception as e:
-                                logger.warning(f"Error getting OS info for {host}: {e}")
-                            
-                            # Get all port and service information
-                            try:
-                                # Process TCP ports
-                                if 'tcp' in self.scanner[host]:
-                                    tcp_ports = []
-                                    tcp_services = {}
-                                    tcp_details = {}
-                                    
-                                    for port, port_data in self.scanner[host]['tcp'].items():
-                                        # Create a detailed port information dictionary
-                                        port_details = {
-                                            'port': port,
-                                            'state': port_data.get('state', 'unknown'),
-                                            'reason': port_data.get('reason', ''),
-                                            'name': port_data.get('name', ''),
-                                            'product': port_data.get('product', ''),
-                                            'version': port_data.get('version', ''),
-                                            'extrainfo': port_data.get('extrainfo', ''),
-                                            'conf': port_data.get('conf', ''),
-                                            'cpe': port_data.get('cpe', '')
-                                        }
-                                        
-                                        # For simplicity in UI, also maintain simple lists of open ports and services
-                                        if port_data['state'] == 'open':
-                                            tcp_ports.append(int(port))
-                                            
-                                            if 'name' in port_data and port_data['name']:
-                                                service_name = port_data['name']
-                                                # Enhance with version if available
-                                                if port_data.get('product'):
-                                                    service_name += f" ({port_data['product']}"
-                                                    if port_data.get('version'):
-                                                        service_name += f" {port_data['version']}"
-                                                    service_name += ")"
-                                                tcp_services[int(port)] = service_name
-                                                
-                                        # Store all port details regardless of state
-                                        tcp_details[int(port)] = port_details
-                                        
-                                    # Store all TCP port information
-                                    if tcp_ports:
-                                        host_data["open_tcp_ports"] = sorted(tcp_ports)
-                                        
-                                    if tcp_services:
-                                        host_data["tcp_services"] = tcp_services
-                                        
-                                    if tcp_details:
-                                        host_data["tcp_port_details"] = tcp_details
-                                
-                                # Process UDP ports
-                                if 'udp' in self.scanner[host]:
-                                    udp_ports = []
-                                    udp_services = {}
-                                    udp_details = {}
-                                    
-                                    for port, port_data in self.scanner[host]['udp'].items():
-                                        # Create detailed port information
-                                        port_details = {
-                                            'port': port,
-                                            'state': port_data.get('state', 'unknown'),
-                                            'reason': port_data.get('reason', ''),
-                                            'name': port_data.get('name', ''),
-                                            'product': port_data.get('product', ''),
-                                            'version': port_data.get('version', ''),
-                                            'extrainfo': port_data.get('extrainfo', ''),
-                                            'conf': port_data.get('conf', ''),
-                                            'cpe': port_data.get('cpe', '')
-                                        }
-                                        
-                                        # For UI, maintain simple lists
-                                        if port_data['state'] == 'open':
-                                            udp_ports.append(int(port))
-                                            
-                                            if 'name' in port_data and port_data['name']:
-                                                service_name = port_data['name']
-                                                # Enhance with version if available
-                                                if port_data.get('product'):
-                                                    service_name += f" ({port_data['product']}"
-                                                    if port_data.get('version'):
-                                                        service_name += f" {port_data['version']}"
-                                                    service_name += ")"
-                                                udp_services[int(port)] = service_name
-                                                
-                                        # Store details
-                                        udp_details[int(port)] = port_details
-                                        
-                                    # Store UDP port information
-                                    if udp_ports:
-                                        host_data["open_udp_ports"] = sorted(udp_ports)
-                                        
-                                    if udp_services:
-                                        host_data["udp_services"] = udp_services
-                                        
-                                    if udp_details:
-                                        host_data["udp_port_details"] = udp_details
-                                        
-                                # For backward compatibility, maintain the original open_ports and services fields
-                                open_ports = host_data.get("open_tcp_ports", []) + host_data.get("open_udp_ports", [])
-                                if open_ports:
-                                    host_data["open_ports"] = sorted(open_ports)
-                                    
-                                services = {}
-                                # Combine TCP and UDP services
-                                services.update(host_data.get("tcp_services", {}))
-                                services.update(host_data.get("udp_services", {}))
-                                if services:
-                                    host_data["services"] = services
-                                    
-                            except Exception as e:
-                                logger.warning(f"Error getting port/service info for {host}: {e}")
-                                
-                            # Get script output if available
-                            try:
-                                if 'scripts' in self.scanner[host]:
-                                    host_data["script_output"] = self.scanner[host]['scripts']
-                            except Exception as e:
-                                logger.warning(f"Error getting script output for {host}: {e}")
-                            
-                            # Store raw scan data for debugging or advanced use
-                            try:
-                                # Create a simplified version of the raw data to avoid memory issues
-                                raw_data = {}
-                                for key, value in self.scanner[host].items():
-                                    if key not in ['scripts', 'osmatch', 'osclass', 'tcp', 'udp']:
-                                        raw_data[key] = value
-                                host_data["nmap_raw_data"] = raw_data
-                            except Exception as e:
-                                logger.warning(f"Error storing raw scan data for {host}: {e}")
-                            
-                            # Store scan timestamp
-                            host_data["last_scan_time"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            
-                            # Add tags
-                            host_data["tags"] = ["scanned", "nmap"]
-                            
-                            # Generate an alias if none exists
-                            if "hostname" in host_data and host_data["hostname"]:
-                                host_data["alias"] = host_data["hostname"]
-                            elif "mac_vendor" in host_data:
-                                host_data["alias"] = f"{host_data['mac_vendor']} Device"
-                            else:
-                                host_data["alias"] = f"Device at {host}"
-                            
-                            # Only emit device found if we have the basic information
-                            # This ensures we don't add empty or non-existent devices
-                            if host_data.get("ip_address"):
-                                # Emit the device found signal
-                                self.device_found.emit(host_data)
-                                devices_found += 1
-                            else:
-                                logger.debug(f"Host {host} has no IP address, skipping")
-                        except Exception as e:
-                            logger.error(f"Error processing host {host}: {e}", exc_info=True)
-                    
-                    # Calculate scan time
-                    scan_time = time.time() - scan_start_time
-                    
-                    # Emit scan complete signal with results
-                    scan_results = {
-                        "network_range": self.network_range,
-                        "scan_type": self.scan_type,
-                        "total_hosts": total_hosts,
-                        "devices_found": devices_found,
-                        "scan_time": scan_time,
-                        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    }
-                    
-                    self.scan_complete.emit(scan_results)
-                    
-                except Exception as e:
-                    logger.error(f"Error processing scan results: {e}", exc_info=True)
-                    self.scan_error.emit(f"Error processing results: {str(e)}")
                 
             except Exception as e:
                 logger.error(f"Unhandled scan error: {e}", exc_info=True)
@@ -804,7 +629,7 @@ class NetworkScannerPlugin(PluginInterface):
         """Initialize the plugin"""
         super().__init__()
         self.name = "Network Scanner"
-        self.version = "10.4"
+        self.version = "10.5"
         self.description = "Scan network segments for devices and add them to NetWORKS"
         self.author = "NetWORKS Team"
         
@@ -828,88 +653,18 @@ class NetworkScannerPlugin(PluginInterface):
                 "description": "Customizable scan profiles with predefined settings",
                 "type": "json",
                 "default": {
-                    "quick": {
-                        "name": "Quick Scan",
-                        "description": "Fast ping scan to discover hosts (minimal network impact)",
-                        "arguments": "-sn -T4",
-                        "os_detection": False,
-                        "port_scan": False,
-                        "timeout": 120
-                    },
-                    "standard": {
-                        "name": "Standard Scan",
-                        "description": "Balanced scan with basic port scanning and OS detection",
-                        "arguments": "-sn -F -O -T4",
-                        "os_detection": True,
-                        "port_scan": True,
-                        "timeout": 300
-                    },
-                    "comprehensive": {
-                        "name": "Comprehensive Scan",
-                        "description": "In-depth scan with full port scanning and OS fingerprinting",
-                        "arguments": "-sS -p 1-1000 -O -A -T4",
-                        "os_detection": True,
-                        "port_scan": True,
-                        "timeout": 600
-                    },
-                    "stealth": {
-                        "name": "Stealth Scan",
-                        "description": "Quiet TCP SYN scan with minimal footprint",
-                        "arguments": "-sS -T2",
-                        "os_detection": False,
-                        "port_scan": True,
-                        "timeout": 480
-                    },
-                    "service": {
-                        "name": "Service Detection",
-                        "description": "Focused on detecting services on common ports",
-                        "arguments": "-sV -p 21,22,23,25,53,80,110,111,135,139,143,443,445,993,995,1723,3306,3389,5900,8080 -T4",
-                        "os_detection": False,
-                        "port_scan": True,
-                        "timeout": 480
-                    }
+                    "quick": {"name": "Quick Scan", "description": "Fast ping scan to discover hosts (minimal network impact)", "arguments": "-sn -T4", "timeout": 120},
+                    "standard": {"name": "Standard Scan", "description": "Balanced scan with basic port scanning and OS detection", "arguments": "-sn -F -O -T4", "timeout": 300},
+                    "comprehensive": {"name": "Comprehensive Scan", "description": "In-depth scan with full port scanning and OS fingerprinting", "arguments": "-sS -p 1-1000 -O -A -T4", "timeout": 600},
+                    "stealth": {"name": "Stealth Scan", "description": "Quiet TCP SYN scan with minimal footprint", "arguments": "-sS -T2", "timeout": 480},
+                    "service": {"name": "Service Detection", "description": "Focused on detecting services on common ports", "arguments": "-sV -p 21,22,23,25,53,80,110,111,135,139,143,443,445,993,995,1723,3306,3389,5900,8080 -T4", "timeout": 480}
                 },
                 "value": {
-                    "quick": {
-                        "name": "Quick Scan",
-                        "description": "Fast ping scan to discover hosts (minimal network impact)",
-                        "arguments": "-sn -T4",
-                        "os_detection": False,
-                        "port_scan": False,
-                        "timeout": 120
-                    },
-                    "standard": {
-                        "name": "Standard Scan",
-                        "description": "Balanced scan with basic port scanning and OS detection",
-                        "arguments": "-sn -F -O -T4",
-                        "os_detection": True,
-                        "port_scan": True,
-                        "timeout": 300
-                    },
-                    "comprehensive": {
-                        "name": "Comprehensive Scan",
-                        "description": "In-depth scan with full port scanning and OS fingerprinting",
-                        "arguments": "-sS -p 1-1000 -O -A -T4",
-                        "os_detection": True,
-                        "port_scan": True,
-                        "timeout": 600
-                    },
-                    "stealth": {
-                        "name": "Stealth Scan",
-                        "description": "Quiet TCP SYN scan with minimal footprint",
-                        "arguments": "-sS -T2",
-                        "os_detection": False,
-                        "port_scan": True,
-                        "timeout": 480
-                    },
-                    "service": {
-                        "name": "Service Detection",
-                        "description": "Focused on detecting services on common ports",
-                        "arguments": "-sV -p 21,22,23,25,53,80,110,111,135,139,143,443,445,993,995,1723,3306,3389,5900,8080 -T4",
-                        "os_detection": False,
-                        "port_scan": True,
-                        "timeout": 480
-                    }
+                    "quick": {"name": "Quick Scan", "description": "Fast ping scan to discover hosts (minimal network impact)", "arguments": "-sn -T4", "timeout": 120},
+                    "standard": {"name": "Standard Scan", "description": "Balanced scan with basic port scanning and OS detection", "arguments": "-sn -F -O -T4", "timeout": 300},
+                    "comprehensive": {"name": "Comprehensive Scan", "description": "In-depth scan with full port scanning and OS fingerprinting", "arguments": "-sS -p 1-1000 -O -A -T4", "timeout": 600},
+                    "stealth": {"name": "Stealth Scan", "description": "Quiet TCP SYN scan with minimal footprint", "arguments": "-sS -T2", "timeout": 480},
+                    "service": {"name": "Service Detection", "description": "Focused on detecting services on common ports", "arguments": "-sV -p 21,22,23,25,53,80,110,111,135,139,143,443,445,993,995,1723,3306,3389,5900,8080 -T4", "timeout": 480}
                 }
             },
             "scan_type": {
@@ -934,20 +689,6 @@ class NetworkScannerPlugin(PluginInterface):
                 "type": "int",
                 "default": 600,
                 "value": 600
-            },
-            "os_detection": {
-                "name": "OS Detection",
-                "description": "Enable OS detection by default",
-                "type": "bool",
-                "default": True,
-                "value": True
-            },
-            "port_scan": {
-                "name": "Port Scanning",
-                "description": "Enable port scanning by default",
-                "type": "bool",
-                "default": True,
-                "value": True
             },
             "use_sudo": {
                 "name": "Use Elevated Permissions",
@@ -1419,23 +1160,17 @@ class NetworkScannerPlugin(PluginInterface):
         interface_layout.addWidget(self.refresh_interfaces_button)
         control_layout.addLayout(interface_layout)
         
-        # Scan target - three options including selected devices
+        # Scan target - single dropdown (Interface Subnet, Custom Range, Selected Devices when applicable)
         target_layout = QHBoxLayout()
         target_layout.setSpacing(8)
         target_layout.addWidget(QLabel("Target:"))
         
-        self.scan_subnet_radio = QRadioButton("Interface Subnet")
-        self.scan_subnet_radio.setChecked(True)  # Default option
-        
-        self.custom_range_radio = QRadioButton("Custom Range")
-        
-        self.selected_devices_radio = QRadioButton("Selected Devices")
-        self.selected_devices_radio.setEnabled(False)  # Enabled when devices are selected
-        
-        target_layout.addWidget(self.scan_subnet_radio)
-        target_layout.addWidget(self.custom_range_radio)
-        target_layout.addWidget(self.selected_devices_radio)
-        target_layout.addStretch()
+        self.target_combo = QComboBox()
+        self.target_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.target_combo.addItem("Interface Subnet", "interface")
+        self.target_combo.addItem("Custom Range", "custom")
+        # "Selected Devices (N)" added/updated by _update_selected_devices_ui when devices are selected
+        target_layout.addWidget(self.target_combo, 1)
         control_layout.addLayout(target_layout)
         
         # Selected devices info label
@@ -1455,14 +1190,13 @@ class NetworkScannerPlugin(PluginInterface):
         range_layout.addWidget(self.network_range_edit, 1)
         control_layout.addLayout(range_layout)
         
-        # Connect radio buttons to enable/disable network range
+        # Drive enable/visibility from target dropdown
         def update_target_ui_state():
-            self.network_range_edit.setEnabled(self.custom_range_radio.isChecked())
-            self.selected_devices_label.setVisible(self.selected_devices_radio.isChecked())
+            target = self.target_combo.currentData() if self.target_combo.currentData() is not None else "interface"
+            self.network_range_edit.setEnabled(target == "custom")
+            self.selected_devices_label.setVisible(target == "devices")
             
-        self.scan_subnet_radio.toggled.connect(update_target_ui_state)
-        self.custom_range_radio.toggled.connect(update_target_ui_state)
-        self.selected_devices_radio.toggled.connect(update_target_ui_state)
+        self.target_combo.currentIndexChanged.connect(update_target_ui_state)
         
         # Initial UI state
         update_target_ui_state()
@@ -1493,37 +1227,6 @@ class NetworkScannerPlugin(PluginInterface):
         self.scan_type_manager_button.clicked.connect(self.on_scan_type_manager_action)
         scan_type_layout.addWidget(self.scan_type_manager_button)
         control_layout.addLayout(scan_type_layout)
-        
-        # Function to update checkboxes when scan type changes
-        def update_scan_options(index):
-            scan_type = self.scan_type_combo.currentText()
-            profiles = self.settings["scan_profiles"]["value"]
-            if scan_type in profiles:
-                if hasattr(self, "os_detection_check"):
-                    self.os_detection_check.setChecked(profiles[scan_type].get("os_detection", False))
-                if hasattr(self, "port_scan_check"):
-                    self.port_scan_check.setChecked(profiles[scan_type].get("port_scan", False))
-        
-        # Connect the signal
-        self.scan_type_combo.currentIndexChanged.connect(update_scan_options)
-        
-        # Call initially to set the options
-        update_scan_options(0)
-        
-        # Scan options - inline checkboxes
-        options_layout = QHBoxLayout()
-        options_layout.setSpacing(20)
-        
-        self.os_detection_check = QCheckBox("OS Detection")
-        self.os_detection_check.setChecked(self.settings["os_detection"]["value"])
-        options_layout.addWidget(self.os_detection_check)
-        
-        self.port_scan_check = QCheckBox("Port Scanning")
-        self.port_scan_check.setChecked(self.settings["port_scan"]["value"])
-        options_layout.addWidget(self.port_scan_check)
-        
-        options_layout.addStretch()
-        control_layout.addLayout(options_layout)
         
         # Scan buttons - 2x2 grid layout to prevent overlapping
         button_grid = QGridLayout()
@@ -1733,8 +1436,6 @@ class NetworkScannerPlugin(PluginInterface):
         scan_profiles = self.settings["scan_profiles"]["value"]
         custom_args = self.settings["custom_scan_args"]["value"]
         use_sudo = self.settings["use_sudo"]["value"]
-        os_detection = self.settings["os_detection"]["value"]
-        port_scan = self.settings["port_scan"]["value"]
         timeout = self.settings["scan_timeout"]["value"]
         
         # If the scan type has a profile, use those settings unless overridden
@@ -1745,13 +1446,6 @@ class NetworkScannerPlugin(PluginInterface):
             if not custom_args:
                 custom_args = profile.get("arguments", "")
             
-            # Use profile values for other settings if not explicitly overridden
-            if os_detection == self.settings["os_detection"]["default"]:
-                os_detection = profile.get("os_detection", os_detection)
-                
-            if port_scan == self.settings["port_scan"]["default"]:
-                port_scan = profile.get("port_scan", port_scan)
-                
             if timeout == self.settings["scan_timeout"]["default"]:
                 timeout = profile.get("timeout", timeout)
         
@@ -1764,14 +1458,11 @@ class NetworkScannerPlugin(PluginInterface):
             self._scanner_thread = QThread()
             
             # Create a worker and move it to the thread
-            # Pass the nmap path if we found it during initialization
             nmap_path = getattr(self, 'nmap_path', None)
             self._scanner_worker = ScannerWorker(
                 network_range=network_range,
                 scan_type=scan_type,
                 timeout=timeout,
-                os_detection=os_detection,
-                port_scan=port_scan,
                 use_sudo=use_sudo,
                 custom_scan_args=custom_args,
                 nmap_path=nmap_path
@@ -2186,6 +1877,10 @@ class NetworkScannerPlugin(PluginInterface):
                 # Add it to the device manager
                 self.device_manager.add_device(new_device)
                 
+                # Allow table to repaint when devices are added during nmap/chunked scan
+                if device_data.get("scan_source") == "nmap":
+                    QApplication.processEvents()
+                
                 # Log the addition
                 self.log_message(f"Added new device: {new_device.get_property('alias')}")
                 
@@ -2388,9 +2083,9 @@ class NetworkScannerPlugin(PluginInterface):
             )
             return
             
-        # Get network range from the UI
-        # Determine network range based on selected radio button
-        if hasattr(self, "selected_devices_radio") and self.selected_devices_radio.isChecked():
+        # Get network range from the UI based on target dropdown
+        target = self.target_combo.currentData() if hasattr(self, "target_combo") and self.target_combo.currentData() is not None else "interface"
+        if target == "devices":
             # Scan selected devices
             from src.ui.device_table import DeviceTableView
             device_table = self.main_window.findChild(DeviceTableView)
@@ -2422,7 +2117,7 @@ class NetworkScannerPlugin(PluginInterface):
             scan_type = self.scan_type_combo.currentText()
             self._start_batch_device_scan(devices_with_ips, scan_type)
             return
-        elif hasattr(self, "scan_subnet_radio") and self.scan_subnet_radio.isChecked():
+        elif target == "interface":
             # Use interface subnet
             network_range = self._get_interface_subnet(self.interface_combo.currentText())
             if not network_range:
@@ -2432,7 +2127,7 @@ class NetworkScannerPlugin(PluginInterface):
                     "Could not determine subnet for the selected interface. Please select a different interface or use Custom Network Range."
                 )
                 return
-        elif hasattr(self, "custom_range_radio") and self.custom_range_radio.isChecked():
+        elif target == "custom":
             # Use custom range from text field
             network_range = self.network_range_edit.text().strip()
             if not network_range:
@@ -2443,7 +2138,7 @@ class NetworkScannerPlugin(PluginInterface):
                 )
                 return
         else:
-            # Fallback to interface subnet if radio buttons don't exist (backward compatibility)
+            # Fallback
             network_range = self.network_range_edit.text().strip()
             if not network_range:
                 network_range = self._get_interface_subnet(self.interface_combo.currentText())
@@ -2457,10 +2152,6 @@ class NetworkScannerPlugin(PluginInterface):
         
         # Get scan type from UI
         scan_type = self.scan_type_combo.currentText()
-        
-        # Get options from UI
-        os_detection = self.os_detection_check.isChecked()
-        port_scan = self.port_scan_check.isChecked()
         
         # Start the scan directly with the current panel settings
         self.scan_network(network_range, scan_type)
@@ -2543,24 +2234,26 @@ class NetworkScannerPlugin(PluginInterface):
         interface_layout.addWidget(interface_combo)
         basic_layout.addWidget(interface_group)
         
-        # Scan target options
+        # Scan target options - single dropdown
         target_group = QGroupBox("Scan Target")
         target_layout = QVBoxLayout(target_group)
         target_layout.setContentsMargins(10, 15, 10, 10)
         target_layout.setSpacing(10)
         
-        # Option for selected devices
-        selected_devices_radio = None
+        target_combo = QComboBox()
+        target_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        target_combo.setToolTip("Select what to scan")
+        
         selected_devices_list = None
+        list_container = None
+        add_device_button = None
+        remove_device_button = None
         if selected_devices:
-            selected_devices_radio = QRadioButton(f"Selected Devices ({len(selected_devices)})")
-            target_layout.addWidget(selected_devices_radio)
-
+            target_combo.addItem(f"Selected Devices ({len(selected_devices)})", "devices")
             list_container = QGroupBox("Devices to Scan")
             list_layout = QVBoxLayout(list_container)
             list_layout.setContentsMargins(10, 10, 10, 10)
             list_layout.setSpacing(6)
-
             selected_devices_list = QListWidget()
             for device in selected_devices:
                 ip_address = device.get_property("ip_address", "") if hasattr(device, "get_property") else ""
@@ -2571,81 +2264,65 @@ class NetworkScannerPlugin(PluginInterface):
                     label = ip_address
                 else:
                     label = alias or "Device"
-
                 item = QListWidgetItem(label)
                 item.setData(Qt.UserRole, {"device": device, "ip": ip_address, "label": label})
                 selected_devices_list.addItem(item)
-
             list_layout.addWidget(selected_devices_list)
-
             list_button_layout = QHBoxLayout()
             add_device_button = QPushButton("Add by IP...")
             remove_device_button = QPushButton("Remove Selected")
             list_button_layout.addWidget(add_device_button)
             list_button_layout.addWidget(remove_device_button)
             list_layout.addLayout(list_button_layout)
-
             target_layout.addWidget(list_container)
-            selected_devices_radio.setChecked(True)
 
-        # Option for group devices
-        group_radio = None
         group_combo = None
         available_groups = [g for g in self.device_manager.get_groups() if g != self.device_manager.root_group]
         if available_groups:
-            group_radio = QRadioButton("Group Devices")
-            target_layout.addWidget(group_radio)
+            target_combo.addItem("Group Devices", "group")
             group_combo = QComboBox()
             group_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             group_combo.setToolTip("Select a group to scan")
-            # Sort groups by display path
             available_groups.sort(key=lambda g: self._format_group_path(g).lower())
             for group in available_groups:
                 group_combo.addItem(self._format_group_path(group), group)
-            group_combo.setVisible(False)
             target_layout.addWidget(group_combo)
-
-        # Option to scan subnet of selected interface
-        scan_subnet_radio = QRadioButton("Scan Interface Subnet")
         
-        # Option for custom network range
-        custom_range_radio = QRadioButton("Custom Network Range")
+        target_combo.addItem("Interface Subnet", "interface")
+        target_combo.addItem("Custom Network Range", "custom")
         
-        # Custom range input with proper layout
+        target_row = QHBoxLayout()
+        target_row.addWidget(QLabel("Target:"))
+        target_row.addWidget(target_combo, 1)
+        target_layout.insertLayout(0, target_row)
+        
         custom_range_container = QWidget()
         custom_range_layout = QHBoxLayout(custom_range_container)
-        custom_range_layout.setContentsMargins(20, 0, 0, 0)  # Indent for visual hierarchy
+        custom_range_layout.setContentsMargins(0, 0, 0, 0)
         custom_range_layout.setSpacing(8)
-        
         network_range_edit = QLineEdit()
         network_range_edit.setPlaceholderText("e.g., 192.168.1.0/24 or 10.0.0.1-10.0.0.254")
         custom_range_layout.addWidget(network_range_edit)
-        
-        if not selected_devices:
-            scan_subnet_radio.setChecked(True)
-            
-        target_layout.addWidget(scan_subnet_radio)
-        target_layout.addWidget(custom_range_radio)
         target_layout.addWidget(custom_range_container)
         
-        # Connect radio buttons to enable/disable related widgets
+        if not selected_devices:
+            target_combo.setCurrentIndex(target_combo.findData("interface"))
+        else:
+            target_combo.setCurrentIndex(0)
+        
         def update_ui_state():
-            network_range_edit.setEnabled(custom_range_radio.isChecked())
-            custom_range_container.setVisible(custom_range_radio.isChecked())
-            if selected_devices_list and selected_devices_radio:
-                selected_devices_list.parentWidget().setVisible(selected_devices_radio.isChecked())
-            if group_combo and group_radio:
-                group_combo.setVisible(group_radio.isChecked())
-            interface_group.setEnabled(scan_subnet_radio.isChecked())
-            
-        scan_subnet_radio.toggled.connect(update_ui_state)
-        custom_range_radio.toggled.connect(update_ui_state)
-        if selected_devices_radio:
-            selected_devices_radio.toggled.connect(update_ui_state)
-        if group_radio:
-            group_radio.toggled.connect(update_ui_state)
+            t = target_combo.currentData() if target_combo.currentData() is not None else "interface"
+            network_range_edit.setEnabled(t == "custom")
+            custom_range_container.setVisible(t == "custom")
+            if list_container and selected_devices_list:
+                list_container.setVisible(t == "devices")
+            if group_combo:
+                group_combo.setVisible(t == "group")
+            interface_group.setEnabled(t == "interface")
+        
+        target_combo.currentIndexChanged.connect(update_ui_state)
 
-        if selected_devices_list:
+        if selected_devices_list and add_device_button is not None and remove_device_button is not None:
             def add_device_by_ip():
                 ip, ok = QInputDialog.getText(
                     dialog,
@@ -2661,24 +2338,21 @@ class NetworkScannerPlugin(PluginInterface):
                 item = QListWidgetItem(label)
                 item.setData(Qt.UserRole, {"device": None, "ip": ip, "label": label})
                 selected_devices_list.addItem(item)
-                if selected_devices_radio:
-                    selected_devices_radio.setText(
-                        f"Selected Devices ({selected_devices_list.count()})"
-                    )
+                idx = target_combo.findData("devices")
+                if idx >= 0:
+                    target_combo.setItemText(idx, f"Selected Devices ({selected_devices_list.count()})")
 
             def remove_selected_devices():
                 for item in selected_devices_list.selectedItems():
                     row = selected_devices_list.row(item)
                     selected_devices_list.takeItem(row)
-                if selected_devices_radio:
-                    selected_devices_radio.setText(
-                        f"Selected Devices ({selected_devices_list.count()})"
-                    )
+                idx = target_combo.findData("devices")
+                if idx >= 0:
+                    target_combo.setItemText(idx, f"Selected Devices ({selected_devices_list.count()})")
 
             add_device_button.clicked.connect(add_device_by_ip)
             remove_device_button.clicked.connect(remove_selected_devices)
             
-        # Initial UI state
         update_ui_state()
         
         basic_layout.addWidget(target_group)
@@ -2712,9 +2386,6 @@ class NetworkScannerPlugin(PluginInterface):
             if scan_type in profiles:
                 description = profiles[scan_type].get("description", "")
                 scan_description_label.setText(description)
-                # Update settings as well
-                self.os_detection_check.setChecked(profiles[scan_type].get("os_detection", False))
-                self.port_scan_check.setChecked(profiles[scan_type].get("port_scan", False))
                 
         # Connect the signal
         scan_type_combo.currentIndexChanged.connect(update_scan_description)
@@ -2738,16 +2409,6 @@ class NetworkScannerPlugin(PluginInterface):
         options_layout.setContentsMargins(10, 15, 10, 10)
         options_layout.setSpacing(10)
         options_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)  # Allow fields to grow
-        
-        # OS Detection
-        os_detection_check = QCheckBox()
-        os_detection_check.setChecked(self.settings["os_detection"]["value"])
-        options_layout.addRow("OS Detection:", os_detection_check)
-        
-        # Port Scanning
-        port_scan_check = QCheckBox()
-        port_scan_check.setChecked(self.settings["port_scan"]["value"])
-        options_layout.addRow("Port Scanning:", port_scan_check)
         
         # Elevated permissions
         elevated_check = QCheckBox()
@@ -2808,12 +2469,6 @@ class NetworkScannerPlugin(PluginInterface):
         profile_arguments_edit = QLineEdit()
         editor_layout.addRow("Arguments:", profile_arguments_edit)
 
-        profile_os_detection_check = QCheckBox()
-        editor_layout.addRow("OS Detection:", profile_os_detection_check)
-
-        profile_port_scan_check = QCheckBox()
-        editor_layout.addRow("Port Scan:", profile_port_scan_check)
-
         profile_timeout_edit = QLineEdit()
         profile_timeout_edit.setValidator(QIntValidator(10, 2000))
         editor_layout.addRow("Timeout (seconds):", profile_timeout_edit)
@@ -2867,8 +2522,6 @@ class NetworkScannerPlugin(PluginInterface):
             profile_name_edit.setText(profile.get("name", profile_key))
             profile_description_edit.setPlainText(profile.get("description", ""))
             profile_arguments_edit.setText(profile.get("arguments", ""))
-            profile_os_detection_check.setChecked(profile.get("os_detection", False))
-            profile_port_scan_check.setChecked(profile.get("port_scan", False))
             profile_timeout_edit.setText(str(profile.get("timeout", 300)))
             profile_description_display.setText(profile.get("description", ""))
 
@@ -2880,8 +2533,6 @@ class NetworkScannerPlugin(PluginInterface):
                 "name": profile_name_edit.text().strip() or profile_key,
                 "description": profile_description_edit.toPlainText().strip(),
                 "arguments": profile_arguments_edit.text().strip(),
-                "os_detection": profile_os_detection_check.isChecked(),
-                "port_scan": profile_port_scan_check.isChecked(),
                 "timeout": int(profile_timeout_edit.text() or 300),
             }
             self.settings["scan_profiles"]["value"] = profiles
@@ -2966,12 +2617,11 @@ class NetworkScannerPlugin(PluginInterface):
             logger.debug(f"Error determining default network range: {e}")
             # If we can't determine the local network, leave it blank
             
-        # Connect interface combo to update network range when changed
+        # Connect interface combo to update network range when Interface Subnet target is selected
         def update_network_range(index):
-            if scan_subnet_radio.isChecked():
+            if target_combo.currentData() == "interface":
                 selected_if_text = interface_combo.currentText()
                 if selected_if_text and selected_if_text != "Any (default)":
-                    # Get subnet directly from the interface text
                     subnet = self._get_interface_subnet(selected_if_text)
                     if subnet:
                         network_range_edit.setText(subnet)
@@ -2998,8 +2648,6 @@ class NetworkScannerPlugin(PluginInterface):
             # Use values from the profile as a base, but let user override with advanced settings
             if selected_scan_type in profiles:
                 profile = profiles[selected_scan_type]
-                self.settings["os_detection"]["value"] = os_detection_check.isChecked()
-                self.settings["port_scan"]["value"] = port_scan_check.isChecked()
                 self.settings["use_sudo"]["value"] = elevated_check.isChecked()
                 self.settings["scan_timeout"]["value"] = int(timeout_edit.text())
                 
@@ -3011,16 +2659,15 @@ class NetworkScannerPlugin(PluginInterface):
                     self.settings["custom_scan_args"]["value"] = profile.get("arguments", "")
             else:
                 # If scan type is not in profiles (shouldn't happen), use form values
-                self.settings["os_detection"]["value"] = os_detection_check.isChecked()
-                self.settings["port_scan"]["value"] = port_scan_check.isChecked()
                 self.settings["use_sudo"]["value"] = elevated_check.isChecked()
                 self.settings["scan_timeout"]["value"] = int(timeout_edit.text())
                 self.settings["custom_scan_args"]["value"] = custom_args_edit.text()
                 
             self.settings["preferred_interface"]["value"] = interface_combo.currentText()
             
-            # Determine the target to scan
-            if selected_devices_list and selected_devices_radio and selected_devices_radio.isChecked():
+            # Determine the target to scan from dropdown
+            t = target_combo.currentData() if target_combo.currentData() is not None else "interface"
+            if t == "devices" and selected_devices_list:
                 selected_targets = []
                 for index in range(selected_devices_list.count()):
                     item = selected_devices_list.item(index)
@@ -3029,20 +2676,17 @@ class NetworkScannerPlugin(PluginInterface):
                         continue
                     selected_targets.append(data)
                 return {"target_type": "devices", "selected_devices": selected_targets}
-            if group_radio and group_radio.isChecked():
-                selected_group = group_combo.currentData() if group_combo else None
+            if t == "group" and group_combo:
+                selected_group = group_combo.currentData()
                 return {"target_type": "group", "group": selected_group}
-            if scan_subnet_radio.isChecked():
-                # Get subnet from selected interface
+            if t == "interface":
                 selected_if_text = interface_combo.currentText()
                 if selected_if_text and selected_if_text != "Any (default)":
-                    selected_if = selected_if_text.split(":")[0].strip()
-                    subnet = self._get_interface_subnet(selected_if)
+                    subnet = self._get_interface_subnet(selected_if_text)
                     if subnet:
                         return {"target_type": "interface", "interface": selected_if_text, "network_range": subnet}
-                # Fallback to the network range edit
                 return {"target_type": "interface", "interface": interface_combo.currentText(), "network_range": network_range_edit.text().strip()}
-            # Custom network range
+            # t == "custom"
             return network_range_edit.text().strip()
         
         return None
@@ -3616,9 +3260,10 @@ class NetworkScannerPlugin(PluginInterface):
                     logger.debug("Network interfaces not loaded, attempting to load them now")
                     self._update_interface_choices()
                 
-                # Search for the interface in our stored data
+                # Search for the interface in our stored data (match by display or name;
+                # interface_name is often the combo's currentText, i.e. the display string)
                 for iface in getattr(self, "_network_interfaces", []):
-                    if iface['name'] == interface_name:
+                    if iface.get("display") == interface_name or iface.get("name") == interface_name:
                         network = iface.get('network', None)
                         if network:
                             logger.debug(f"Found subnet {network} for interface {interface_name}")
@@ -3689,22 +3334,6 @@ class NetworkScannerPlugin(PluginInterface):
         advanced_layout.setContentsMargins(12, 15, 12, 12)
         advanced_layout.setSpacing(10)  # Increase spacing between form rows
         advanced_layout.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)  # Allow fields to expand
-        
-        # OS Detection
-        os_detection_check = QCheckBox()
-        os_detection_check.setChecked(self.settings["os_detection"]["value"])
-        os_detection_check.toggled.connect(
-            lambda state: self.update_setting("os_detection", state)
-        )
-        advanced_layout.addRow("Default OS Detection:", os_detection_check)
-        
-        # Port Scanning
-        port_scan_check = QCheckBox()
-        port_scan_check.setChecked(self.settings["port_scan"]["value"])
-        port_scan_check.toggled.connect(
-            lambda state: self.update_setting("port_scan", state)
-        )
-        advanced_layout.addRow("Default Port Scanning:", port_scan_check)
         
         # Elevated Permissions
         elevated_check = QCheckBox()
@@ -3796,12 +3425,6 @@ class NetworkScannerPlugin(PluginInterface):
         profile_args.setPlaceholderText("nmap arguments, e.g. -sn -F")
         profile_form.addRow("Arguments:", profile_args)
         
-        profile_os = QCheckBox()
-        profile_form.addRow("OS Detection:", profile_os)
-        
-        profile_port = QCheckBox()
-        profile_form.addRow("Port Scanning:", profile_port)
-        
         profile_timeout = QLineEdit()
         profile_timeout.setValidator(QIntValidator(30, 600))
         profile_form.addRow("Timeout (seconds):", profile_timeout)
@@ -3832,8 +3455,6 @@ class NetworkScannerPlugin(PluginInterface):
                 profile_name.setText("")
                 profile_desc.setText("")
                 profile_args.setText("-sn")  # Default args for new profile
-                profile_os.setChecked(False)
-                profile_port.setChecked(False)
                 profile_timeout.setText("300")
                 
                 # Disable delete button, enable other fields
@@ -3841,8 +3462,6 @@ class NetworkScannerPlugin(PluginInterface):
                 profile_name.setEnabled(True)
                 profile_desc.setEnabled(True)
                 profile_args.setEnabled(True)
-                profile_os.setEnabled(True)
-                profile_port.setEnabled(True)
                 profile_timeout.setEnabled(True)
                 save_button.setText("Create Profile")
                 profile_details_group.setTitle("New Profile Details")
@@ -3855,8 +3474,6 @@ class NetworkScannerPlugin(PluginInterface):
                 profile_name.setText(profile.get("name", profile_id))
                 profile_desc.setText(profile.get("description", ""))
                 profile_args.setText(profile.get("arguments", ""))
-                profile_os.setChecked(profile.get("os_detection", False))
-                profile_port.setChecked(profile.get("port_scan", False))
                 profile_timeout.setText(str(profile.get("timeout", 300)))
                 
                 # Disable delete for built-in profiles
@@ -3867,8 +3484,6 @@ class NetworkScannerPlugin(PluginInterface):
                 profile_name.setEnabled(True)
                 profile_desc.setEnabled(True)
                 profile_args.setEnabled(True)
-                profile_os.setEnabled(True)
-                profile_port.setEnabled(True)
                 profile_timeout.setEnabled(True)
                 save_button.setText("Update Profile")
                 profile_details_group.setTitle("Edit Profile Details")
@@ -3913,8 +3528,6 @@ class NetworkScannerPlugin(PluginInterface):
             name = profile_name.text()
             description = profile_desc.text()
             arguments = profile_args.text()
-            os_detection = profile_os.isChecked()
-            port_scan = profile_port.isChecked()
             
             # Validate timeout
             try:
@@ -3931,8 +3544,6 @@ class NetworkScannerPlugin(PluginInterface):
                 "name": name,
                 "description": description,
                 "arguments": arguments,
-                "os_detection": os_detection,
-                "port_scan": port_scan,
                 "timeout": timeout
             }
             
@@ -4207,15 +3818,16 @@ class NetworkScannerPlugin(PluginInterface):
         return unique_ips
     
     def _update_selected_devices_ui(self):
-        """Update the selected devices UI when device selection changes"""
-        if not hasattr(self, "selected_devices_radio") or not hasattr(self, "selected_devices_label"):
+        """Update the selected devices UI when device selection changes. Adds/removes/updates
+        the 'Selected Devices (N)' item in target_combo and keeps the label in sync."""
+        if not hasattr(self, "target_combo") or not hasattr(self, "selected_devices_label"):
             return
         
         if not getattr(self, "device_manager", None):
-            self.selected_devices_radio.setEnabled(False)
+            self._remove_target_combo_devices_item()
             self.selected_devices_label.setText("Device manager unavailable")
             self.selected_devices_label.setStyleSheet("color: gray; font-style: italic;")
-            self.selected_devices_label.setVisible(True)
+            self.selected_devices_label.setVisible(False)
             return
         
         selected_devices = self.device_manager.get_selected_devices()
@@ -4227,7 +3839,7 @@ class NetworkScannerPlugin(PluginInterface):
             count = len(devices_with_ips)
             
             if count > 0:
-                self.selected_devices_radio.setEnabled(True)
+                self._set_target_combo_devices_item(count)
                 device_names = []
                 for device in devices_with_ips[:5]:  # Show first 5
                     name = device.get_property("alias", "") if hasattr(device, "get_property") else ""
@@ -4244,21 +3856,48 @@ class NetworkScannerPlugin(PluginInterface):
                 
                 self.selected_devices_label.setText(f"Selected: {', '.join(device_names)}")
                 self.selected_devices_label.setStyleSheet("color: black; font-style: normal;")
-                self.selected_devices_label.setVisible(True)
+                target = self.target_combo.currentData() if self.target_combo.currentData() is not None else "interface"
+                self.selected_devices_label.setVisible(target == "devices")
             else:
-                self.selected_devices_radio.setEnabled(False)
+                self._remove_target_combo_devices_item()
                 self.selected_devices_label.setText("Selected devices have no IP addresses")
                 self.selected_devices_label.setStyleSheet("color: orange; font-style: italic;")
                 self.selected_devices_label.setVisible(True)
         else:
-            self.selected_devices_radio.setEnabled(False)
+            self._remove_target_combo_devices_item()
             self.selected_devices_label.setText("No devices selected")
             self.selected_devices_label.setStyleSheet("color: gray; font-style: italic;")
             self.selected_devices_label.setVisible(False)
-        
-        # If selected devices radio was checked but no devices available, switch to interface subnet
-        if self.selected_devices_radio.isChecked() and not self.selected_devices_radio.isEnabled():
-            self.scan_subnet_radio.setChecked(True)
+    
+    def _target_combo_devices_index(self):
+        """Return the index of the 'Selected Devices' item in target_combo, or -1."""
+        for i in range(self.target_combo.count()):
+            if self.target_combo.itemData(i) == "devices":
+                return i
+        return -1
+    
+    def _set_target_combo_devices_item(self, count):
+        """Add or update the 'Selected Devices (N)' item; if current selection was devices, keep it selected."""
+        idx = self._target_combo_devices_index()
+        text = f"Selected Devices ({count})"
+        if idx >= 0:
+            self.target_combo.setItemText(idx, text)
+        else:
+            self.target_combo.addItem(text, "devices")
+    
+    def _remove_target_combo_devices_item(self):
+        """Remove the 'Selected Devices' item; if it was selected, switch to Interface Subnet."""
+        idx = self._target_combo_devices_index()
+        if idx < 0:
+            return
+        was_current = (self.target_combo.currentIndex() == idx)
+        self.target_combo.removeItem(idx)
+        if was_current:
+            self.target_combo.setCurrentIndex(0)  # Interface Subnet
+        # Refresh visibility/enable from new selection
+        target = self.target_combo.currentData() if self.target_combo.currentData() is not None else "interface"
+        self.network_range_edit.setEnabled(target == "custom")
+        self.selected_devices_label.setVisible(target == "devices")
     
     def on_device_selected(self, devices):
         """Handle device selection changed signal"""
@@ -4291,8 +3930,8 @@ class NetworkScannerPlugin(PluginInterface):
         
         # Create a table to display profiles
         profile_table = QTableWidget()
-        profile_table.setColumnCount(5)
-        profile_table.setHorizontalHeaderLabels(["Name", "Description", "Arguments", "OS Detection", "Port Scan"])
+        profile_table.setColumnCount(3)
+        profile_table.setHorizontalHeaderLabels(["Name", "Description", "Arguments"])
         profile_table.horizontalHeader().setStretchLastSection(True)
         profile_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         profile_table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -4323,16 +3962,6 @@ class NetworkScannerPlugin(PluginInterface):
                 
                 # Arguments column
                 profile_table.setItem(i, 2, QTableWidgetItem(profile.get("arguments", "")))
-                
-                # OS Detection column
-                os_detection_item = QTableWidgetItem("Yes" if profile.get("os_detection", False) else "No")
-                os_detection_item.setTextAlignment(Qt.AlignCenter)
-                profile_table.setItem(i, 3, os_detection_item)
-                
-                # Port Scan column
-                port_scan_item = QTableWidgetItem("Yes" if profile.get("port_scan", False) else "No")
-                port_scan_item.setTextAlignment(Qt.AlignCenter)
-                profile_table.setItem(i, 4, port_scan_item)
                 
             profile_table.resizeColumnsToContents()
             # Ensure description column gets some minimum width
@@ -4411,14 +4040,6 @@ class NetworkScannerPlugin(PluginInterface):
             form_layout.addRow("Arguments:", profile_args_edit)
             profile_args_edit.setPlaceholderText("e.g., -sn -F")
             
-            # OS Detection
-            profile_os_check = QCheckBox()
-            form_layout.addRow("OS Detection:", profile_os_check)
-            
-            # Port Scanning
-            profile_port_check = QCheckBox()
-            form_layout.addRow("Port Scanning:", profile_port_check)
-            
             # Timeout
             profile_timeout_edit = QLineEdit()
             profile_timeout_edit.setValidator(QIntValidator(30, 600))
@@ -4430,8 +4051,6 @@ class NetworkScannerPlugin(PluginInterface):
                 profile_name_edit.setText(profile.get("name", ""))
                 profile_desc_edit.setText(profile.get("description", ""))
                 profile_args_edit.setText(profile.get("arguments", ""))
-                profile_os_check.setChecked(profile.get("os_detection", False))
-                profile_port_check.setChecked(profile.get("port_scan", False))
                 profile_timeout_edit.setText(str(profile.get("timeout", 300)))
             
             edit_layout.addLayout(form_layout)
@@ -4463,8 +4082,6 @@ class NetworkScannerPlugin(PluginInterface):
                     "name": profile_name_edit.text(),
                     "description": profile_desc_edit.text(),
                     "arguments": profile_args_edit.text(),
-                    "os_detection": profile_os_check.isChecked(),
-                    "port_scan": profile_port_check.isChecked(),
                     "timeout": int(profile_timeout_edit.text() or "300")
                 }
                 
@@ -4487,20 +4104,6 @@ class NetworkScannerPlugin(PluginInterface):
                         # Restore selection if possible
                         if current_text in choices:
                             self.scan_type_combo.setCurrentText(current_text)
-                        # Update checkboxes if this profile is selected
-                        if self.scan_type_combo.currentText() == profile_id:
-                            if hasattr(self, "os_detection_check"):
-                                self.os_detection_check.setChecked(updated_profile.get("os_detection", False))
-                            if hasattr(self, "port_scan_check"):
-                                self.port_scan_check.setChecked(updated_profile.get("port_scan", False))
-                else:
-                    # Profile was edited, update checkboxes if this profile is selected
-                    if hasattr(self, "scan_type_combo") and self.scan_type_combo is not None:
-                        if self.scan_type_combo.currentText() == profile_id:
-                            if hasattr(self, "os_detection_check"):
-                                self.os_detection_check.setChecked(updated_profile.get("os_detection", False))
-                            if hasattr(self, "port_scan_check"):
-                                self.port_scan_check.setChecked(updated_profile.get("port_scan", False))
                 
                 # Refresh the table
                 refresh_table()
@@ -4913,10 +4516,9 @@ class NetworkScannerPlugin(PluginInterface):
             )
             return
             
-        # Get network range from the UI
-        # Determine network range based on selected radio button
-        if hasattr(self, "scan_subnet_radio") and self.scan_subnet_radio.isChecked():
-            # Use interface subnet
+        # Get network range from the UI based on target dropdown
+        target = self.target_combo.currentData() if hasattr(self, "target_combo") and self.target_combo.currentData() is not None else "interface"
+        if target == "interface":
             network_range = self._get_interface_subnet(self.interface_combo.currentText())
             if not network_range:
                 QMessageBox.warning(
@@ -4925,8 +4527,7 @@ class NetworkScannerPlugin(PluginInterface):
                     "Could not determine subnet for the selected interface. Please select a different interface or use Custom Network Range."
                 )
                 return
-        elif hasattr(self, "custom_range_radio") and self.custom_range_radio.isChecked():
-            # Use custom range from text field
+        elif target == "custom":
             network_range = self.network_range_edit.text().strip()
             if not network_range:
                 QMessageBox.warning(
@@ -4936,7 +4537,7 @@ class NetworkScannerPlugin(PluginInterface):
                 )
                 return
         else:
-            # Fallback to interface subnet
+            # devices or unknown: quick ping uses range only; fallback to interface or custom
             network_range = self.network_range_edit.text().strip()
             if not network_range:
                 network_range = self._get_interface_subnet(self.interface_combo.currentText())
