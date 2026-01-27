@@ -1,6 +1,6 @@
 {
   "name": "NetWORKS",
-  "version": "0.10.5",
+  "version": "0.10.6",
   "description": "Network management and monitoring tool",
   "author": "chibashr",
   "license": "MIT",
@@ -9,12 +9,12 @@
     "type": "git",
     "url": "https://github.com/networks/networks.git"
   },
-  "version_string": "0.10.5",
+  "version_string": "0.10.6",
   "version_info": {
     "major": 0,
     "minor": 10,
-    "patch": 5,
-    "build": 223
+    "patch": 6,
+    "build": 224
   },
   "app_directory": "src",
   "main_module": "main",
@@ -36,7 +36,7 @@
   "update_url": "https://api.networks.dev/updates",
   "telemetry_enabled": false,
   "analytics_enabled": false,
-  "build_date": "2026-01-26",
+  "build_date": "2026-01-27",
   "release_notes": "Update system now always backs up local files before overwriting them. Local files are automatically backed up to backups/ directory before any update or git initialization.",
   "release_type": "stable",
   "versioning_scheme": "semver",
