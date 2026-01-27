@@ -1,0 +1,30 @@
+{
+  "id": "template_manager",
+  "name": "Template Manager",
+  "version": "1.0.0",
+  "description": "Create reusable command templates from device outputs using Report Generator-style variable binding; export or send to Command Manager for execution.",
+  "icon": "resources/icons/template_manager.svg",
+  "author": "chibashr",
+  "entry_point": "template_manager.py",
+  "min_app_version": "0.8.16",
+  "dependencies": [
+    { "id": "command_manager", "version": ">=1.0.0" }
+  ],
+  "requirements": {
+    "python": [],
+    "system": []
+  },
+  "changelog": [
+    {
+      "version": "1.0.0",
+      "date": "2026-01-27",
+      "changes": [
+        "Initial release of the Template Manager plugin",
+        "Variable binding matches Report Generator ({{property_name}})",
+        "Per-workspace template storage",
+        "Export template file and Load into Command Manager",
+        "Data sources: All Devices, Selected Devices, Group, Subnet, Tag with filters"
+      ]
+    }
+  ]
+}

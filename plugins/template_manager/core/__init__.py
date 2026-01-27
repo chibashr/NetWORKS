@@ -1,0 +1,1 @@
+# Template Manager core modules

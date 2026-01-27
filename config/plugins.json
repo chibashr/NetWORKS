@@ -22,5 +22,11 @@
     "last_loaded": "",
     "path": "plugins\\sample",
     "version": "1.0.9"
+  },
+  "template_manager": {
+    "state": "ENABLED",
+    "last_loaded": "",
+    "path": "plugins\\template_manager",
+    "version": "1.0.0"
   }
 }
