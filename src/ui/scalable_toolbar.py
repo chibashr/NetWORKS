@@ -6,11 +6,15 @@ Overflow-aware toolbar that collapses lower-priority actions into a menu.
 """
 
 from loguru import logger
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtCore import QEvent, Qt, QSize
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QMenu, QStyle, QToolBar, QToolButton
 
 from .material_icons import material_icon
+
+# Design: icon buttons use same aspect ratio as icon (square). 24×24 icon, 32×32 minimum click area.
+_ICON_SIZE = 24
+_ICON_BUTTON_SIZE = 32
 
 
 class ScalableToolbar(QToolBar):
@@ -25,6 +29,9 @@ class ScalableToolbar(QToolBar):
         self._overflow_button.setAutoRaise(True)
         self._overflow_button.setPopupMode(QToolButton.InstantPopup)
         self._overflow_button.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        self._overflow_button.setProperty("iconOnly", "true")
+        self._overflow_button.setIconSize(QSize(_ICON_SIZE, _ICON_SIZE))
+        self._overflow_button.setFixedSize(_ICON_BUTTON_SIZE, _ICON_BUTTON_SIZE)
         self._overflow_button.setToolTip("More actions")
         self._overflow_button.setMenu(self._overflow_menu)
         self._overflow_button.setIcon(self._resolve_overflow_icon())
@@ -127,6 +134,14 @@ class ScalableToolbar(QToolBar):
         target_style = Qt.ToolButtonIconOnly if enabled else self._expanded_toolbutton_style
         if self.toolButtonStyle() != target_style:
             super().setToolButtonStyle(target_style)
+        # Icon-only buttons use square aspect ratio (design: same as icon, 32×32 minimum).
+        if enabled:
+            self.setStyleSheet(
+                f"QToolBar QToolButton {{ min-width: {_ICON_BUTTON_SIZE}px; max-width: {_ICON_BUTTON_SIZE}px; "
+                f"min-height: {_ICON_BUTTON_SIZE}px; max-height: {_ICON_BUTTON_SIZE}px; }}"
+            )
+        else:
+            self.setStyleSheet("")
 
     def _apply_separator_visibility(self, actions):
         visible_indices = [

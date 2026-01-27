@@ -12,10 +12,11 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTextEdit,
     QLabel, QComboBox, QPushButton, QSplitter,
     QCheckBox, QGroupBox, QTabWidget, QLineEdit,
-    QToolButton, QFileDialog, QMenu, QScrollBar, QSizePolicy
+    QToolButton, QFileDialog, QMenu, QScrollBar, QSizePolicy, QStyle
 )
-from PySide6.QtCore import Qt, Signal, Slot, QTimer
+from PySide6.QtCore import Qt, Signal, Slot, QTimer, QSize
 from PySide6.QtGui import QTextCursor, QColor, QTextCharFormat, QFont
+from .material_icons import material_icon
 from .responsive_toolbar import ResponsiveToolbar
 
 class LogPanel(QWidget):
@@ -110,7 +111,11 @@ class LogPanel(QWidget):
         self.search_box.setPlaceholderText("Search logs...")
         self.search_box.textChanged.connect(self._update_filters)
         self.search_button = QToolButton()
-        self.search_button.setText("X")
+        self.search_button.setProperty("iconOnlyInline", "true")
+        self.search_button.setIcon(material_icon("close", self, QStyle.SP_DialogResetButton))
+        self.search_button.setIconSize(QSize(18, 18))
+        self.search_button.setFixedSize(24, 24)
+        self.search_button.setToolTip("Clear search")
         self.search_button.clicked.connect(lambda: self.search_box.setText(""))
         
         search_layout = QHBoxLayout()

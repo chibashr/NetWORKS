@@ -53,7 +53,7 @@ def apply_compact_button(button: QAbstractButton) -> None:
 
 
 def apply_icon_button(button: QAbstractButton) -> None:
-    """Apply compact icon button sizing."""
+    """Apply square icon button sizing (same aspect ratio as icon per design)."""
     if button is None:
         return
     size = PLUGIN_UI_SIZES["icon_button_size"]

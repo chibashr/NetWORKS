@@ -107,13 +107,17 @@ class CommandManagerPlugin(PluginInterface):
         # Load user-saved command sets (named selections)
         self._load_saved_command_sets_from_disk()
         
-        # Create credential store
+        # Create credential store (per-workspace: credentials live under current workspace)
         try:
-            data_dir = Path(self.plugin_info.path) / "data"
-            self.credential_store = CredentialStore(data_dir)
-            # Set the device manager reference in the credential store
-            self.credential_store.set_device_manager(self.device_manager)
-            logger.debug(f"Credential store initialized with data_dir: {data_dir}")
+            def get_workspace_credentials_dir():
+                ws = getattr(self.device_manager, "current_workspace", "default")
+                base = Path(getattr(self.device_manager, "workspaces_dir", "."))
+                return base / ws / "plugins" / "command_manager" / "credentials"
+            self.credential_store = CredentialStore(get_workspace_credentials_dir, device_manager=self.device_manager)
+            logger.debug(
+                "Credential store initialized (per-workspace: %s)",
+                get_workspace_credentials_dir(),
+            )
         except Exception as e:
             logger.error(f"Error initializing credential store: {e}")
             logger.exception("Exception details:")

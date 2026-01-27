@@ -385,6 +385,7 @@ Ready | 24 devices | Last scan: 2m ago
 └────┘
 ```
 - Size: 24×24px icon
+- **Aspect ratio:** The button (or icon container) uses the same aspect ratio as the icon; icons are almost always square, so icon buttons are square (e.g. 24×24, 32×32).
 - Label: Small font, centered below
 - Responsive: If label would truncate, hide it and show icon-only with tooltip
 - Padding: 4px
@@ -510,6 +511,8 @@ Timeout: ├────●──────────┤ 5s
 - Font: Small, semi-bold
 
 ### Icons
+
+**Aspect ratio:** Buttons that contain icons use the same aspect ratio as the icon. Icons are almost always square, so icon buttons are square (e.g. 24×24px, 32×32px).
 
 **Sizes:**
 - Toolbar: 24×24px
@@ -812,6 +815,7 @@ Before submitting a plugin, verify all items:
 - [ ] Uses correct font sizes and weights
 - [ ] Sharp corners on all buttons/inputs
 - [ ] Icons are 24×24px in toolbar, 16×16px elsewhere
+- [ ] Icon buttons use the same aspect ratio as the icon (almost always square)
 - [ ] Configured accent color used for primary actions
 - [ ] Tables have cell borders and alternating rows
 - [ ] Monospace font used for IPs, MACs, IDs

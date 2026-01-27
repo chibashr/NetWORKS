@@ -61,22 +61,21 @@ Deletes a command set.
 
 ### Overview
 
-The Command Manager plugin provides a secure way to store and manage device credentials. Credentials are stored using the following methods:
+The Command Manager plugin stores credentials **per workspace** for security. Credentials are never shared across workspaces.
 
-1. **Device Credentials**: Stored directly in device properties using the `credentials` property, which contains an encrypted credentials object
-2. **Group Credentials**: Stored in JSON files in the plugin's data directory
-3. **Subnet Credentials**: Stored in JSON files in the plugin's data directory
+1. **Device Credentials**: Stored in device properties (`credentials`), saved/loaded with the workspace.
+2. **Group Credentials**: Stored under `config/workspaces/<workspace>/plugins/command_manager/credentials/groups/`.
+3. **Subnet Credentials**: Stored under `config/workspaces/<workspace>/plugins/command_manager/credentials/subnets/`.
 
 The plugin uses a fallback mechanism to find credentials:
 1. First, it checks device-specific credentials
-2. If not found, it checks credentials for any groups the device belongs to
-3. Finally, it checks if the device's IP address falls within any subnets with credentials
+2. If not found, it checks credentials for any groups the device belongs to (current workspace only)
+3. Finally, it checks if the device's IP address falls within any subnets with credentials (current workspace only)
 
-### Credential Storage
+### Credential Storage (per workspace)
 
-Device credentials are stored directly in the device properties to ensure they are properly associated with the device and saved/loaded with the device configuration. The credentials are stored as an encrypted object in the `credentials` property of the device.
-
-Group and subnet credentials are still stored in separate files within the plugin's data directory.
+- **Device credentials**: In device properties; persisted when the workspace is saved.
+- **Group and subnet credentials**: In the current workspace’s `plugins/command_manager/credentials/` directory. When the user switches workspace, the credential store loads that workspace’s group/subnet credentials automatically.
 
 ### Credential Methods
 

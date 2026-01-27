@@ -18,6 +18,7 @@ See `docs/Design Considerations.md` for broader product design guidance.
 ## Menu Bar + Toolbar
 
 - Toolbar icons are 24x24, monochrome where possible, using Material Icons.
+- Icon buttons use the same aspect ratio as the icon (almost always square).
 - Tool buttons show text labels with an associated icon to align with an
   Office-like layout.
 - Every toolbar action must define an icon asset.

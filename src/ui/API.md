@@ -46,6 +46,11 @@ class MainWindow:
 
 ## Device Table
 
+The device table lives in the `device_table` package (`src/ui/device_table/`). Import from the package for a stable API:
+
+- `from .device_table import DeviceTableModel, DeviceTableView, QAbstractItemView`
+- Submodules: `device_table_filter` (filter syntax, `IPSortFilterProxyModel`), `device_table_dialogs` (`AdvancedFilterDialog`), `device_table_model`, `device_table_view`.
+
 The `DeviceTableModel` and `DeviceTableView` classes provide the device table functionality.
 
 ```python
@@ -66,6 +71,11 @@ class DeviceTableView:
 ```
 
 ## Device Tree
+
+The device tree lives in the `device_tree` package (`src/ui/device_tree/`). Import from the package:
+
+- `from .device_tree import DeviceTreeModel, DeviceTreeView, DeviceTreePanel`
+- Submodules: `device_tree_item`, `device_tree_model`, `device_tree_filter`, `device_tree_view`, `device_tree_panel`.
 
 The `DeviceTreeModel` and `DeviceTreeView` classes provide the device tree functionality.
 

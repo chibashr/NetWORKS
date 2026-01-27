@@ -66,6 +66,8 @@ flush against the content.
 
 Follow the application icon spec in `docs/Design Considerations.md`.
 
+**Aspect ratio:** Buttons that display icons use the same aspect ratio as the icon; icons are almost always square, so icon buttons are square (e.g. 24×24, 32×32).
+
 **Sizes:**
 - Toolbar: 24x24px
 - Panel header: 16x16px
