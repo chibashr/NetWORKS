@@ -1168,7 +1168,7 @@ class NetworkScannerPlugin(PluginInterface):
         interface_layout.addWidget(self.refresh_interfaces_button)
         control_layout.addLayout(interface_layout)
         
-        # Scan target - single dropdown (Interface Subnet, Custom Range, Selected Devices when applicable)
+        # Scan target - Interface Subnet, Custom Range, Selected Devices, Group
         target_layout = QHBoxLayout()
         target_layout.setSpacing(8)
         target_layout.addWidget(QLabel("Target:"))
@@ -1177,15 +1177,29 @@ class NetworkScannerPlugin(PluginInterface):
         self.target_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.target_combo.addItem("Interface Subnet", "interface")
         self.target_combo.addItem("Custom Range", "custom")
-        # "Selected Devices (N)" added/updated by _update_selected_devices_ui when devices are selected
+        self.target_combo.addItem("Selected Devices", "devices")
+        self.target_combo.addItem("Group", "group")
         target_layout.addWidget(self.target_combo, 1)
         control_layout.addLayout(target_layout)
         
-        # Selected devices info label
+        # Selected devices info label (when target is Selected Devices)
         self.selected_devices_label = QLabel("No devices selected")
         self.selected_devices_label.setStyleSheet("color: gray; font-style: italic;")
         self.selected_devices_label.setVisible(False)
         control_layout.addWidget(self.selected_devices_label)
+        
+        # Group dropdown (when target is Group)
+        group_row = QHBoxLayout()
+        group_row.setSpacing(8)
+        group_row.addWidget(QLabel("Group:"))
+        self.group_combo = QComboBox()
+        self.group_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.group_combo.setToolTip("Select a group to scan")
+        group_row.addWidget(self.group_combo, 1)
+        self.panel_group_container = QWidget()
+        self.panel_group_container.setLayout(group_row)
+        self.panel_group_container.setVisible(False)
+        control_layout.addWidget(self.panel_group_container)
         
         # Network range input
         range_layout = QHBoxLayout()
@@ -1203,6 +1217,7 @@ class NetworkScannerPlugin(PluginInterface):
             target = self.target_combo.currentData() if self.target_combo.currentData() is not None else "interface"
             self.network_range_edit.setEnabled(target == "custom")
             self.selected_devices_label.setVisible(target == "devices")
+            self.panel_group_container.setVisible(target == "group")
             
         self.target_combo.currentIndexChanged.connect(update_target_ui_state)
         
@@ -1392,6 +1407,67 @@ class NetworkScannerPlugin(PluginInterface):
         """Get plugin menu actions"""
         return {"Network": [self.scan_action, self.scan_selected_action, self.scan_type_manager_action]}
         
+    def _execute_scan(self, target_type, target_data, scan_type):
+        """
+        Single entry point for all scan starts. Used by panel, dialog, toolbar, and context menus.
+        
+        Args:
+            target_type: "interface" | "custom" | "devices" | "group"
+            target_data: For interface/custom, str (network_range). For devices, list of devices or dicts.
+                        For group, group object.
+            scan_type: Scan profile name (e.g. "quick", "standard").
+        Returns:
+            bool: True if scan started successfully, False otherwise.
+        """
+        if not getattr(self, "nmap_available", False):
+            QMessageBox.warning(
+                self.main_window,
+                "Nmap Not Available",
+                "Nmap is not available. Network scanning features are disabled.\n\n"
+                "To enable scanning:\n"
+                "1. Install the nmap executable (see https://nmap.org/download.html)\n"
+                "2. Make sure nmap is in your system PATH\n"
+                "3. Restart NetWORKS"
+            )
+            return False
+
+        if target_type == "devices":
+            devices = target_data if isinstance(target_data, list) else []
+            if not devices:
+                QMessageBox.warning(
+                    self.main_window,
+                    "No Devices Selected",
+                    "Please select one or more devices to scan."
+                )
+                return False
+            # Normalize to objects or dicts with ip/label; _start_batch_device_scan accepts both
+            return self._start_batch_device_scan(devices, scan_type)
+
+        if target_type == "group":
+            group = target_data
+            devices = self._get_group_devices(group) if group else []
+            if not devices:
+                QMessageBox.warning(
+                    self.main_window,
+                    "No Devices in Group",
+                    "The selected group has no devices to scan."
+                )
+                return False
+            return self._start_batch_device_scan(devices, scan_type)
+
+        if target_type in ("interface", "custom"):
+            network_range = (target_data or "").strip()
+            if not network_range:
+                QMessageBox.warning(
+                    self.main_window,
+                    "Missing Network Range",
+                    "Please enter a network range or select a valid interface."
+                )
+                return False
+            return self.scan_network(network_range, scan_type)
+
+        return False
+
     def scan_network(self, network_range, scan_type="quick"):
         """
         Start a network scan of the specified range
@@ -2171,92 +2247,32 @@ class NetworkScannerPlugin(PluginInterface):
         self._do_start_scan_from_panel()
 
     def _do_start_scan_from_panel(self):
-        """Start a scan using current panel target/range/type (called when Start Scan is clicked)."""
-        # Check if nmap is available
-        if not hasattr(self, 'nmap_available') or not self.nmap_available:
-            QMessageBox.warning(
-                self.main_window,
-                "Nmap Not Available",
-                "Nmap is not available. Network scanning features are disabled.\n\n"
-                "To enable scanning:\n"
-                "1. Install the nmap executable (see https://nmap.org/download.html)\n"
-                "2. Make sure nmap is in your system PATH\n"
-                "3. Restart NetWORKS"
-            )
-            return
-            
-        # Get network range from the UI based on target dropdown
-        target = self.target_combo.currentData() if hasattr(self, "target_combo") and self.target_combo.currentData() is not None else "interface"
+        """Start a scan using current panel target/range/type (called when Start Scan is clicked). Uses _execute_scan as single logic."""
+        target = (hasattr(self, "target_combo") and self.target_combo.currentData()) or "interface"
+        scan_type = self.scan_type_combo.currentText() if hasattr(self, "scan_type_combo") else self.settings["scan_type"]["value"]
+        
         if target == "devices":
-            # Scan selected devices
             from src.ui.device_table import DeviceTableView
-            device_table = self.main_window.findChild(DeviceTableView)
-            if device_table:
-                selected_devices = device_table.get_selected_devices()
-            else:
-                selected_devices = self.device_manager.get_selected_devices()
-            if not selected_devices:
-                QMessageBox.warning(
-                    self.main_window,
-                    "No Devices Selected",
-                    "Please select one or more devices to scan."
-                )
-                return
-            
-            # Filter devices with IP addresses
-            devices_with_ips = [
-                d for d in selected_devices
-                if hasattr(d, "get_property") and d.get_property("ip_address", "")
-            ]
-            if not devices_with_ips:
-                QMessageBox.warning(
-                    self.main_window,
-                    "No Valid IP Addresses",
-                    "None of the selected devices have valid IP addresses."
-                )
-                return
-            
-            scan_type = self.scan_type_combo.currentText()
-            self._start_batch_device_scan(devices_with_ips, scan_type)
-            return
-        elif target == "interface":
-            # Use interface subnet
-            network_range = self._get_interface_subnet(self.interface_combo.currentText())
-            if not network_range:
-                QMessageBox.warning(
-                    self.main_window,
-                    "Missing Network Range",
-                    "Could not determine subnet for the selected interface. Please select a different interface or use Custom Network Range."
-                )
-                return
-        elif target == "custom":
-            # Use custom range from text field
-            network_range = self.network_range_edit.text().strip()
-            if not network_range:
-                QMessageBox.warning(
-                    self.main_window,
-                    "Missing Network Range",
-                    "Please enter a network range (e.g., 192.168.1.0/24 or 10.0.0.1-10.0.0.254)."
-                )
-                return
-        else:
-            # Fallback
-            network_range = self.network_range_edit.text().strip()
-            if not network_range:
-                network_range = self._get_interface_subnet(self.interface_combo.currentText())
-                if not network_range:
-                    QMessageBox.warning(
-                        self.main_window,
-                        "Missing Network Range",
-                        "Please enter a network range or select a valid interface."
-                    )
-                    return
-        
-        # Get scan type from UI
-        scan_type = self.scan_type_combo.currentText()
-        
-        # Start the scan directly with the current panel settings
-        self.scan_network(network_range, scan_type)
+            device_table = self.main_window.findChild(DeviceTableView) if self.main_window else None
+            selected = (device_table.get_selected_devices() if device_table else []) or (self.device_manager.get_selected_devices() or [])
+            devices_with_ips = [d for d in selected if hasattr(d, "get_property") and d.get_property("ip_address", "")]
+            return self._execute_scan("devices", devices_with_ips, scan_type)
+        if target == "group":
+            group = None
+            if hasattr(self, "group_combo") and self.group_combo and self.group_combo.count():
+                group = self.group_combo.currentData()
+            return self._execute_scan("group", group, scan_type)
+        if target == "interface":
+            network_range = self._get_interface_subnet(self.interface_combo.currentText()) if hasattr(self, "interface_combo") else ""
+            return self._execute_scan("interface", network_range or "", scan_type)
+        if target == "custom":
+            network_range = (self.network_range_edit.text() or "").strip() if hasattr(self, "network_range_edit") else ""
+            return self._execute_scan("custom", network_range, scan_type)
+        # Fallback: treat as interface then custom
+        network_range = (self.network_range_edit.text() or "").strip() if hasattr(self, "network_range_edit") else ""
+        if not network_range and hasattr(self, "interface_combo"):
+            network_range = self._get_interface_subnet(self.interface_combo.currentText()) or ""
+        return self._execute_scan("interface", network_range, scan_type)
 
     @safe_action_wrapper
     def on_advanced_scan_button_clicked(self):
@@ -2794,48 +2810,19 @@ class NetworkScannerPlugin(PluginInterface):
         return None
 
     def _handle_scan_target(self, dialog_result, scan_type):
-        """Handle scan dialog results for various target types"""
+        """Convert dialog result to (target_type, target_data) and run the unified scan logic."""
         if not dialog_result:
             return False
-            
         if isinstance(dialog_result, dict):
             target_type = dialog_result.get("target_type")
             if target_type == "devices":
-                selected_devices = dialog_result.get("selected_devices", [])
-                return self._start_batch_device_scan(selected_devices, scan_type)
+                return self._execute_scan("devices", dialog_result.get("selected_devices", []), scan_type)
             if target_type == "group":
-                group = dialog_result.get("group")
-                devices = self._get_group_devices(group)
-                if not devices:
-                    QMessageBox.warning(
-                        self.main_window,
-                        "No Devices in Group",
-                        "The selected group has no devices to scan."
-                    )
-                    return False
-                return self._start_batch_device_scan(devices, scan_type)
+                return self._execute_scan("group", dialog_result.get("group"), scan_type)
             if target_type == "interface":
-                network_range = dialog_result.get("network_range", "").strip()
-                if not network_range:
-                    QMessageBox.warning(
-                        self.main_window,
-                        "Missing Network Range",
-                        "Please select a valid interface with a subnet."
-                    )
-                    return False
-                return self.scan_network(network_range, scan_type)
-            
+                return self._execute_scan("interface", (dialog_result.get("network_range") or "").strip(), scan_type)
         if isinstance(dialog_result, str):
-            network_range = dialog_result.strip()
-            if not network_range:
-                QMessageBox.warning(
-                    self.main_window,
-                    "Missing Network Range",
-                    "Please enter a valid network range."
-                )
-                return False
-            return self.scan_network(network_range, scan_type)
-            
+            return self._execute_scan("custom", dialog_result.strip(), scan_type)
         return False
 
     @safe_action_wrapper
@@ -3930,16 +3917,18 @@ class NetworkScannerPlugin(PluginInterface):
         return unique_ips
     
     def _update_selected_devices_ui(self):
-        """Update the selected devices UI when device selection changes. Adds/removes/updates
-        the 'Selected Devices (N)' item in target_combo and keeps the label in sync."""
+        """Update the selected devices UI when device selection changes. Updates the
+        'Selected Devices (N)' label in target_combo and keeps the info label in sync."""
         if not hasattr(self, "target_combo") or not hasattr(self, "selected_devices_label"):
             return
         
         if not getattr(self, "device_manager", None):
-            self._remove_target_combo_devices_item()
+            self._set_target_combo_devices_item(0)
             self.selected_devices_label.setText("Device manager unavailable")
             self.selected_devices_label.setStyleSheet("color: gray; font-style: italic;")
-            self.selected_devices_label.setVisible(False)
+            self.selected_devices_label.setVisible(
+                (self.target_combo.currentData() or "interface") == "devices"
+            )
             return
         
         selected_devices = self.device_manager.get_selected_devices()
@@ -3950,8 +3939,9 @@ class NetworkScannerPlugin(PluginInterface):
                               if (d.get_property("ip_address", "") if hasattr(d, "get_property") else "")]
             count = len(devices_with_ips)
             
+            self._set_target_combo_devices_item(count)
+            
             if count > 0:
-                self._set_target_combo_devices_item(count)
                 device_names = []
                 for device in devices_with_ips[:5]:  # Show first 5
                     name = device.get_property("alias", "") if hasattr(device, "get_property") else ""
@@ -3968,18 +3958,19 @@ class NetworkScannerPlugin(PluginInterface):
                 
                 self.selected_devices_label.setText(f"Selected: {', '.join(device_names)}")
                 self.selected_devices_label.setStyleSheet("color: black; font-style: normal;")
-                target = self.target_combo.currentData() if self.target_combo.currentData() is not None else "interface"
-                self.selected_devices_label.setVisible(target == "devices")
             else:
-                self._remove_target_combo_devices_item()
                 self.selected_devices_label.setText("Selected devices have no IP addresses")
                 self.selected_devices_label.setStyleSheet("color: orange; font-style: italic;")
-                self.selected_devices_label.setVisible(True)
+            
+            target = self.target_combo.currentData() if self.target_combo.currentData() is not None else "interface"
+            self.selected_devices_label.setVisible(target == "devices")
         else:
-            self._remove_target_combo_devices_item()
+            self._set_target_combo_devices_item(0)
             self.selected_devices_label.setText("No devices selected")
             self.selected_devices_label.setStyleSheet("color: gray; font-style: italic;")
-            self.selected_devices_label.setVisible(False)
+            self.selected_devices_label.setVisible(
+                (self.target_combo.currentData() or "interface") == "devices"
+            )
     
     def _target_combo_devices_index(self):
         """Return the index of the 'Selected Devices' item in target_combo, or -1."""
@@ -3989,27 +3980,11 @@ class NetworkScannerPlugin(PluginInterface):
         return -1
     
     def _set_target_combo_devices_item(self, count):
-        """Add or update the 'Selected Devices (N)' item; if current selection was devices, keep it selected."""
+        """Update the 'Selected Devices' item text to show (N) when count > 0."""
         idx = self._target_combo_devices_index()
-        text = f"Selected Devices ({count})"
+        text = f"Selected Devices ({count})" if count > 0 else "Selected Devices"
         if idx >= 0:
             self.target_combo.setItemText(idx, text)
-        else:
-            self.target_combo.addItem(text, "devices")
-    
-    def _remove_target_combo_devices_item(self):
-        """Remove the 'Selected Devices' item; if it was selected, switch to Interface Subnet."""
-        idx = self._target_combo_devices_index()
-        if idx < 0:
-            return
-        was_current = (self.target_combo.currentIndex() == idx)
-        self.target_combo.removeItem(idx)
-        if was_current:
-            self.target_combo.setCurrentIndex(0)  # Interface Subnet
-        # Refresh visibility/enable from new selection
-        target = self.target_combo.currentData() if self.target_combo.currentData() is not None else "interface"
-        self.network_range_edit.setEnabled(target == "custom")
-        self.selected_devices_label.setVisible(target == "devices")
     
     def on_device_selected(self, devices):
         """Handle device selection changed signal"""
