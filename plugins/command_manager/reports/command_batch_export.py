@@ -12,11 +12,11 @@ from loguru import logger
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
     QFileDialog, QGroupBox, QFormLayout, QCheckBox, QListWidget,
     QDialogButtonBox, QLineEdit, QComboBox, QSplitter, QAbstractItemView,
-    QProgressDialog, QApplication, QWidget, QListWidgetItem
+    QProgressDialog, QApplication, QWidget, QListWidgetItem, QTabWidget,
 )
 
 from src.ui.plugin_ui_theme import mark_plugin_ui
@@ -41,8 +41,8 @@ class CommandBatchExport(QDialog):
         # Create UI components
         self._create_ui()
         
-        # Load devices
-        self._load_devices()
+        # Load targets (devices with outputs, groups, subnets)
+        self._load_targets()
         
     def _create_ui(self):
         """Create the UI components"""
@@ -52,15 +52,17 @@ class CommandBatchExport(QDialog):
         # Create a splitter for better UI organization
         splitter = QSplitter(Qt.Horizontal)
         
-        # Left panel (devices)
+        # Left panel (targets: devices, groups, or subnets)
         left_panel = QWidget()
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Device selection section
-        device_group = QGroupBox("Select Devices")
-        device_layout = QVBoxLayout(device_group)
-        
+
+        self.target_tabs = QTabWidget()
+
+        # Devices tab
+        device_tab = QWidget()
+        device_tab_layout = QVBoxLayout(device_tab)
+        device_tab_layout.setContentsMargins(0, 0, 0, 0)
         self.device_table = QTableWidget()
         self.device_table.setColumnCount(2)
         self.device_table.setHorizontalHeaderLabels(["Device", "IP Address"])
@@ -68,12 +70,42 @@ class CommandBatchExport(QDialog):
         self.device_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.device_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.device_table.setSelectionMode(QTableWidget.MultiSelection)
-        self.device_table.itemSelectionChanged.connect(self._on_device_selection_changed)
-        
-        device_layout.addWidget(self.device_table)
-        
-        # Add device group to left panel
-        left_layout.addWidget(device_group)
+        self.device_table.itemSelectionChanged.connect(self._on_target_selection_changed)
+        device_tab_layout.addWidget(self.device_table)
+        self.target_tabs.addTab(device_tab, "Devices")
+
+        # Groups tab
+        group_tab = QWidget()
+        group_tab_layout = QVBoxLayout(group_tab)
+        group_tab_layout.setContentsMargins(0, 0, 0, 0)
+        self.group_table = QTableWidget()
+        self.group_table.setColumnCount(2)
+        self.group_table.setHorizontalHeaderLabels(["Group Name", "Device Count"])
+        self.group_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.group_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.group_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.group_table.setSelectionMode(QTableWidget.MultiSelection)
+        self.group_table.itemSelectionChanged.connect(self._on_target_selection_changed)
+        group_tab_layout.addWidget(self.group_table)
+        self.target_tabs.addTab(group_tab, "Groups")
+
+        # Subnets tab
+        subnet_tab = QWidget()
+        subnet_tab_layout = QVBoxLayout(subnet_tab)
+        subnet_tab_layout.setContentsMargins(0, 0, 0, 0)
+        self.subnet_table = QTableWidget()
+        self.subnet_table.setColumnCount(2)
+        self.subnet_table.setHorizontalHeaderLabels(["Subnet", "Device Count"])
+        self.subnet_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.subnet_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.subnet_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.subnet_table.setSelectionMode(QTableWidget.MultiSelection)
+        self.subnet_table.itemSelectionChanged.connect(self._on_target_selection_changed)
+        subnet_tab_layout.addWidget(self.subnet_table)
+        self.target_tabs.addTab(subnet_tab, "Subnets")
+        self.target_tabs.currentChanged.connect(self._on_target_selection_changed)
+
+        left_layout.addWidget(self.target_tabs)
         
         # Right panel (commands & export options)
         right_panel = QWidget()
@@ -147,7 +179,7 @@ class CommandBatchExport(QDialog):
         preview_group = QGroupBox("Export Preview")
         preview_layout = QVBoxLayout(preview_group)
         
-        self.preview_text = QLabel("Select devices and commands to see export preview")
+        self.preview_text = QLabel("Select devices/groups/subnets and commands to see export preview")
         self.preview_text.setAlignment(Qt.AlignCenter)
         self.preview_text.setStyleSheet("color: #888;")
         self.preview_text.setWordWrap(True)
@@ -168,42 +200,101 @@ class CommandBatchExport(QDialog):
         
         layout.addWidget(buttons)
         
-    def _load_devices(self):
-        """Load device list"""
-        # Get all devices
-        devices = self.plugin.device_manager.get_devices()
-        
-        # Add devices to table
+    def _load_targets(self):
+        """Load devices (with outputs), groups, and subnets into the target tabs."""
+        devices = self.plugin.device_manager.get_devices() if self.plugin.device_manager else []
+
+        self.device_table.setRowCount(0)
+        self.device_commands.clear()
+
         for device in devices:
             alias = device.get_property("alias", "Unnamed Device")
             ip_address = device.get_property("ip_address", "")
-            
-            # Skip devices without command outputs
             outputs = self.plugin.get_command_outputs(device.id)
             if not outputs:
                 continue
-                
-            # Store available commands for this device
             self.device_commands[device.id] = outputs
-                
             row = self.device_table.rowCount()
             self.device_table.insertRow(row)
-            
-            # Device info
             alias_item = QTableWidgetItem(alias)
             alias_item.setData(Qt.UserRole, device.id)
-            
-            ip_item = QTableWidgetItem(ip_address)
-            
-            # Add to table
             self.device_table.setItem(row, 0, alias_item)
-            self.device_table.setItem(row, 1, ip_item)
-    
-    def _on_device_selection_changed(self):
-        """Handle device selection change"""
+            self.device_table.setItem(row, 1, QTableWidgetItem(ip_address))
+
+        self._load_groups()
+        self._load_subnets(devices)
+
+    def _load_groups(self):
+        """Populate the groups tab. Only shows groups that have at least one device with command outputs."""
+        self.group_table.setRowCount(0)
+        try:
+            groups = self.plugin.device_manager.get_groups()
+            devices_with_outputs_ids = set(self.device_commands.keys())
+            for group in groups:
+                name = None
+                if isinstance(group, dict) and "name" in group:
+                    name = group["name"]
+                elif hasattr(group, "name"):
+                    name = group.name
+                elif hasattr(group, "get_name"):
+                    name = group.get_name()
+                else:
+                    name = str(group)
+                group_devices = []
+                if hasattr(group, "get_all_devices"):
+                    group_devices = group.get_all_devices()
+                elif hasattr(group, "devices"):
+                    group_devices = list(group.devices) if group.devices else []
+                elif isinstance(group, dict) and "devices" in group:
+                    for d in group["devices"]:
+                        dev = self.plugin.device_manager.get_device(d) if isinstance(d, str) else d
+                        if dev:
+                            group_devices.append(dev)
+                count = sum(1 for d in group_devices if getattr(d, "id", None) in devices_with_outputs_ids)
+                if count == 0:
+                    continue
+                row = self.group_table.rowCount()
+                self.group_table.insertRow(row)
+                name_item = QTableWidgetItem(name)
+                name_item.setData(Qt.UserRole, group)
+                self.group_table.setItem(row, 0, name_item)
+                self.group_table.setItem(row, 1, QTableWidgetItem(str(count)))
+        except Exception as e:
+            logger.error(f"Error loading groups for batch export: {e}")
+
+    def _load_subnets(self, devices):
+        """Populate the subnets tab from devices that have command outputs."""
+        self.subnet_table.setRowCount(0)
+        device_ids_with_outputs = set(self.device_commands.keys())
+        subnets = {}
+        for device in devices:
+            if device.id not in device_ids_with_outputs:
+                continue
+            ip = device.get_property("ip_address", "") or ""
+            parts = ip.split(".")
+            if len(parts) != 4:
+                continue
+            try:
+                int(parts[0])
+                int(parts[1])
+                int(parts[2])
+            except (ValueError, IndexError):
+                continue
+            subnet = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
+            if subnet not in subnets:
+                subnets[subnet] = []
+            subnets[subnet].append(device)
+        for subnet, subnet_devices in subnets.items():
+            row = self.subnet_table.rowCount()
+            self.subnet_table.insertRow(row)
+            subnet_item = QTableWidgetItem(subnet)
+            subnet_item.setData(Qt.UserRole, {"subnet": subnet, "devices": subnet_devices})
+            self.subnet_table.setItem(row, 0, subnet_item)
+            self.subnet_table.setItem(row, 1, QTableWidgetItem(str(len(subnet_devices))))
+
+    def _on_target_selection_changed(self, _tab_index=None):
+        """Handle target (device/group/subnet) selection or tab change."""
         self.command_list.clear()
-        
-        # Get selected devices
         selected_devices = self._get_selected_devices()
         
         if not selected_devices:
@@ -249,15 +340,41 @@ class CommandBatchExport(QDialog):
         self._update_preview()
         
     def _get_selected_devices(self):
-        """Get selected devices"""
+        """Get selected devices from the active tab (Devices, Groups, or Subnets)."""
         selected_devices = []
-        for item in self.device_table.selectedItems():
-            # Make sure we only count each row once
-            if item.column() == 0:
-                device_id = item.data(Qt.UserRole)
-                device = self.plugin.device_manager.get_device(device_id)
-                if device and device not in selected_devices:
-                    selected_devices.append(device)
+        tab = self.target_tabs.currentIndex()
+        devices_with_outputs = set(self.device_commands.keys())
+
+        if tab == 0:  # Devices
+            for item in self.device_table.selectedItems():
+                if item.column() == 0:
+                    device_id = item.data(Qt.UserRole)
+                    device = self.plugin.device_manager.get_device(device_id)
+                    if device and device not in selected_devices:
+                        selected_devices.append(device)
+        elif tab == 1:  # Groups
+            for item in self.group_table.selectedItems():
+                if item.column() == 0:
+                    group = item.data(Qt.UserRole)
+                    if not group:
+                        continue
+                    group_devices = []
+                    if hasattr(group, "get_all_devices"):
+                        group_devices = group.get_all_devices()
+                    elif hasattr(group, "devices"):
+                        group_devices = list(group.devices) if group.devices else []
+                    for device in group_devices:
+                        if device and getattr(device, "id", None) in devices_with_outputs and device not in selected_devices:
+                            selected_devices.append(device)
+        elif tab == 2:  # Subnets
+            for item in self.subnet_table.selectedItems():
+                if item.column() == 0:
+                    info = item.data(Qt.UserRole)
+                    if not info or "devices" not in info:
+                        continue
+                    for device in info["devices"]:
+                        if device and getattr(device, "id", None) in devices_with_outputs and device not in selected_devices:
+                            selected_devices.append(device)
         return selected_devices
         
     def _update_preview(self):
@@ -334,12 +451,12 @@ class CommandBatchExport(QDialog):
             cmd_text = item.text()
             selected_commands.append((cmd_id, cmd_text))
         
-        # Check if any devices and commands are selected
+        # Check if any targets (devices/groups/subnets) and commands are selected
         if not selected_devices:
             QMessageBox.warning(
                 self,
-                "No Devices Selected",
-                "Please select one or more devices to export commands from."
+                "No Targets Selected",
+                "Please select one or more devices, groups, or subnets to export commands from."
             )
             return
             

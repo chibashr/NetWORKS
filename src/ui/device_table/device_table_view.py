@@ -2,305 +2,37 @@
 # -*- coding: utf-8 -*-
 
 """
-Device table model and view for NetWORKS
+Device table view and internal widgets for NetWORKS.
 """
 
+from .device_table_model import DeviceTableModel
+from .device_table_filter import (
+    IPSortFilterProxyModel,
+    parse_filter_syntax,
+    filter_state_to_syntax,
+    _default_header_to_short,
+)
+from .device_table_dialogs import AdvancedFilterDialog
+
 from loguru import logger
-from PySide6.QtCore import Qt, QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Signal, Slot, QItemSelectionModel, QSettings, QRect
-from PySide6.QtWidgets import (QTableView, QHeaderView, QAbstractItemView, QMenu, QApplication, QWidget, QDialog, QVBoxLayout, QFormLayout, QLineEdit, QDialogButtonBox, QLabel, QTextEdit, QPushButton, QHBoxLayout, QComboBox, QTabWidget, QListWidget, QListWidgetItem, QMessageBox, QGroupBox, QCheckBox, QTableWidget, QTableWidgetItem, QFileDialog, QWizard, QWizardPage, QScrollArea, QRadioButton, QSizePolicy, QGridLayout, QToolButton, QStyle, QStyleOptionButton, QInputDialog)
-from PySide6.QtGui import QFontDatabase, QIcon, QAction
-from ..core.device_manager import Device
-from .responsive_toolbar import ResponsiveToolbar
-from .material_icons import material_icon
+from PySide6.QtCore import Qt, QSize, Signal, Slot, QRect, QSettings
+from PySide6.QtWidgets import (
+    QTableView, QHeaderView, QAbstractItemView, QMenu, QApplication, QWidget,
+    QVBoxLayout, QFormLayout, QLineEdit, QLabel, QTextEdit, QPushButton, QHBoxLayout,
+    QComboBox, QTabWidget, QListWidget, QListWidgetItem, QMessageBox, QGroupBox,
+    QCheckBox, QTableWidget, QTableWidgetItem, QFileDialog, QWizard, QWizardPage,
+    QScrollArea, QRadioButton, QSizePolicy, QGridLayout, QToolButton, QInputDialog,
+    QStyle, QStyleOptionButton, QDialog, QDialogButtonBox,
+)
+from PySide6.QtGui import QAction, QIcon
+from ...core.device_manager import Device
+from ..material_icons import material_icon
+from ..responsive_toolbar import ResponsiveToolbar
 import csv
 import io
 import re
 import json
 import os
-
-
-# Short names for filter bar syntax (e.g. "ip:192.168" -> IP Address). Used by parse_filter_syntax.
-FILTER_FIELD_ALIASES = {
-    "alias": "Alias", "name": "Alias",
-    "hostname": "Hostname", "host": "Hostname",
-    "ip": "IP Address", "ip_address": "IP Address",
-    "mac": "MAC Address", "mac_address": "MAC Address",
-    "status": "Status", "tags": "Tags", "groups": "Groups",
-    "any": "Any Column",
-}
-
-
-def parse_filter_syntax(text, all_headers=None):
-    """
-    Parse filter bar text into either a simple search string or advanced rules.
-
-    Syntax (similar to search bars in Jira/Gmail):
-      - Bare words: match any column (e.g. "router" -> search all columns for "router").
-      - field:value: match specific column (e.g. "ip:192.168", "status:online").
-      - Short names: ip, host, alias, mac, status, tags, groups (see FILTER_FIELD_ALIASES).
-      - Multiple terms are AND together.
-
-    Returns:
-      (simple_text, None) when there are no "field:value" tokens -> use simple search.
-      (None, {"logic": "AND", "rules": [...]}) when there is at least one field:value -> use advanced.
-    """
-    raw = (text or "").strip()
-    if not raw:
-        return "", None
-
-    all_headers = set(all_headers or []) | {"Any Column"}
-    # Tokenize: split on whitespace but keep "field:value" as one token (value may contain . and :)
-    tokens = re.split(r"\s+", raw)
-    rules = []
-    simple_parts = []
-
-    for t in tokens:
-        if not t:
-            continue
-        # Match "field:value" (field = word, value = rest, allow e.g. ip:192.168.1.1)
-        m = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$", t)
-        if m:
-            key, val = m.group(1).strip().lower(), m.group(2).strip()
-            if not val:
-                continue
-            header = FILTER_FIELD_ALIASES.get(key)
-            if not header:
-                # Try exact match on headers (case-insensitive)
-                for h in all_headers:
-                    if h.lower() == key:
-                        header = h
-                        break
-            if not header:
-                header = "Any Column"
-            if header in all_headers:
-                rules.append({"field": header, "operator": "contains", "value": val})
-        else:
-            simple_parts.append(t)
-
-    if rules:
-        # If we have any field:value, add bare words as "Any Column" contains rules
-        for w in simple_parts:
-            rules.append({"field": "Any Column", "operator": "contains", "value": w})
-        return None, {"logic": "AND", "rules": rules}
-    if simple_parts:
-        return " ".join(simple_parts), None
-    return "", None
-
-
-def filter_state_to_syntax(state, header_to_short=None):
-    """
-    Convert advanced filter state to filter bar syntax string.
-    Used to show in the bar when the user applies filters from the graphical dialog.
-    """
-    if not state or not state.get("rules"):
-        return ""
-    header_to_short = header_to_short or _default_header_to_short()
-    parts = []
-    for r in state.get("rules", []):
-        f = (r.get("field") or "").strip()
-        op = (r.get("operator") or "contains").strip()
-        v = (r.get("value") or "").strip()
-        if not v and op not in ("is_empty", "is_not_empty"):
-            continue
-        short = (header_to_short.get(f) or f.replace(" ", "_").lower()).strip() or f
-        # Keep value parseable (no spaces) so the bar stays editable
-        safe_val = v.replace(" ", "_") if v else ""
-        if safe_val:
-            parts.append(f"{short}:{safe_val}")
-    return " ".join(parts)
-
-
-def _default_header_to_short():
-    """Map display headers to preferred short names for filter bar."""
-    return {
-        "Alias": "alias", "Hostname": "hostname", "IP Address": "ip",
-        "MAC Address": "mac", "Status": "status", "Tags": "tags", "Groups": "groups",
-        "Any Column": "any",
-    }
-
-
-class IPSortFilterProxyModel(QSortFilterProxyModel):
-    """Custom proxy model that handles sorting IP addresses correctly"""
-    
-    def __init__(self, parent=None):
-        """Initialize the proxy model"""
-        super().__init__(parent)
-        # Index of the IP address column
-        self.ip_column_index = -1
-        self._simple_filter_text = ""
-        self._advanced_rules = []
-        self._advanced_logic = "AND"
-    
-    def lessThan(self, left, right):
-        """
-        Compare items for sorting
-        
-        Args:
-            left: Left index
-            right: Right index
-            
-        Returns:
-            bool: True if left is less than right
-        """
-        # Get the column we're sorting
-        source_model = self.sourceModel()
-        column = left.column()
-        
-        # Find the IP address column if we haven't cached it
-        if self.ip_column_index == -1:
-            for i, header in enumerate(source_model.get_data_headers()):
-                if header == "IP Address":
-                    self.ip_column_index = i + 1
-                    break
-        
-        # Special handling for IP address column
-        if column == self.ip_column_index:
-            left_data = source_model.data(left)
-            right_data = source_model.data(right)
-            
-            # If either value is None or empty, use regular comparison
-            if not left_data or not right_data:
-                return str(left_data) < str(right_data)
-            
-            # Handle IP addresses
-            try:
-                # Split IPs into octets and convert to integers
-                left_octets = [int(octet) for octet in re.split(r'[.\-:]', left_data) if octet.isdigit()]
-                right_octets = [int(octet) for octet in re.split(r'[.\-:]', right_data) if octet.isdigit()]
-                
-                # Zero-pad the shorter list
-                while len(left_octets) < len(right_octets):
-                    left_octets.append(0)
-                while len(right_octets) < len(left_octets):
-                    right_octets.append(0)
-                
-                # Compare octet by octet
-                for left_octet, right_octet in zip(left_octets, right_octets):
-                    if left_octet != right_octet:
-                        return left_octet < right_octet
-                
-                # If we get here, they are equal
-                return False
-            except:
-                # Fall back to string comparison if there's an error
-                return str(left_data) < str(right_data)
-        
-        # For other columns, use the default sorting mechanism
-        return super().lessThan(left, right)
-
-    def reset_ip_column(self):
-        """Reset cached IP column index after layout changes."""
-        self.ip_column_index = -1
-
-    def setFilterFixedString(self, pattern):
-        """Store the simple filter text and refresh."""
-        self._simple_filter_text = (pattern or "").strip()
-        self.invalidateFilter()
-
-    def set_advanced_filter(self, rules, logic="AND"):
-        """Set advanced filter rules with AND/OR logic."""
-        self._advanced_rules = rules or []
-        self._advanced_logic = "OR" if logic == "OR" else "AND"
-        self.invalidateFilter()
-
-    def filterAcceptsRow(self, source_row, source_parent):
-        """Apply simple and advanced filters without blocking the UI."""
-        model = self.sourceModel()
-        if not model:
-            return True
-
-        if self._simple_filter_text:
-            if not self._row_matches_simple_filter(model, source_row, source_parent):
-                return False
-
-        if not self._advanced_rules:
-            return True
-
-        rule_matches = []
-        for rule in self._advanced_rules:
-            match = self._match_rule(model, source_row, source_parent, rule)
-            if match is None:
-                continue
-            rule_matches.append(match)
-
-        if not rule_matches:
-            return True
-
-        if self._advanced_logic == "OR":
-            return any(rule_matches)
-        return all(rule_matches)
-
-    def _row_matches_simple_filter(self, model, source_row, source_parent):
-        """Match the simple text filter against all data columns."""
-        haystack = self._simple_filter_text.lower()
-        if not haystack:
-            return True
-
-        for col in range(1, model.columnCount()):
-            value = model.data(model.index(source_row, col, source_parent), Qt.DisplayRole)
-            if haystack in str(value or "").lower():
-                return True
-        return False
-
-    def _match_rule(self, model, source_row, source_parent, rule):
-        """Return True/False for a rule, or None if the rule can't be applied."""
-        if not isinstance(rule, dict):
-            return None
-
-        field = rule.get("field")
-        operator = rule.get("operator")
-        raw_value = rule.get("value", "")
-
-        if not field or not operator:
-            return None
-
-        value = str(raw_value or "").lower()
-
-        if field == "Any Column":
-            return self._match_any_column(model, source_row, source_parent, operator, value)
-
-        column_index = model.get_column_index(field)
-        if column_index < 0:
-            return None
-
-        cell_value = model.data(model.index(source_row, column_index, source_parent), Qt.DisplayRole)
-        return self._evaluate_operator(str(cell_value or "").lower(), operator, value)
-
-    def _match_any_column(self, model, source_row, source_parent, operator, value):
-        """Apply a rule across all data columns."""
-        column_values = []
-        for col in range(1, model.columnCount()):
-            cell_value = model.data(model.index(source_row, col, source_parent), Qt.DisplayRole)
-            column_values.append(str(cell_value or "").lower())
-
-        if operator in ("not_contains", "not_equals"):
-            return all(self._evaluate_operator(cell, operator, value) for cell in column_values)
-        if operator == "is_empty":
-            return all(not cell for cell in column_values)
-        if operator == "is_not_empty":
-            return any(cell for cell in column_values)
-
-        return any(self._evaluate_operator(cell, operator, value) for cell in column_values)
-
-    def _evaluate_operator(self, cell_value, operator, value):
-        """Evaluate a single operator against a cell value."""
-        if operator == "contains":
-            return value in cell_value
-        if operator == "not_contains":
-            return value not in cell_value
-        if operator == "equals":
-            return cell_value == value
-        if operator == "not_equals":
-            return cell_value != value
-        if operator == "starts_with":
-            return cell_value.startswith(value)
-        if operator == "ends_with":
-            return cell_value.endswith(value)
-        if operator == "is_empty":
-            return cell_value == ""
-        if operator == "is_not_empty":
-            return cell_value != ""
-        return False
 
 
 class _WrappingButtonGroup(QWidget):
@@ -404,610 +136,6 @@ class _SelectionHeader(QHeaderView):
         return QRect(x, y, indicator, indicator)
 
 
-class AdvancedFilterDialog(QDialog):
-    """Dialog for building advanced column-based filters."""
-
-    apply_requested = Signal(dict)
-
-    OPERATORS = [
-        ("contains", "contains"),
-        ("not_contains", "does not contain"),
-        ("equals", "equals"),
-        ("not_equals", "does not equal"),
-        ("starts_with", "starts with"),
-        ("ends_with", "ends with"),
-        ("is_empty", "is empty"),
-        ("is_not_empty", "is not empty"),
-    ]
-
-    def __init__(self, fields, presets, current_state, on_save_preset, on_delete_preset, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Advanced Filtering")
-        self.setMinimumWidth(560)
-
-        self._fields = fields
-        self._presets = presets or {}
-        self._on_save_preset = on_save_preset
-        self._on_delete_preset = on_delete_preset
-        self._rule_rows = []
-
-        layout = QVBoxLayout(self)
-
-        preset_layout = QHBoxLayout()
-        preset_layout.addWidget(QLabel("Presets:"))
-        self.presets_combo = QComboBox()
-        preset_layout.addWidget(self.presets_combo, 1)
-        load_button = QPushButton("Load")
-        save_button = QPushButton("Save")
-        delete_button = QPushButton("Delete")
-        preset_layout.addWidget(load_button)
-        preset_layout.addWidget(save_button)
-        preset_layout.addWidget(delete_button)
-        layout.addLayout(preset_layout)
-
-        logic_layout = QHBoxLayout()
-        logic_layout.addWidget(QLabel("Match:"))
-        self.logic_combo = QComboBox()
-        self.logic_combo.addItem("All rules (AND)", "AND")
-        self.logic_combo.addItem("Any rule (OR)", "OR")
-        logic_layout.addWidget(self.logic_combo)
-        logic_layout.addStretch(1)
-        layout.addLayout(logic_layout)
-
-        rules_container = QWidget()
-        self.rules_layout = QVBoxLayout(rules_container)
-        self.rules_layout.setContentsMargins(0, 0, 0, 0)
-        self.rules_layout.setSpacing(6)
-
-        rules_scroll = QScrollArea()
-        rules_scroll.setWidgetResizable(True)
-        rules_scroll.setWidget(rules_container)
-        layout.addWidget(rules_scroll, 1)
-
-        add_rule_button = QPushButton("Add Rule")
-        layout.addWidget(add_rule_button)
-
-        button_box = QDialogButtonBox(QDialogButtonBox.Apply | QDialogButtonBox.Close)
-        layout.addWidget(button_box)
-
-        add_rule_button.clicked.connect(self._add_rule_row)
-        load_button.clicked.connect(self._load_selected_preset)
-        save_button.clicked.connect(self._save_preset)
-        delete_button.clicked.connect(self._delete_preset)
-        apply_button = button_box.button(QDialogButtonBox.Apply)
-        if apply_button:
-            apply_button.clicked.connect(lambda: self.apply_requested.emit(self.get_filter_state()))
-        button_box.rejected.connect(self.reject)
-
-        self._refresh_presets()
-        self.set_filter_state(current_state or {"logic": "AND", "rules": []})
-
-    def _refresh_presets(self):
-        self.presets_combo.clear()
-        for name in sorted(self._presets.keys()):
-            self.presets_combo.addItem(name)
-
-    def _add_rule_row(self, rule=None):
-        rule = rule or {}
-        row_widget = QWidget()
-        row_layout = QHBoxLayout(row_widget)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-
-        field_combo = QComboBox()
-        field_combo.addItems(self._fields)
-        if rule.get("field") in self._fields:
-            field_combo.setCurrentText(rule.get("field"))
-
-        operator_combo = QComboBox()
-        for op_key, label in self.OPERATORS:
-            operator_combo.addItem(label, op_key)
-        if rule.get("operator"):
-            index = operator_combo.findData(rule.get("operator"))
-            if index >= 0:
-                operator_combo.setCurrentIndex(index)
-
-        value_edit = QLineEdit()
-        value_edit.setPlaceholderText("Value")
-        value_edit.setText(rule.get("value", ""))
-
-        remove_button = QToolButton()
-        remove_button.setText("Remove")
-        remove_button.setToolTip("Remove this rule")
-
-        row_layout.addWidget(field_combo)
-        row_layout.addWidget(operator_combo)
-        row_layout.addWidget(value_edit, 1)
-        row_layout.addWidget(remove_button)
-
-        def update_value_state():
-            op_key = operator_combo.currentData()
-            needs_value = op_key not in ("is_empty", "is_not_empty")
-            value_edit.setEnabled(needs_value)
-            if not needs_value:
-                value_edit.clear()
-
-        operator_combo.currentIndexChanged.connect(update_value_state)
-        update_value_state()
-
-        def remove_row():
-            self._rule_rows = [row for row in self._rule_rows if row["widget"] is not row_widget]
-            row_widget.setParent(None)
-            row_widget.deleteLater()
-
-        remove_button.clicked.connect(remove_row)
-
-        self.rules_layout.addWidget(row_widget)
-        self._rule_rows.append({
-            "widget": row_widget,
-            "field": field_combo,
-            "operator": operator_combo,
-            "value": value_edit,
-        })
-
-    def _load_selected_preset(self):
-        name = self.presets_combo.currentText()
-        if not name or name not in self._presets:
-            return
-        self.set_filter_state(self._presets.get(name, {}))
-
-    def _save_preset(self):
-        name, ok = QInputDialog.getText(self, "Save Preset", "Preset name:")
-        name = (name or "").strip()
-        if not ok or not name:
-            return
-        state = self.get_filter_state()
-        self._presets[name] = state
-        if self._on_save_preset:
-            self._on_save_preset(name, state)
-        self._refresh_presets()
-        index = self.presets_combo.findText(name)
-        if index >= 0:
-            self.presets_combo.setCurrentIndex(index)
-
-    def _delete_preset(self):
-        name = self.presets_combo.currentText()
-        if not name or name not in self._presets:
-            return
-        confirm = QMessageBox.question(
-            self,
-            "Delete Preset",
-            f"Delete preset '{name}'?",
-            QMessageBox.Yes | QMessageBox.No,
-        )
-        if confirm != QMessageBox.Yes:
-            return
-        del self._presets[name]
-        if self._on_delete_preset:
-            self._on_delete_preset(name)
-        self._refresh_presets()
-
-    def set_filter_state(self, state):
-        state = state or {}
-        logic = state.get("logic", "AND")
-        index = self.logic_combo.findData(logic)
-        if index >= 0:
-            self.logic_combo.setCurrentIndex(index)
-
-        for row in list(self._rule_rows):
-            row["widget"].setParent(None)
-        self._rule_rows = []
-
-        rules = state.get("rules", []) or []
-        if not rules:
-            self._add_rule_row()
-            return
-        for rule in rules:
-            self._add_rule_row(rule)
-
-    def get_filter_state(self):
-        rules = []
-        for row in self._rule_rows:
-            field = row["field"].currentText()
-            operator = row["operator"].currentData()
-            value = row["value"].text().strip()
-            if operator not in ("is_empty", "is_not_empty") and not value:
-                continue
-            rules.append({
-                "field": field,
-                "operator": operator,
-                "value": value,
-            })
-
-        return {
-            "logic": self.logic_combo.currentData() or "AND",
-            "rules": rules,
-        }
-
-
-class DeviceTableModel(QAbstractTableModel):
-    """Model for device table"""
-    
-    def __init__(self, device_manager):
-        """Initialize the model"""
-        super().__init__()
-        
-        self.device_manager = device_manager
-        self._devices = []
-        
-        # All available headers (columns)
-        self._all_headers = ["Alias", "Hostname", "IP Address", "MAC Address", "Status", "Tags", "Groups"]
-        self._all_column_keys = ["alias", "hostname", "ip_address", "mac_address", "status", "tags", "groups"]
-        
-        # Currently visible headers
-        self._headers = self._all_headers.copy()
-        self._column_keys = self._all_column_keys.copy()
-        
-        # Additional columns from plugins
-        self._plugin_columns = []  # (header, key, callback)
-        
-        # Custom property columns
-        self._custom_prop_headers = []
-        self._custom_prop_keys = []
-        
-        # Cache for device groups
-        self._device_groups = {}  # device.id -> [group_names]
-        
-        # Group filter
-        self._filter_group = None
-        
-        # Connect to device manager signals
-        self.device_manager.device_added.connect(self.on_device_added)
-        self.device_manager.device_removed.connect(self.on_device_removed)
-        self.device_manager.device_changed.connect(self.on_device_changed)
-        self.device_manager.group_added.connect(self.on_model_changed)
-        self.device_manager.group_removed.connect(self.on_model_changed)
-        
-        # Initialize data
-        self.refresh_devices()
-        
-    def filter_by_group(self, group):
-        """Filter devices by group"""
-        self._filter_group = group
-        self.refresh_devices()
-        
-    def get_all_headers(self):
-        """Get all available headers"""
-        # Discover custom properties from all devices
-        self._discover_custom_properties()
-        
-        # Combine standard headers, plugin headers, and custom property headers
-        all_headers = self._all_headers.copy()
-        plugin_headers = [header for header, _, _ in self._plugin_columns]
-        
-        return all_headers + plugin_headers + self._custom_prop_headers
-        
-    def get_visible_headers(self):
-        """Get currently visible headers"""
-        return self._headers
-
-    def get_data_headers(self):
-        """Get headers for data columns (excluding selection column)."""
-        return self._headers
-
-    def get_column_index(self, header):
-        """Return the model column index for a given header."""
-        if header in self._headers:
-            return self._headers.index(header) + 1
-        return -1
-        
-    def _discover_custom_properties(self):
-        """Discover custom properties from all devices"""
-        self._custom_prop_headers = []
-        self._custom_prop_keys = []
-        
-        # Core properties to exclude
-        core_props = ["id", "alias", "hostname", "ip_address", "mac_address", "status", "notes", "tags"]
-        
-        # Collect custom properties from all devices
-        custom_props = {}
-        for device in self.device_manager.get_devices():
-            for key, value in device.get_properties().items():
-                if key not in core_props and key not in self._all_column_keys:
-                    # Skip complex values like lists and dicts
-                    if not isinstance(value, (list, dict)):
-                        custom_props[key] = True
-        
-        # Sort the custom properties alphabetically
-        sorted_props = sorted(custom_props.keys())
-        
-        # Create headers for custom properties
-        for key in sorted_props:
-            header = key.replace('_', ' ').title()
-            self._custom_prop_headers.append(header)
-            self._custom_prop_keys.append(key)
-        
-    def set_visible_headers(self, headers):
-        """Set which headers (columns) are visible"""
-        # Make sure all custom properties are discovered
-        self._discover_custom_properties()
-        
-        # Validate headers
-        valid_headers = [h for h in headers if h in self.get_all_headers()]
-        
-        if not valid_headers:
-            return False
-            
-        # Update headers and column keys
-        self._headers = []
-        self._column_keys = []
-        
-        # Add standard headers first
-        for i, header in enumerate(self._all_headers):
-            if header in valid_headers:
-                self._headers.append(header)
-                self._column_keys.append(self._all_column_keys[i])
-                
-        # Then add plugin headers
-        for header, key, callback in self._plugin_columns:
-            if header in valid_headers:
-                self._headers.append(header)
-                
-        # Then add custom property headers
-        for i, header in enumerate(self._custom_prop_headers):
-            if header in valid_headers:
-                self._headers.append(header)
-                self._column_keys.append(self._custom_prop_keys[i])
-        
-        # Notify view of layout change
-        self.layoutChanged.emit()
-        return True
-        
-    def refresh_devices(self):
-        """Refresh the device list"""
-        # Begin model reset to ensure proper clearing
-        self.beginResetModel()
-        
-        # Get devices based on filter
-        if self._filter_group:
-            # Get devices from the specified group
-            self._devices = self._filter_group.get_all_devices()
-        else:
-            # Get all devices
-            self._devices = self.device_manager.get_devices()
-        
-        # Update device groups cache
-        self._update_device_groups()
-        
-        # Discover custom properties
-        self._discover_custom_properties()
-        
-        # End model reset
-        self.endResetModel()
-        
-        # Log the refresh for debugging
-        logger.debug(f"Refreshed device table with {len(self._devices)} devices")
-        
-    def _update_device_groups(self):
-        """Update the device groups cache"""
-        self._device_groups = {}
-        
-        # Get all groups
-        groups = self.device_manager.get_groups()
-        
-        # For each group, add its name to the devices in it
-        for group in groups:
-            # Skip the root group (All Devices)
-            if group == self.device_manager.root_group:
-                continue
-                
-            for device in group.devices:
-                if device.id not in self._device_groups:
-                    self._device_groups[device.id] = []
-                
-                self._device_groups[device.id].append(group.name)
-        
-    def add_column(self, header, key, callback=None):
-        """Add a column to the table"""
-        if header in self._headers:
-            return False
-            
-        self._headers.append(header)
-        
-        if callback:
-            self._plugin_columns.append((header, key, callback))
-        else:
-            self._column_keys.append(key)
-            
-        self.layoutChanged.emit()
-        return True
-        
-    def remove_column(self, header):
-        """Remove a column from the table"""
-        if header not in self._headers:
-            return False
-            
-        index = self._headers.index(header)
-        self._headers.pop(index)
-        
-        # Check if it's a plugin column or regular column
-        for i, (col_header, key, callback) in enumerate(self._plugin_columns):
-            if col_header == header:
-                self._plugin_columns.pop(i)
-                break
-        else:
-            if index < len(self._column_keys):
-                self._column_keys.pop(index)
-                
-        self.layoutChanged.emit()
-        return True
-        
-    def rowCount(self, parent=None):
-        """Return the number of rows"""
-        return len(self._devices)
-        
-    def columnCount(self, parent=None):
-        """Return the number of columns"""
-        # Add one column for selection checkboxes.
-        return len(self._headers) + 1
-        
-    def headerData(self, section, orientation, role=Qt.DisplayRole):
-        """Return the header data"""
-        if role == Qt.DisplayRole and orientation == Qt.Horizontal:
-            if section == 0:
-                return ""
-            return self._headers[section - 1]
-        return None
-        
-    def data(self, index, role=Qt.DisplayRole):
-        """Return the cell data"""
-        if not index.isValid():
-            return None
-            
-        if index.row() >= len(self._devices) or index.row() < 0:
-            return None
-            
-        device = self._devices[index.row()]
-        column = index.column()
-
-        if column == 0:
-            if role == Qt.CheckStateRole:
-                return Qt.Checked if device in self.device_manager.get_selected_devices() else Qt.Unchecked
-            if role == Qt.UserRole:
-                return device
-            if role == Qt.TextAlignmentRole:
-                return Qt.AlignCenter
-            return None
-
-        data_column = column - 1
-        
-        if role == Qt.DisplayRole or role == Qt.EditRole:
-            # Check if it's a plugin column
-            for header, key, callback in self._plugin_columns:
-                if header == self._headers[data_column]:
-                    return callback(device)
-            
-            # Regular column or custom property column
-            if data_column < len(self._column_keys):
-                key = self._column_keys[data_column]
-                
-                # Special handling for device groups
-                if key == "groups":
-                    groups = self._device_groups.get(device.id, [])
-                    return ", ".join(groups) if groups else ""
-                
-                value = device.get_property(key, "")
-                
-                # Special handling for tag lists
-                if key == "tags" and isinstance(value, list):
-                    return ", ".join(value)
-                
-                return value
-                
-            return None
-            
-        elif role == Qt.FontRole:
-            header = self._headers[data_column]
-            key = None
-            if data_column < len(self._column_keys):
-                key = self._column_keys[data_column]
-            if key in ("ip_address", "mac_address") or (key and "id" in key) or "ID" in header:
-                return QFontDatabase.systemFont(QFontDatabase.FixedFont)
-        elif role == Qt.TextAlignmentRole:
-            return Qt.AlignLeft | Qt.AlignVCenter
-            
-        elif role == Qt.UserRole:
-            # Return the device object
-            return device
-            
-        return None
-        
-    def flags(self, index):
-        """Return the cell flags"""
-        if not index.isValid():
-            return Qt.NoItemFlags
-
-        if index.column() == 0:
-            return Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable
-
-        return Qt.ItemIsEnabled | Qt.ItemIsSelectable
-
-    def setData(self, index, value, role=Qt.EditRole):
-        """Update selection state when checkbox column is toggled."""
-        if not index.isValid() or index.column() != 0:
-            return False
-        if role != Qt.CheckStateRole:
-            return False
-
-        device = self._devices[index.row()]
-        selected_devices = self.device_manager.get_selected_devices()
-        next_selection = selected_devices.copy()
-
-        if value == Qt.Checked and device not in next_selection:
-            next_selection.append(device)
-        elif value == Qt.Unchecked and device in next_selection:
-            next_selection.remove(device)
-
-        if set(next_selection) == set(selected_devices):
-            return False
-
-        self.device_manager.selected_devices = next_selection.copy()
-        self.device_manager.selection_changed.emit(next_selection)
-        self.dataChanged.emit(index, index, [Qt.CheckStateRole])
-        return True
-
-    def notify_selection_changed(self, rows=None):
-        """Emit dataChanged for selection checkboxes."""
-        if self.rowCount() == 0:
-            return
-
-        if rows:
-            for row in rows:
-                index = self.index(row, 0)
-                self.dataChanged.emit(index, index, [Qt.CheckStateRole])
-            return
-
-        left_index = self.index(0, 0)
-        right_index = self.index(self.rowCount() - 1, 0)
-        self.dataChanged.emit(left_index, right_index, [Qt.CheckStateRole])
-        
-    @Slot(object)
-    def on_device_added(self, device):
-        """Handle device added signal"""
-        if device not in self._devices:
-            self._devices.append(device)
-            # Check if device has new custom properties
-            self._discover_custom_properties()
-            self.layoutChanged.emit()
-            
-    @Slot(object)
-    def on_device_removed(self, device):
-        """Handle device removed signal"""
-        if device in self._devices:
-            row = self._devices.index(device)
-            self.beginRemoveRows(QModelIndex(), row, row)
-            self._devices.remove(device)
-            self.endRemoveRows()
-            # Re-discover custom properties in case this was the only device with a particular property
-            self._discover_custom_properties()
-            
-    @Slot(object)
-    def on_device_changed(self, device):
-        """Handle device changed signal"""
-        if device in self._devices:
-            # Update device groups cache for this device
-            self._update_device_groups()
-            
-            # Check if device has new custom properties
-            old_custom_props = set(self._custom_prop_keys)
-            self._discover_custom_properties()
-            new_custom_props = set(self._custom_prop_keys)
-            
-            # If custom properties have changed, update the view
-            if old_custom_props != new_custom_props:
-                self.layoutChanged.emit()
-            else:
-                # Just update the specific row
-                row = self._devices.index(device)
-                left_index = self.index(row, 0)
-                right_index = self.index(row, self.columnCount() - 1)
-                self.dataChanged.emit(left_index, right_index)
-            
-    @Slot()
-    def on_model_changed(self):
-        """Handle model changed signal"""
-        self.refresh_devices()
-
-
 class DeviceTableView(QTableView):
     """Custom table view for devices"""
     
@@ -1067,39 +195,51 @@ class DeviceTableView(QTableView):
         header.toggled.connect(self._on_header_checkbox_toggled)
         header.sortIndicatorChanged.connect(self._save_sort_state)
         
-        # Create filter widget with search bar and group selector on the same line
+        # Filter bar: Filter text, Add filter (icon-only, small), Group. Enter initiates search.
         self.filter_widget = QWidget()
         filter_layout = QHBoxLayout(self.filter_widget)
         filter_layout.setContentsMargins(5, 5, 5, 5)
         filter_layout.setSpacing(8)
 
-        # Filter bar (syntax-aware search) and "Add filter" button
         search_label = QLabel("Filter:")
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Search or filter (e.g. ip:192.168 status:online)")
+        self.search_edit.setPlaceholderText(
+            'e.g. hostname contains "web" AND status = Active — press Enter to search'
+        )
         self.search_edit.setToolTip(
-            "Plain text searches all columns. Use field:value for a column (e.g. ip:192.168, alias:router). "
-            "Short names: ip, host, alias, mac, status, tags, groups. Multiple terms = AND."
+            "Type a query and press Enter to search. Or use the filter icon to build visually. "
+            "Examples: hostname = \"server01\"; tags contains any [\"production\",\"critical\"]."
         )
         self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.returnPressed.connect(lambda: self._on_filter_bar_changed(self.search_edit.text()))
         self.search_edit.textChanged.connect(self._on_filter_bar_changed)
         filter_layout.addWidget(search_label)
         filter_layout.addWidget(self.search_edit, 1)
 
+        # Inline icon button: max height of adjacent search bar (24px), square, icon 18px.
         add_filter_btn = QToolButton()
-        add_filter_btn.setToolTip("Build filters visually (rules are reflected in the filter bar)")
-        add_filter_btn.setText("Add filter")
-        add_filter_btn.setIcon(material_icon("filter_list", self))
+        add_filter_btn.setProperty("iconOnlyInline", "true")
+        add_filter_btn.setToolTip("Build filters visually; search bar updates to match")
+        _filter_icon_path = os.path.join(os.path.dirname(__file__), "resources", "icons", "filter_list.svg")
+        if os.path.isfile(_filter_icon_path):
+            add_filter_btn.setIcon(QIcon(_filter_icon_path))
+        else:
+            add_filter_btn.setIcon(material_icon("filter_list", self))
+        add_filter_btn.setIconSize(QSize(18, 18))
+        add_filter_btn.setFixedSize(24, 24)
+        add_filter_btn.setStyleSheet(
+            "QToolButton { border: 1px solid palette(mid); border-radius: 2px; "
+            "background: palette(button); min-width: 24px; max-width: 24px; "
+            "min-height: 24px; max-height: 24px; padding: 0; }"
+        )
         add_filter_btn.clicked.connect(self.show_advanced_filter_dialog)
         filter_layout.addWidget(add_filter_btn)
 
-        # Group selector on the right
         group_filter_label = QLabel("Group:")
         self.group_filter_combo = QComboBox()
         self.group_filter_combo.setMinimumWidth(150)
         self.group_filter_combo.setToolTip("Filter devices by group")
         self.group_filter_combo.currentIndexChanged.connect(self._on_group_filter_combo_changed)
-        # Initialize with "All Devices" - will be populated properly in refresh_group_combo()
         self.group_filter_combo.addItem("All Devices", None)
         filter_layout.addWidget(group_filter_label)
         filter_layout.addWidget(self.group_filter_combo)
@@ -1185,19 +325,16 @@ class DeviceTableView(QTableView):
             self.group_filter_combo.setCurrentIndex(0)
     
     def _on_filter_bar_changed(self, text):
-        """Apply filter from the filter bar. Parses field:value syntax or uses plain search."""
+        """Apply filter from the filter bar. Parses power-user text, field:value, or plain search."""
         all_headers = ["Any Column"] + self.table_model.get_all_headers()
         simple, advanced = parse_filter_syntax(text, all_headers)
         if advanced:
             self._advanced_filter_state = advanced
             self.proxy_model.setFilterFixedString("")
-            self.proxy_model.set_advanced_filter(
-                advanced.get("rules", []),
-                advanced.get("logic", "AND"),
-            )
+            self.proxy_model.set_advanced_filter(advanced)
         else:
             self._advanced_filter_state = {"logic": "AND", "rules": []}
-            self.proxy_model.set_advanced_filter([], "AND")
+            self.proxy_model.set_advanced_filter(None)
             self.proxy_model.setFilterFixedString(simple or "")
         self._update_header_checkbox_state()
 
@@ -1244,7 +381,7 @@ class DeviceTableView(QTableView):
 
         self._save_group_filter_state(self._group_filter_name)
         self._update_header_checkbox_state()
-    
+
     def _on_group_filter_combo_changed(self, index):
         """Handle group filter combo box selection change."""
         if index < 0:
@@ -1769,13 +906,10 @@ class DeviceTableView(QTableView):
         self._advanced_filter_dialog = dialog
 
     def _apply_advanced_filter_state(self, state, save=True):
-        """Apply advanced filter state to the proxy model."""
+        """Apply advanced filter state (tree or legacy) to the proxy model."""
         state = state or {"logic": "AND", "rules": []}
         self._advanced_filter_state = state
-        self.proxy_model.set_advanced_filter(
-            rules=state.get("rules", []),
-            logic=state.get("logic", "AND"),
-        )
+        self.proxy_model.set_advanced_filter(state)
         if save:
             self._save_filter_state(state)
         self._update_header_checkbox_state()

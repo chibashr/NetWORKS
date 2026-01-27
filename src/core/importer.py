@@ -17,56 +17,18 @@ from pathlib import Path
 
 # Import Device class for creating device objects
 from .device_manager import Device
-
-# Try to import optional dependencies
-HAS_PANDAS = False
-_PANDAS_IMPORT_ERROR = None
-
-try:
-    import openpyxl
-    HAS_OPENPYXL = True
-except ImportError:
-    HAS_OPENPYXL = False
-    logger.debug("openpyxl not available for importing XLSX files")
-
-try:
-    import xlrd
-    HAS_XLRD = True
-except ImportError:
-    HAS_XLRD = False
-    logger.debug("xlrd not available for importing legacy Excel files")
-
-try:
-    from docx import Document
-    HAS_DOCX = True
-except ImportError:
-    HAS_DOCX = False
-    logger.debug("python-docx not available for importing Word documents")
-
-try:
-    import chardet
-    HAS_CHARDET = True
-except ImportError:
-    HAS_CHARDET = False
-    logger.debug("chardet not available for detecting file encodings")
-
-
-def _try_import_pandas():
-    """Import pandas lazily to avoid startup warnings."""
-    global HAS_PANDAS, _PANDAS_IMPORT_ERROR
-    if HAS_PANDAS:
-        return True
-    if _PANDAS_IMPORT_ERROR is not None:
-        return False
-    try:
-        import pandas as pd  # type: ignore
-        globals()["pd"] = pd
-        HAS_PANDAS = True
-        return True
-    except Exception as e:
-        _PANDAS_IMPORT_ERROR = e
-        logger.warning(f"pandas not available for importing Excel files: {e}")
-        return False
+from .importer_utils import (
+    HAS_CHARDET,
+    HAS_DOCX,
+    HAS_OPENPYXL,
+    HAS_XLRD,
+    _try_import_pandas,
+    get_chardet,
+    get_docx_document,
+    get_openpyxl,
+    get_pandas,
+    get_xlrd,
+)
 
 
 class DeviceImporter:
@@ -209,6 +171,7 @@ class DeviceImporter:
                 return [], None
                 
             try:
+                pd = get_pandas()
                 engine = 'xlrd' if file_ext == '.xls' else None
                 df = pd.read_excel(file_path, engine=engine)
                 logger.debug(f"Excel file loaded with {len(df)} rows")
@@ -289,7 +252,10 @@ class DeviceImporter:
         skip_rows = max(int(options.get('skip_rows', 0)), 0)
         
         try:
-            workbook = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+            openpyxl_mod = get_openpyxl()
+            if not openpyxl_mod:
+                return [], None
+            workbook = openpyxl_mod.load_workbook(file_path, read_only=True, data_only=True)
             sheet = workbook.active
             rows = list(sheet.iter_rows(values_only=True))
             if not rows:
@@ -323,8 +289,11 @@ class DeviceImporter:
         Returns:
             tuple: (data, headers) where data is a list of rows and headers is a list of column names
         """
+        DocClass = get_docx_document()
+        if not DocClass:
+            return [], None
         try:
-            doc = Document(file_path)
+            doc = DocClass(file_path)
             
             # Try to find tables
             if doc.tables:
@@ -375,12 +344,12 @@ class DeviceImporter:
         encoding = None
         
         if encoding_option == 'auto':
-            # Detect encoding if chardet is available
-            if HAS_CHARDET:
+            chardet_mod = get_chardet()
+            if chardet_mod:
                 try:
                     with open(file_path, 'rb') as f:
                         raw_data = f.read(10000)  # Read first 10000 bytes
-                        result = chardet.detect(raw_data)
+                        result = chardet_mod.detect(raw_data)
                         encoding = result['encoding']
                         logger.debug(f"Detected encoding: {encoding} (confidence: {result.get('confidence', 0):.2f})")
                         if not encoding:
@@ -390,6 +359,8 @@ class DeviceImporter:
                     encoding = 'utf-8'  # Fallback to UTF-8
             else:
                 encoding = 'utf-8'  # Fallback to UTF-8 if chardet not available
+            if not encoding:
+                encoding = 'utf-8'
         else:
             encoding = encoding_option
             

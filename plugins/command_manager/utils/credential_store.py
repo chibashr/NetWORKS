@@ -2,7 +2,11 @@
 # -*- coding: utf-8 -*-
 
 """
-Credential Store for Command Manager plugin
+Credential Store for Command Manager plugin.
+
+Credentials are stored per workspace for security: group and subnet credentials
+live under the current workspace directory and are reloaded when the workspace
+changes. Device credentials remain in device properties (saved with the workspace).
 """
 
 import os
@@ -15,58 +19,84 @@ from .encryption import encrypt_password, decrypt_password
 
 
 class CredentialStore:
-    """Secure storage for network device credentials"""
-    
-    def __init__(self, data_dir):
-        """Initialize the credential store"""
-        self.data_dir = data_dir
-        
-        # Keep these directories for backward compatibility and group/subnet credentials
-        self.group_creds_dir = data_dir / "credentials" / "groups"
-        self.group_creds_dir.mkdir(parents=True, exist_ok=True)
-        
-        self.subnet_creds_dir = data_dir / "credentials" / "subnets"
-        self.subnet_creds_dir.mkdir(parents=True, exist_ok=True)
-        
-        # The device_creds_dir is maintained only for backward compatibility
-        self.device_creds_dir = data_dir / "credentials" / "devices"
-        self.device_creds_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Cache
-        self.device_credentials = {}  # Only used for backward compatibility now
+    """Secure storage for network device credentials, scoped per workspace."""
+
+    def __init__(self, get_workspace_credentials_dir, device_manager=None):
+        """Initialize the credential store.
+
+        Args:
+            get_workspace_credentials_dir: Callable() -> Path that returns the
+                current workspace's credentials base directory (e.g. workspaces/<name>/plugins/command_manager/credentials).
+                Group and subnet credentials are stored under this path and reloaded when it changes.
+            device_manager: Optional device manager reference for device credentials and migration.
+        """
+        self._get_workspace_credentials_dir = get_workspace_credentials_dir
+        self.device_manager = device_manager
+        self._current_workspace_base = None
+
+        # In-memory caches for the current workspace (group/subnet only)
+        self.device_credentials = {}  # Legacy fallback only
         self.group_credentials = {}
         self.subnet_credentials = {}
-        
-        # Device manager reference (will be set by the plugin)
-        self.device_manager = None
-        
-        # Load group and subnet credentials
-        self._load_credentials()
-        
+
+        self._ensure_workspace_loaded()
+
     def set_device_manager(self, device_manager):
-        """Set the device manager reference"""
+        """Set the device manager reference."""
         self.device_manager = device_manager
-        logger.debug(f"CredentialStore: Device manager reference set")
-        
+        logger.debug("CredentialStore: Device manager reference set")
+
+    def _ensure_workspace_loaded(self):
+        """Load group/subnet credentials for the current workspace if the workspace has changed."""
+        base = Path(self._get_workspace_credentials_dir())
+        if base != self._current_workspace_base:
+            self._current_workspace_base = base
+            (base / "groups").mkdir(parents=True, exist_ok=True)
+            (base / "subnets").mkdir(parents=True, exist_ok=True)
+            (base / "devices").mkdir(parents=True, exist_ok=True)
+            self._load_device_credentials()
+            self._load_group_credentials()
+            self._load_subnet_credentials()
+            logger.debug(f"CredentialStore: Loaded credentials for workspace base {base}")
+
+    def _get_group_creds_dir(self):
+        """Return the group credentials directory for the current workspace."""
+        self._ensure_workspace_loaded()
+        d = self._current_workspace_base / "groups"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _get_subnet_creds_dir(self):
+        """Return the subnet credentials directory for the current workspace."""
+        self._ensure_workspace_loaded()
+        d = self._current_workspace_base / "subnets"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    def _get_device_creds_dir(self):
+        """Return the legacy device credentials directory for the current workspace."""
+        self._ensure_workspace_loaded()
+        d = self._current_workspace_base / "devices"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
     def _load_credentials(self):
-        """Load all credentials from disk"""
-        self._load_device_credentials()  # For backward compatibility
+        """Load device (legacy), group and subnet credentials from disk for current workspace."""
+        self._load_device_credentials()
         self._load_group_credentials()
         self._load_subnet_credentials()
         
     def _load_device_credentials(self):
         """
-        Load device credentials from disk for backward compatibility
-        Note: These will be migrated to device properties when accessed
+        Load device credentials from disk for backward compatibility.
+        Note: These will be migrated to device properties when accessed.
         """
         self.device_credentials = {}
-        
-        # Check if the credentials directory exists
-        if not self.device_creds_dir.exists():
+        device_creds_dir = self._get_device_creds_dir()
+        if not device_creds_dir.exists():
             return
-        
-        # Iterate through credential files
-        for file_path in self.device_creds_dir.glob("*.json"):
+
+        for file_path in device_creds_dir.glob("*.json"):
             try:
                 with open(file_path, "r") as f:
                     data = json.load(f)
@@ -124,15 +154,13 @@ class CredentialStore:
         logger.debug(f"Migrated credentials to device property for device {device.id}")
     
     def _load_group_credentials(self):
-        """Load group credentials from disk"""
+        """Load group credentials from disk for the current workspace."""
         self.group_credentials = {}
-        
-        # Check if the credentials directory exists
-        if not self.group_creds_dir.exists():
+        group_creds_dir = self._current_workspace_base / "groups" if self._current_workspace_base else None
+        if not group_creds_dir or not group_creds_dir.exists():
             return
-        
-        # Iterate through credential files
-        for file_path in self.group_creds_dir.glob("*.json"):
+
+        for file_path in group_creds_dir.glob("*.json"):
             try:
                 with open(file_path, "r") as f:
                     data = json.load(f)
@@ -163,15 +191,13 @@ class CredentialStore:
                 logger.error(f"Error loading group credentials from {file_path}: {e}")
     
     def _load_subnet_credentials(self):
-        """Load subnet credentials from disk"""
+        """Load subnet credentials from disk for the current workspace."""
         self.subnet_credentials = {}
-        
-        # Check if the credentials directory exists
-        if not self.subnet_creds_dir.exists():
+        subnet_creds_dir = self._current_workspace_base / "subnets" if self._current_workspace_base else None
+        if not subnet_creds_dir or not subnet_creds_dir.exists():
             return
-        
-        # Iterate through credential files
-        for file_path in self.subnet_creds_dir.glob("*.json"):
+
+        for file_path in subnet_creds_dir.glob("*.json"):
             try:
                 with open(file_path, "r") as f:
                     data = json.load(f)
@@ -240,28 +266,16 @@ class CredentialStore:
         return creds
 
     def _save_group_credentials(self):
-        """Save group credentials to disk"""
-        # Check if the credentials directory exists
-        if not self.group_creds_dir.exists():
-            self.group_creds_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Iterate through credentials
+        """Save group credentials to disk for the current workspace."""
+        group_creds_dir = self._get_group_creds_dir()
         for group_name, creds in self.group_credentials.items():
             try:
-                # Create a copy of the credentials
                 creds_copy = creds.copy()
-                
-                # Encrypt password before saving
-                # Note: Credentials in memory are always plaintext (from UI input)
                 if "password" in creds_copy and creds_copy["password"]:
                     creds_copy["password"] = encrypt_password(creds_copy["password"])
-                
-                # Encrypt enable password before saving
                 if "enable_password" in creds_copy and creds_copy["enable_password"]:
                     creds_copy["enable_password"] = encrypt_password(creds_copy["enable_password"])
-                
-                # Save to file
-                file_path = self.group_creds_dir / f"{group_name}.json"
+                file_path = group_creds_dir / f"{group_name}.json"
                 with open(file_path, "w") as f:
                     json.dump(creds_copy, f, indent=2)
                 
@@ -272,29 +286,17 @@ class CredentialStore:
                 logger.exception("Exception details:")
     
     def _save_subnet_credentials(self):
-        """Save subnet credentials to disk"""
-        # Check if the credentials directory exists
-        if not self.subnet_creds_dir.exists():
-            self.subnet_creds_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Iterate through credentials
+        """Save subnet credentials to disk for the current workspace."""
+        subnet_creds_dir = self._get_subnet_creds_dir()
         for subnet, creds in self.subnet_credentials.items():
             try:
-                # Create a copy of the credentials
                 creds_copy = creds.copy()
-                
-                # Encrypt password before saving
-                # Note: Credentials in memory are always plaintext (from UI input)
                 if "password" in creds_copy and creds_copy["password"]:
                     creds_copy["password"] = encrypt_password(creds_copy["password"])
-                
-                # Encrypt enable password before saving
                 if "enable_password" in creds_copy and creds_copy["enable_password"]:
                     creds_copy["enable_password"] = encrypt_password(creds_copy["enable_password"])
-                
-                # Save to file (subnet might contain /, so sanitize filename)
                 safe_subnet = subnet.replace("/", "_")
-                file_path = self.subnet_creds_dir / f"{safe_subnet}.json"
+                file_path = subnet_creds_dir / f"{safe_subnet}.json"
                 with open(file_path, "w") as f:
                     json.dump(creds_copy, f, indent=2)
                 
@@ -348,7 +350,7 @@ class CredentialStore:
         return None
     
     def get_group_credentials(self, group_name):
-        """Get credentials for a device group
+        """Get credentials for a device group (current workspace only).
         
         Args:
             group_name: The group name
@@ -356,15 +358,15 @@ class CredentialStore:
         Returns:
             dict: Credentials or None if not found
         """
+        self._ensure_workspace_loaded()
         logger.debug(f"Getting credentials for group {group_name}")
-        
         if group_name in self.group_credentials:
             return self.group_credentials[group_name]
         
         return None
     
     def get_subnet_credentials(self, subnet):
-        """Get credentials for a subnet
+        """Get credentials for a subnet (current workspace only).
         
         Args:
             subnet: The subnet in CIDR notation
@@ -372,8 +374,8 @@ class CredentialStore:
         Returns:
             dict: Credentials or None if not found
         """
+        self._ensure_workspace_loaded()
         logger.debug(f"Getting credentials for subnet {subnet}")
-        
         # First, try exact match
         if subnet in self.subnet_credentials:
             return self.subnet_credentials[subnet]
@@ -485,7 +487,7 @@ class CredentialStore:
             success = True
             
             # Remove file if it exists
-            file_path = self.device_creds_dir / f"{device_id}.json"
+            file_path = self._get_device_creds_dir() / f"{device_id}.json"
             if file_path.exists():
                 try:
                     file_path.unlink()
@@ -496,8 +498,8 @@ class CredentialStore:
         return success
     
     def set_group_credentials(self, group_name, credentials):
-        """Set credentials for a group"""
-        # Store credentials in memory (decrypted for use)
+        """Set credentials for a group (current workspace only)."""
+        self._ensure_workspace_loaded()
         self.group_credentials[group_name] = credentials.copy()
         
         # Save to disk (encrypted)
@@ -507,12 +509,11 @@ class CredentialStore:
         return True
     
     def delete_group_credentials(self, group_name):
-        """Delete credentials for a group"""
+        """Delete credentials for a group (current workspace only)."""
+        self._ensure_workspace_loaded()
         if group_name in self.group_credentials:
             del self.group_credentials[group_name]
-            
-            # Remove file if it exists
-            file_path = self.group_creds_dir / f"{group_name}.json"
+            file_path = self._get_group_creds_dir() / f"{group_name}.json"
             if file_path.exists():
                 try:
                     file_path.unlink()
@@ -542,12 +543,12 @@ class CredentialStore:
         return True
     
     def delete_subnet_credentials(self, subnet):
-        """Delete credentials for a subnet"""
+        """Delete credentials for a subnet (current workspace only)."""
+        self._ensure_workspace_loaded()
         if subnet in self.subnet_credentials:
             del self.subnet_credentials[subnet]
-            
-            # Remove file if it exists
-            file_path = self.subnet_creds_dir / f"{subnet}.json"
+            safe_subnet = subnet.replace("/", "_")
+            file_path = self._get_subnet_creds_dir() / f"{safe_subnet}.json"
             if file_path.exists():
                 try:
                     file_path.unlink()
@@ -577,5 +578,6 @@ class CredentialStore:
         return self.group_credentials
     
     def get_all_subnet_credentials(self):
-        """Get all subnet credentials"""
-        return self.subnet_credentials 
+        """Get all subnet credentials for the current workspace."""
+        self._ensure_workspace_loaded()
+        return self.subnet_credentials.copy() 

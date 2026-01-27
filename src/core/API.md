@@ -2,6 +2,15 @@
 
 This document provides detailed information about the core components of NetWORKS that plugins can interact with.
 
+## Module layout (file-length refactor)
+
+Models and helpers live in separate modules; public API is preserved via re-exports:
+
+- **device_models.py**: `Device`, `DeviceGroup` (import from `device_manager` or `device_models`).
+- **plugin_types.py**: `PluginState`, `PluginInfo` (import from `plugin_manager` or `plugin_types`).
+- **plugin/**: `plugin_registry`, `plugin_discovery`; used by `PluginManager`. Import plugin API from `plugin_manager` only.
+- **importer_utils.py**: optional deps (pandas, openpyxl, xlrd, docx, chardet) and `_try_import_pandas`, `get_pandas`, `get_openpyxl`, etc. Used by `importer`.
+
 ## Table of Contents
 
 - [Device Manager](#device-manager)

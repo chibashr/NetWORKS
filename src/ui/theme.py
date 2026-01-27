@@ -246,6 +246,19 @@ def build_stylesheet(tokens):
         background-color: {tokens.accent};
         color: {tokens.selection_text};
     }}
+    /* Icon-only tool buttons: square. 32×32 for toolbar; 24×24 inline (max height of adjacent inputs). */
+    QToolButton[iconOnly="true"] {{
+        min-width: 32px;
+        max-width: 32px;
+        min-height: 32px;
+        max-height: 32px;
+    }}
+    QToolButton[iconOnlyInline="true"] {{
+        min-width: 24px;
+        max-width: 24px;
+        min-height: 24px;
+        max-height: 24px;
+    }}
     QPushButton {{
         background-color: {tokens.surface_raised};
         border: 1px solid {tokens.border};
@@ -266,7 +279,15 @@ def build_stylesheet(tokens):
         border-color: {tokens.border};
         background-color: {tokens.surface_alt};
     }}
-    QLineEdit, QTextEdit, QPlainTextEdit {{
+    QLineEdit {{
+        background-color: {tokens.surface_raised};
+        color: {tokens.text};
+        border: 1px solid {tokens.border};
+        border-radius: {tokens.radius}px;
+        padding: 4px;
+        min-height: 24px;
+    }}
+    QTextEdit, QPlainTextEdit {{
         background-color: {tokens.surface_raised};
         color: {tokens.text};
         border: 1px solid {tokens.border};
