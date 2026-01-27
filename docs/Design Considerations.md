@@ -687,6 +687,46 @@ Loading... ▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░ 50%
 - Animated shimmer effect
 - Match actual content layout
 
+### Preview Panels (Right Panel)
+
+When a dialog or panel lets users edit content that can be rendered (templates, reports, export scope), use a **right-side preview panel** so they can see the result without leaving the screen. Follow the same pattern as the Template Manager and Report Generator.
+
+**Layout:**
+- **Split**: Horizontal `QSplitter`; left = form/configuration, right = preview.
+- **Left**: Scroll area with form/controls; set a minimum width (e.g. 500–700px) so the form stays readable.
+- **Right**: Preview panel; minimum width 360–400px (or up to ~520px if the preview needs more room).
+- **Splitter**: `setChildrenCollapsible(False)` so the preview stays visible. Use equal stretch factors (e.g. 1:1) so both sides resize proportionally.
+- **Optional**: Persist splitter sizes (e.g. `[740, 520]`) for a consistent default.
+
+**Right-panel structure:**
+```
+┌─ Preview ─────────────────────────────────┐
+│ [Context label if needed: Device / Scope]   │
+│ [Dropdown or list when preview is per-item]│
+│                                             │
+│ Rendered output / Preview:                  │
+│ ┌─────────────────────────────────────────┐│
+│ │ Read-only text area                      ││
+│ │ (QTextEdit, setReadOnly(True))           ││
+│ │ Placeholder: "Select … to see preview."  ││
+│ └─────────────────────────────────────────┘│
+└─────────────────────────────────────────────┘
+```
+
+**Specifications:**
+- **Container**: Use `QGroupBox("Preview")` around the preview content so the block is clearly labeled.
+- **Content**: Primary control is a read-only `QTextEdit` for rendered output (or equivalent). Use `setPlaceholderText(...)` when there is nothing to show (e.g. "Select a device to see template rendered with its data").
+- **Context**: If the preview depends on a selection (device, report, etc.), add a combo or list above the output and a short label (e.g. "Device:", "Rendered output:").
+- **Spacing**: Margins 0 on the preview panel layout; 8px spacing between sections inside the group. Section spacing: 12px vertical as in the rest of the spec.
+- **Sizing**: Right panel `setMinimumWidth(360)` to `400` (or more if the feature needs it). `QSizePolicy.Expanding` so it shares space with the left side.
+
+**Examples in the app:**
+- **Template Manager**: Left = templates, source, variables, export; right = "Preview" with Device combo and "Rendered output:" text area.
+- **Report Generator**: Left = report details, source, columns/template; right = Output group and "Preview" group with read-only text.
+- **Batch export (Template Manager)**: Left = scope, filters, path; right = "Preview" with device list, missing-data hint, and per-device preview text.
+
+Use this pattern for any UI that combines editing/configuration with a rendered or exported result, so preview behavior and layout stay consistent across plugins and dialogs.
+
 ---
 
 ## 9. Accessibility
