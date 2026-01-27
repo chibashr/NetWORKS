@@ -2,18 +2,20 @@
 # -*- coding: utf-8 -*-
 
 """
-Update notification dialog for NetWORKS
+Update notification dialog for NetWORKS.
+
+Supports in-app git-based updates and an interactive "View on GitHub"
+button for manual download when needed.
 """
 
 import os
 import sys
-import subprocess
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QTextEdit, QMessageBox, QDialogButtonBox, QApplication, QProgressBar
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QTextEdit, QMessageBox, QDialogButtonBox, QApplication, QProgressBar,
 )
-from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QFont, QPixmap, QIcon
+from PySide6.QtCore import Qt, QThread, Signal, QUrl
+from PySide6.QtGui import QFont, QIcon, QDesktopServices
 from loguru import logger
 from ..core.update_manager import UpdateManager
 
@@ -72,6 +74,7 @@ class UpdateDialog(QDialog):
         self.update_manager = None
         self.update_thread = None
         self.is_updating = False
+        self._error_dialog_shown = False
         
         # Get config from parent if available
         self.config = None
@@ -162,6 +165,10 @@ class UpdateDialog(QDialog):
         self.update_button.setDefault(True)
         self.update_button.clicked.connect(self._on_update)
         
+        self.view_github_button = QPushButton("View on GitHub")
+        self.view_github_button.setToolTip("Open the releases page in your browser")
+        self.view_github_button.clicked.connect(self._on_view_github)
+        
         self.remind_button = QPushButton("Remind Me Later")
         self.remind_button.clicked.connect(self.reject)
         
@@ -169,6 +176,7 @@ class UpdateDialog(QDialog):
         self.skip_button.clicked.connect(self._on_skip)
         
         button_box.addButton(self.update_button, QDialogButtonBox.AcceptRole)
+        button_box.addButton(self.view_github_button, QDialogButtonBox.ActionRole)
         button_box.addButton(self.remind_button, QDialogButtonBox.RejectRole)
         button_box.addButton(self.skip_button, QDialogButtonBox.RejectRole)
         
@@ -223,6 +231,7 @@ class UpdateDialog(QDialog):
         
         # Disable buttons during update
         self.update_button.setEnabled(False)
+        self.view_github_button.setEnabled(False)
         self.remind_button.setEnabled(False)
         self.skip_button.setEnabled(False)
         
@@ -238,18 +247,16 @@ class UpdateDialog(QDialog):
             update_channel = self.config.get("general.update_channel", "Stable")
             branch = branch_map.get(update_channel, "stable")
         
-        # Connect UpdateManager signals (must be done before starting thread)
+        # Connect UpdateManager for progress/status/error only; completion from thread only to avoid double dialogs
         self.update_manager.progress.connect(self._on_progress, Qt.QueuedConnection)
         self.update_manager.status_changed.connect(self._on_status, Qt.QueuedConnection)
         self.update_manager.error_occurred.connect(self._on_error, Qt.QueuedConnection)
-        self.update_manager.update_complete.connect(self._on_update_complete, Qt.QueuedConnection)
         
-        # Create and start update thread
         self.update_thread = UpdateThread(self.update_manager, branch)
-        self.update_thread.progress.connect(self._on_progress)
-        self.update_thread.status.connect(self._on_status)
-        self.update_thread.error.connect(self._on_error)
-        self.update_thread.complete.connect(self._on_update_complete)
+        self.update_thread.progress.connect(self._on_progress, Qt.QueuedConnection)
+        self.update_thread.status.connect(self._on_status, Qt.QueuedConnection)
+        self.update_thread.error.connect(self._on_error, Qt.QueuedConnection)
+        self.update_thread.complete.connect(self._on_update_complete, Qt.QueuedConnection)
         self.update_thread.start()
     
     def _on_progress(self, message):
@@ -263,20 +270,24 @@ class UpdateDialog(QDialog):
         logger.info(f"Update status: {message}")
     
     def _on_error(self, message):
-        """Handle errors during update"""
+        """Handle errors during update."""
         logger.error(f"Update error: {message}")
+        self._error_dialog_shown = True
         self._reset_ui()
         
-        # Show error dialog
-        QMessageBox.critical(
-            self,
-            "Update Error",
-            f"An error occurred during the update:\n\n{message}\n\n"
-            "You can try again or update manually by downloading the latest release from GitHub."
-        )
+        box = QMessageBox(self)
+        box.setWindowTitle("Update Error")
+        box.setText(f"An error occurred during the update:\n\n{message}\n\n"
+                    "You can try again or update manually by downloading the latest release from GitHub.")
+        box.setIcon(QMessageBox.Critical)
+        open_btn = box.addButton("Open in Browser", QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Ok)
+        box.exec()
+        if box.clickedButton() == open_btn:
+            QDesktopServices.openUrl(QUrl(self._get_release_url()))
     
     def _on_update_complete(self, success, message):
-        """Handle update completion"""
+        """Handle update completion (only thread.complete is connected to avoid double dialogs)."""
         self._reset_ui()
         
         if success:
@@ -288,42 +299,36 @@ class UpdateDialog(QDialog):
             )
             self.accept()
         else:
-            QMessageBox.warning(
-                self,
-                "Update Failed",
-                f"Update failed: {message}\n\n"
-                "You can try again or update manually by downloading the latest release from GitHub."
-            )
+            # Error dialog is already shown by _on_error when manager emits error_occurred.
+            # Only show a dialog if this failure wasn't reported via error_occurred (e.g. thread crash).
+            if not getattr(self, "_error_dialog_shown", False):
+                box = QMessageBox(self)
+                box.setWindowTitle("Update Failed")
+                box.setText(f"Update failed: {message}\n\n"
+                            "You can try again or update manually by downloading the latest release from GitHub.")
+                box.setIcon(QMessageBox.Warning)
+                open_btn = box.addButton("Open in Browser", QMessageBox.ActionRole)
+                box.addButton(QMessageBox.Ok)
+                box.exec()
+                if box.clickedButton() == open_btn:
+                    QDesktopServices.openUrl(QUrl(self._get_release_url()))
+            self._error_dialog_shown = False
     
     def _reset_ui(self):
-        """Reset UI after update completes"""
+        """Reset UI after update completes."""
         self.is_updating = False
         self.progress_bar.setVisible(False)
         self.progress_text.setVisible(False)
         self.status_label.setText("")
         self.update_button.setEnabled(True)
+        self.view_github_button.setEnabled(True)
         self.remind_button.setEnabled(True)
         self.skip_button.setEnabled(True)
             
     
     def _show_manual_update_instructions(self):
-        """Show instructions for manually updating the application"""
-        repo_url = self.update_manager.repository_url
-        branch = "stable"
-        
-        # Get branch from config if available
-        if self.config:
-            branch_map = {
-                "Stable": "stable",
-                "Beta": "beta",
-                "Alpha": "alpha",
-                "Development": "main"
-            }
-            update_channel = self.config.get("general.update_channel", "Stable")
-            branch = branch_map.get(update_channel, "stable")
-        
-        release_url = f"{repo_url}/releases/latest" if branch == "stable" else f"{repo_url}/tree/{branch}"
-        
+        """Show instructions for manually updating the application."""
+        release_url = self._get_release_url()
         message = (
             f"To update to version {self.new_version}:\n\n"
             f"1. Visit the releases page:\n   {release_url}\n\n"
@@ -333,12 +338,32 @@ class UpdateDialog(QDialog):
             f"   https://git-scm.com/downloads"
         )
         
-        QMessageBox.information(
-            self,
-            "Manual Update Required",
-            message
-        )
-            
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Manual Update Required")
+        msg.setText(message)
+        msg.setIcon(QMessageBox.Information)
+        open_btn = msg.addButton("Open in Browser", QMessageBox.ActionRole)
+        msg.addButton(QMessageBox.Ok)
+        msg.exec()
+        if msg.clickedButton() == open_btn:
+            QDesktopServices.openUrl(QUrl(release_url))
+    
+    def _get_release_url(self):
+        """Return the GitHub URL for the current channel (releases or tree/branch)."""
+        repo_url = (self.update_manager.repository_url or "").rstrip("/")
+        if not repo_url or "github.com" not in repo_url:
+            return "https://github.com/chibashr/netWORKS/releases/latest"
+        branch = "stable"
+        if self.config:
+            ch = self.config.get("general.update_channel", "Stable")
+            branch = {"Stable": "stable", "Beta": "beta", "Alpha": "alpha", "Development": "main"}.get(ch, "stable")
+        return f"{repo_url}/releases/latest" if branch == "stable" else f"{repo_url}/tree/{branch}"
+    
+    def _on_view_github(self):
+        """Open the releases or branch page in the default browser."""
+        url = self._get_release_url()
+        QDesktopServices.openUrl(QUrl(url))
+    
     def _on_skip(self):
         """Handle skip this version button"""
         # Store the skipped version in the config if available

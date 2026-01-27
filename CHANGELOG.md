@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Version bump to 0.10.6
+- Updater: Stable channel now uses GitHub Releases API for latest release; Beta/Alpha/Development use branch manifest
+- Updater: Update dialog adds **View on GitHub**; error and manual-update dialogs add **Open in Browser**
+- Updater: Completion handling uses thread signal only to avoid duplicate dialogs
+- Config key for startup update check aligned to `general.check_for_updates` (was `general.check_updates` in code)
+
+### Fixed
+- Updater: Correct config key so “Check for updates on startup” is respected in Settings and at startup
+- Updater: Clearer handling when Releases API returns 404 (fallback to stable branch manifest)
 
 ## [0.10.5] - 2026-01-26
 

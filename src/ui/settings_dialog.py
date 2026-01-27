@@ -510,7 +510,7 @@ class SettingsDialog(QDialog):
         self.plugins_dir_edit.setText(self.config.get("application.external_plugins_directory", ""))
         
         # Update settings
-        self.check_updates_check.setChecked(self.config.get("general.check_updates", True))
+        self.check_updates_check.setChecked(self.config.get("general.check_for_updates", True))
         self.update_channel_combo.setCurrentText(self.config.get("general.update_channel", "Stable"))
         self.repo_url_edit.setText(self.config.get("general.repository_url", "https://github.com/chibashr/netWORKS"))
         
@@ -562,7 +562,7 @@ class SettingsDialog(QDialog):
         self.config.set("application.external_plugins_directory", self.plugins_dir_edit.text())
         
         # Update settings
-        self.config.set("general.check_updates", self.check_updates_check.isChecked())
+        self.config.set("general.check_for_updates", self.check_updates_check.isChecked())
         self.config.set("general.update_channel", self.update_channel_combo.currentText())
         self.config.set("general.repository_url", self.repo_url_edit.text().strip())
         

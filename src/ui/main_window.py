@@ -2111,9 +2111,8 @@ class MainWindow(QMainWindow):
         # Connect signals
         self.update_checker.update_available.connect(self.on_update_available)
         
-        # Check for updates on startup if enabled
-        if self.config.get("general.check_updates", True):
-            # Schedule update check after a delay to not slow down startup
+        # Check for updates on startup if enabled (key matches config default.yaml)
+        if self.config.get("general.check_for_updates", True):
             QTimer.singleShot(5000, self.check_for_updates)
 
     def check_for_updates(self, silent=True):
