@@ -20,11 +20,13 @@ from PySide6.QtCore import Qt, Signal, QTimer, QPoint
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -38,6 +40,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSplitter,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -100,6 +103,11 @@ TRANSFORM_TYPES = [
 
 EXPORT_FORMATS = ["HTML", "JSON", "CSV", "TXT"]
 
+# Standard device properties (from Device model). All others are custom.
+STANDARD_DEVICE_PROPERTIES = (
+    "id", "alias", "hostname", "ip_address", "mac_address", "status", "notes", "tags"
+)
+
 
 def default_report_definition():
     return {
@@ -113,7 +121,9 @@ def default_report_definition():
             "tag": "",
         },
         "filters": [],
+        "filter_logic": "AND",
         "columns": [],
+        "column_options": {},
         "computed_columns": [],
         "transformations": [],
         "sort": {"column": "", "direction": "asc"},
@@ -395,6 +405,7 @@ class ReportBuilderWidget(QWidget):
         form_layout.addWidget(scroll_area)
 
         form_container = QWidget()
+        form_container.setMinimumWidth(700)
         scroll_area.setWidget(form_container)
         form_layout = QVBoxLayout(form_container)
         form_layout.setContentsMargins(0, 0, 0, 0)
@@ -451,21 +462,90 @@ class ReportBuilderWidget(QWidget):
         source_layout.addRow("", source_help)
         form_layout.addWidget(source_group)
 
-        self.table_controls_group = QGroupBox("Table Editor")
-        table_controls_layout = QVBoxLayout(self.table_controls_group)
+        self.table_controls_group = QFrame()
+        self.table_controls_group.setFrameShape(QFrame.NoFrame)
+        wizard_layout = QVBoxLayout(self.table_controls_group)
+        wizard_layout.setContentsMargins(0, 0, 0, 0)
 
-        table_editor_splitter = QSplitter(Qt.Horizontal)
-        table_editor_splitter.setChildrenCollapsible(False)
-        table_controls_layout.addWidget(table_editor_splitter)
+        self.wizard_tabs = QTabWidget()
+        self.wizard_tabs.setDocumentMode(True)
 
-        filter_sort_panel = QWidget()
-        filter_sort_layout = QVBoxLayout(filter_sort_panel)
-        filter_sort_layout.setContentsMargins(0, 0, 0, 0)
-        filter_sort_layout.setSpacing(8)
+        # ---- Tab 1: Columns ----
+        columns_tab = QWidget()
+        col_layout = QVBoxLayout(columns_tab)
+        col_splitter = QSplitter(Qt.Horizontal)
+        col_splitter.setChildrenCollapsible(False)
 
+        available_panel = QGroupBox("Available Fields")
+        av_layout = QVBoxLayout(available_panel)
+        self.column_search_edit = QLineEdit()
+        self.column_search_edit.setPlaceholderText("Search fields...")
+        self.column_search_edit.textChanged.connect(self._filter_available_columns)
+        av_layout.addWidget(self.column_search_edit)
+        self.available_columns_list = QListWidget()
+        self.available_columns_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.available_columns_list.itemDoubleClicked.connect(self._add_available_column_to_selected)
+        av_layout.addWidget(self.available_columns_list)
+        add_one_btn = QPushButton("Add →")
+        add_one_btn.clicked.connect(self._add_selected_available_to_columns)
+        add_all_btn = QPushButton("Add All")
+        add_all_btn.clicked.connect(self._add_all_available_columns)
+        av_layout.addWidget(add_one_btn)
+        av_layout.addWidget(add_all_btn)
+        col_splitter.addWidget(available_panel)
+
+        selected_panel = QGroupBox("Selected Columns")
+        sel_layout = QVBoxLayout(selected_panel)
+        self.columns_list = QListWidget()
+        self.columns_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.columns_list.setDragDropMode(QAbstractItemView.InternalMove)
+        self.columns_list.setDefaultDropAction(Qt.MoveAction)
+        if self.columns_list.model():
+            self.columns_list.model().rowsMoved.connect(self._on_columns_reordered)
+        self.columns_list.itemSelectionChanged.connect(self._on_selected_column_changed)
+        sel_layout.addWidget(self.columns_list)
+        col_options_row = QHBoxLayout()
+        self.column_visible_check = QCheckBox("Visible")
+        self.column_visible_check.setChecked(True)
+        self.column_visible_check.toggled.connect(self._apply_column_options_to_selection)
+        self.column_header_edit = QLineEdit()
+        self.column_header_edit.setPlaceholderText("Custom header (optional)")
+        self.column_header_edit.textChanged.connect(self._apply_column_options_to_selection)
+        col_options_row.addWidget(self.column_visible_check)
+        col_options_row.addWidget(QLabel("Header:"))
+        col_options_row.addWidget(self.column_header_edit, 1)
+        sel_layout.addLayout(col_options_row)
+        sel_buttons = QHBoxLayout()
+        self.remove_column_button = QPushButton("Remove Selected")
+        remove_all_btn = QPushButton("Remove All")
+        sel_buttons.addWidget(self.remove_column_button)
+        sel_buttons.addWidget(remove_all_btn)
+        sel_layout.addLayout(sel_buttons)
+        self.remove_column_button.clicked.connect(self.remove_selected_columns)
+        remove_all_btn.clicked.connect(self._remove_all_columns)
+        self.add_column_button = QPushButton("Add Column…")
+        self.add_column_button.clicked.connect(self.show_add_column_menu)
+        sel_layout.addWidget(self.add_column_button)
+        col_splitter.addWidget(selected_panel)
+        col_splitter.setStretchFactor(0, 1)
+        col_splitter.setStretchFactor(1, 1)
+        col_layout.addWidget(col_splitter)
+        self.wizard_tabs.addTab(columns_tab, "Columns")
+
+        # ---- Tab 2: Filters ----
+        filters_tab = QWidget()
+        ft_layout = QVBoxLayout(filters_tab)
         filters_group = QGroupBox("Filters")
         filters_layout = QVBoxLayout(filters_group)
-        filters_help = QLabel("Use property names like alias, ip_address, status, tags.")
+        filter_logic_row = QHBoxLayout()
+        filter_logic_row.addWidget(QLabel("Combine with:"))
+        self.filter_logic_combo = QComboBox()
+        self.filter_logic_combo.addItems(["AND", "OR"])
+        self.filter_logic_combo.currentTextChanged.connect(self._schedule_preview)
+        filter_logic_row.addWidget(self.filter_logic_combo)
+        filter_logic_row.addStretch()
+        filters_layout.addLayout(filter_logic_row)
+        filters_help = QLabel("Each row: [Field] [Operator] [Value]. Property names: alias, ip_address, status, tags, etc.")
         filters_help.setWordWrap(True)
         filters_layout.addWidget(filters_help)
         self.filters_table = QTableWidget(0, 3)
@@ -474,25 +554,32 @@ class ReportBuilderWidget(QWidget):
         self.filters_table.itemChanged.connect(self._schedule_preview)
         filters_layout.addWidget(self.filters_table)
         filter_buttons = QHBoxLayout()
-        self.add_filter_button = QPushButton("Add Filter")
+        self.add_filter_button = QPushButton("+ Add Filter")
         self.remove_filter_button = QPushButton("Remove Selected")
         filter_buttons.addWidget(self.add_filter_button)
         filter_buttons.addWidget(self.remove_filter_button)
         filters_layout.addLayout(filter_buttons)
         self.add_filter_button.clicked.connect(self.add_filter_row)
         self.remove_filter_button.clicked.connect(self.remove_selected_rows)
-        filter_sort_layout.addWidget(filters_group)
+        ft_layout.addWidget(filters_group)
+        self.wizard_tabs.addTab(filters_tab, "Filters")
 
-        self.sort_group = QGroupBox("Sorting Priority")
+        # ---- Tab 3: Sorting ----
+        sort_tab = QWidget()
+        st_layout = QVBoxLayout(sort_tab)
+        self.sort_group = QGroupBox("Sort Rules")
         sort_layout = QVBoxLayout(self.sort_group)
-        self.sorts_table = QTableWidget(0, 2)
-        self.sorts_table.setHorizontalHeaderLabels(["Column", "Direction"])
+        sort_help = QLabel("Order: 1, 2, 3… Drag or use Move Up/Down to change priority.")
+        sort_help.setWordWrap(True)
+        sort_layout.addWidget(sort_help)
+        self.sorts_table = QTableWidget(0, 3)
+        self.sorts_table.setHorizontalHeaderLabels(["#", "Column", "Direction"])
         self.sorts_table.horizontalHeader().setStretchLastSection(True)
         self.sorts_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.sorts_table.setSelectionMode(QAbstractItemView.SingleSelection)
         sort_layout.addWidget(self.sorts_table)
         sort_buttons = QHBoxLayout()
-        self.add_sort_button = QPushButton("Add Sort")
+        self.add_sort_button = QPushButton("+ Add Sort Level")
         self.remove_sort_button = QPushButton("Remove Selected")
         self.sort_up_button = QPushButton("Move Up")
         self.sort_down_button = QPushButton("Move Down")
@@ -505,45 +592,14 @@ class ReportBuilderWidget(QWidget):
         self.remove_sort_button.clicked.connect(self.remove_selected_sorts)
         self.sort_up_button.clicked.connect(lambda: self._move_sort_rows(-1))
         self.sort_down_button.clicked.connect(lambda: self._move_sort_rows(1))
-        filter_sort_layout.addWidget(self.sort_group)
+        st_layout.addWidget(self.sort_group)
+        self.wizard_tabs.addTab(sort_tab, "Sorting")
 
-        filter_sort_layout.addStretch()
-        table_editor_splitter.addWidget(filter_sort_panel)
-
-        self.columns_group = QGroupBox("Columns")
-        columns_layout = QVBoxLayout(self.columns_group)
-        self.columns_list = QListWidget()
-        self.columns_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self.columns_list.setDragDropMode(QAbstractItemView.InternalMove)
-        self.columns_list.setDefaultDropAction(Qt.MoveAction)
-        if self.columns_list.model():
-            self.columns_list.model().rowsMoved.connect(self._on_columns_reordered)
-        columns_help = QLabel("Add existing, computed, or transformed columns for table output.")
-        columns_help.setWordWrap(True)
-        columns_layout.addWidget(columns_help)
-        columns_layout.addWidget(self.columns_list)
-        columns_buttons = QHBoxLayout()
-        self.add_column_button = QPushButton("Add Column")
-        self.remove_column_button = QPushButton("Remove Selected")
-        self.columns_up_button = QPushButton("Move Up")
-        self.columns_down_button = QPushButton("Move Down")
-        columns_buttons.addWidget(self.add_column_button)
-        columns_buttons.addWidget(self.remove_column_button)
-        columns_buttons.addWidget(self.columns_up_button)
-        columns_buttons.addWidget(self.columns_down_button)
-        columns_layout.addLayout(columns_buttons)
-        self.add_column_button.clicked.connect(self.show_add_column_menu)
-        self.remove_column_button.clicked.connect(self.remove_selected_columns)
-        self.columns_up_button.clicked.connect(self.move_columns_up)
-        self.columns_down_button.clicked.connect(self.move_columns_down)
-        table_editor_splitter.addWidget(self.columns_group)
-        table_editor_splitter.setStretchFactor(0, 1)
-        table_editor_splitter.setStretchFactor(1, 1)
-
+        wizard_layout.addWidget(self.wizard_tabs)
         form_layout.addWidget(self.table_controls_group)
 
         self.template_group = QGroupBox("Template Settings")
-        template_layout = QFormLayout(self.template_group)
+        template_layout = QVBoxLayout(self.template_group)
         self.template_header_edit = QTextEdit()
         self.template_item_edit = QTextEdit()
         self.template_footer_edit = QTextEdit()
@@ -553,9 +609,18 @@ class ReportBuilderWidget(QWidget):
         self.template_header_edit.textChanged.connect(self._schedule_preview)
         self.template_item_edit.textChanged.connect(self._schedule_preview)
         self.template_footer_edit.textChanged.connect(self._schedule_preview)
-        template_layout.addRow("Header:", self.template_header_edit)
-        template_layout.addRow("Item:", self.template_item_edit)
-        template_layout.addRow("Footer:", self.template_footer_edit)
+        tl_form = QFormLayout()
+        tl_form.addRow("Header:", self.template_header_edit)
+        tl_form.addRow("Item:", self.template_item_edit)
+        tl_form.addRow("Footer:", self.template_footer_edit)
+        template_layout.addLayout(tl_form)
+        props_help = QLabel("Available properties (use {{property_name}} in templates):")
+        props_help.setWordWrap(True)
+        template_layout.addWidget(props_help)
+        self.template_properties_label = QLabel()
+        self.template_properties_label.setWordWrap(True)
+        self.template_properties_label.setStyleSheet("color: var(--text-muted, #666); font-size: 0.95em;")
+        template_layout.addWidget(self.template_properties_label)
         form_layout.addWidget(self.template_group)
 
 
@@ -632,6 +697,10 @@ class ReportBuilderWidget(QWidget):
         groups = sorted(set(groups))
         self.group_combo.addItems(groups)
         self.update_sort_options()
+        if self.mode_combo.currentText() == "Template":
+            self._refresh_template_properties()
+        else:
+            self._refresh_available_columns_list()
 
     def load_reports(self):
         self.reports = self.storage.ensure_loaded()
@@ -721,10 +790,136 @@ class ReportBuilderWidget(QWidget):
 
     def _on_mode_changed(self, mode_label):
         mode = MODE_MAP.get(mode_label, "table")
-        self.table_controls_group.setVisible(True)
+        self.table_controls_group.setVisible(mode == "table")
         self.sort_group.setEnabled(mode == "table")
-        self.columns_group.setEnabled(mode == "table")
+        self.wizard_tabs.setEnabled(mode == "table")
         self.template_group.setVisible(mode == "template")
+        if mode == "template":
+            self._refresh_template_properties()
+        else:
+            self._refresh_available_columns_list()
+
+    def _get_standard_and_custom_properties(self):
+        """Return (standard_props, custom_props) for display in template editor."""
+        all_props = self._collect_device_properties()
+        standard = [p for p in STANDARD_DEVICE_PROPERTIES if p in all_props]
+        custom = sorted(p for p in all_props if p not in STANDARD_DEVICE_PROPERTIES)
+        return standard, custom
+
+    def _refresh_template_properties(self):
+        """Update the template editor's list of available properties."""
+        standard, custom = self._get_standard_and_custom_properties()
+        parts = []
+        if standard:
+            parts.append("Standard: " + ", ".join(standard))
+        if custom:
+            parts.append("Custom: " + ", ".join(custom))
+        self.template_properties_label.setText("\n".join(parts) if parts else "No device properties available.")
+
+    def _refresh_available_columns_list(self):
+        """Populate Available Fields from standard and custom device properties."""
+        self.available_columns_list.clear()
+        standard, custom = self._get_standard_and_custom_properties()
+        used = self._column_names_in_use()
+        for name in standard:
+            if name not in used:
+                item = QListWidgetItem(f"{name} (Standard)")
+                item.setData(Qt.UserRole, name)
+                self.available_columns_list.addItem(item)
+        for name in custom:
+            if name not in used:
+                item = QListWidgetItem(f"{name} (Custom)")
+                item.setData(Qt.UserRole, name)
+                self.available_columns_list.addItem(item)
+        self._filter_available_columns()
+
+    def _filter_available_columns(self):
+        """Show/hide available columns by search text."""
+        q = (self.column_search_edit.text() or "").strip().lower()
+        for i in range(self.available_columns_list.count()):
+            item = self.available_columns_list.item(i)
+            name = (item.data(Qt.UserRole) or "")
+            text = (item.text() or "").lower()
+            item.setHidden(bool(q) and q not in text and q not in name.lower())
+
+    def _add_available_column_to_selected(self, list_item):
+        """Add one available field to selected (double-click)."""
+        name = (list_item.data(Qt.UserRole) or "").strip()
+        if not name or self._find_column_item(name):
+            return
+        self._use_all_columns = False
+        self._add_column_item({"type": "existing", "name": name, "transformations": [], "visible": True, "header": ""})
+        self.update_sort_options()
+        self._refresh_available_columns_list()
+        self._schedule_preview()
+
+    def _add_selected_available_to_columns(self):
+        """Add selected available fields to selected columns."""
+        for item in self.available_columns_list.selectedItems():
+            name = (item.data(Qt.UserRole) or "").strip()
+            if name and not self._find_column_item(name):
+                self._use_all_columns = False
+                self._add_column_item({"type": "existing", "name": name, "transformations": [], "visible": True, "header": ""})
+        self.update_sort_options()
+        self._refresh_available_columns_list()
+        self._schedule_preview()
+
+    def _add_all_available_columns(self):
+        """Add all visible available fields to selected columns."""
+        for i in range(self.available_columns_list.count()):
+            item = self.available_columns_list.item(i)
+            if item.isHidden():
+                continue
+            name = (item.data(Qt.UserRole) or "").strip()
+            if name and not self._find_column_item(name):
+                self._use_all_columns = False
+                self._add_column_item({"type": "existing", "name": name, "transformations": [], "visible": True, "header": ""})
+        self.update_sort_options()
+        self._refresh_available_columns_list()
+        self._schedule_preview()
+
+    def _remove_all_columns(self):
+        """Remove all selected columns."""
+        self.columns_list.clear()
+        self._use_all_columns = True
+        self.update_sort_options()
+        self._refresh_available_columns_list()
+        self._schedule_preview()
+
+    def _on_selected_column_changed(self):
+        """Sync visibility/header controls to the first selected column."""
+        items = self.columns_list.selectedItems()
+        if not items:
+            self.column_visible_check.setEnabled(False)
+            self.column_header_edit.setEnabled(False)
+            self.column_visible_check.blockSignals(True)
+            self.column_header_edit.blockSignals(True)
+            self.column_visible_check.setChecked(True)
+            self.column_header_edit.clear()
+            self.column_visible_check.blockSignals(False)
+            self.column_header_edit.blockSignals(False)
+            return
+        data = items[0].data(Qt.UserRole) or {}
+        self.column_visible_check.setEnabled(True)
+        self.column_header_edit.setEnabled(True)
+        self.column_visible_check.blockSignals(True)
+        self.column_header_edit.blockSignals(True)
+        self.column_visible_check.setChecked(data.get("visible", True))
+        self.column_header_edit.setText((data.get("header") or "").strip())
+        self.column_visible_check.blockSignals(False)
+        self.column_header_edit.blockSignals(False)
+
+    def _apply_column_options_to_selection(self):
+        """Apply visible/header from controls to the first selected column."""
+        items = self.columns_list.selectedItems()
+        if not items:
+            return
+        item = items[0]
+        data = item.data(Qt.UserRole) or {}
+        data["visible"] = self.column_visible_check.isChecked()
+        data["header"] = (self.column_header_edit.text() or "").strip()
+        item.setData(Qt.UserRole, data)
+        self._schedule_preview()
 
     def _on_source_changed(self, source_label):
         source_type = DATA_SOURCE_MAP.get(source_label, "all")
@@ -800,11 +995,15 @@ class ReportBuilderWidget(QWidget):
         self.tag_edit.setText(data_source.get("tag", ""))
 
         self._load_filters(report.get("filters", []))
+        if hasattr(self, "filter_logic_combo"):
+            logic = report.get("filter_logic", "AND")
+            self.filter_logic_combo.setCurrentText("OR" if logic == "OR" else "AND")
         self._use_all_columns = not report.get("columns")
         self._load_columns(
             report.get("columns", []),
             report.get("computed_columns", []),
             report.get("transformations", []),
+            report.get("column_options", {}),
         )
 
         self.update_sort_options()
@@ -822,25 +1021,30 @@ class ReportBuilderWidget(QWidget):
 
         output = report.get("output", {})
         self.format_combo.setCurrentText(output.get("format", "HTML"))
+        if mode_label == "Table":
+            self._refresh_available_columns_list()
 
     def _load_filters(self, filters):
         self.filters_table.setRowCount(0)
         for flt in filters:
             self.add_filter_row(flt.get("property", ""), flt.get("operator", "equals"), flt.get("value", ""))
 
-    def _load_columns(self, columns, computed_columns, transformations):
+    def _load_columns(self, columns, computed_columns, transformations, column_options=None):
+        opts = column_options or {}
         self.columns_list.clear()
         for name in columns:
-            self._add_column_item({"type": "existing", "name": name, "transformations": []})
+            o = opts.get(name, {})
+            self._add_column_item({
+                "type": "existing", "name": name, "transformations": [],
+                "visible": o.get("visible", True), "header": (o.get("header") or "").strip(),
+            })
         for computed in computed_columns:
-            self._add_column_item(
-                {
-                    "type": "computed",
-                    "name": computed.get("name", ""),
-                    "parts": computed.get("parts", ""),
-                    "transformations": [],
-                }
-            )
+            name = computed.get("name", "")
+            o = opts.get(name, {})
+            self._add_column_item({
+                "type": "computed", "name": name, "parts": computed.get("parts", ""), "transformations": [],
+                "visible": o.get("visible", True), "header": (o.get("header") or "").strip(),
+            })
         for transform in transformations:
             target = (transform.get("target") or "").strip()
             if not target:
@@ -848,19 +1052,12 @@ class ReportBuilderWidget(QWidget):
             item = self._find_column_item(target)
             if item is None:
                 implicit_column = self._use_all_columns and not columns
-                self._add_column_item(
-                    {
-                        "type": "existing",
-                        "name": target,
-                        "implicit": implicit_column,
-                        "transformations": [
-                            {
-                                "transform": transform.get("transform", "upper"),
-                                "value": transform.get("value", ""),
-                            }
-                        ],
-                    }
-                )
+                o = opts.get(target, {})
+                self._add_column_item({
+                    "type": "existing", "name": target, "implicit": implicit_column,
+                    "transformations": [{"transform": transform.get("transform", "upper"), "value": transform.get("value", "")}],
+                    "visible": o.get("visible", True), "header": (o.get("header") or "").strip(),
+                })
             else:
                 self._append_transformation_to_item(
                     item,
@@ -889,6 +1086,10 @@ class ReportBuilderWidget(QWidget):
     def add_sort_row(self, column="", direction="asc"):
         row = self.sorts_table.rowCount()
         self.sorts_table.insertRow(row)
+        self.sorts_table.setItem(row, 0, QTableWidgetItem(str(row + 1)))
+        num_item = self.sorts_table.item(row, 0)
+        if num_item:
+            num_item.setFlags(num_item.flags() & ~Qt.ItemIsEditable)
         column_combo = QComboBox()
         column_combo.addItem("")
         for name in self._get_available_sort_columns():
@@ -898,19 +1099,21 @@ class ReportBuilderWidget(QWidget):
                 column_combo.addItem(column)
             column_combo.setCurrentText(column)
         column_combo.currentTextChanged.connect(self._schedule_preview)
-        self.sorts_table.setCellWidget(row, 0, column_combo)
+        self.sorts_table.setCellWidget(row, 1, column_combo)
 
         direction_combo = QComboBox()
         direction_combo.addItems(["asc", "desc"])
         direction_combo.setCurrentText(direction or "asc")
         direction_combo.currentTextChanged.connect(self._schedule_preview)
-        self.sorts_table.setCellWidget(row, 1, direction_combo)
+        self.sorts_table.setCellWidget(row, 2, direction_combo)
+        self._refresh_sort_priority_labels()
         self._schedule_preview()
 
     def remove_selected_sorts(self):
         rows = sorted({i.row() for i in self.sorts_table.selectedIndexes()}, reverse=True)
         for row in rows:
             self.sorts_table.removeRow(row)
+        self._refresh_sort_priority_labels()
         self._schedule_preview()
 
     def _move_sort_rows(self, direction):
@@ -961,13 +1164,23 @@ class ReportBuilderWidget(QWidget):
     def _get_sort_rows(self, include_empty=False):
         sorts = []
         for row in range(self.sorts_table.rowCount()):
-            column_combo = self.sorts_table.cellWidget(row, 0)
-            direction_combo = self.sorts_table.cellWidget(row, 1)
+            column_combo = self.sorts_table.cellWidget(row, 1)
+            direction_combo = self.sorts_table.cellWidget(row, 2)
             column = column_combo.currentText().strip() if column_combo else ""
             direction = direction_combo.currentText() if direction_combo else "asc"
             if column or include_empty:
                 sorts.append({"column": column, "direction": direction})
         return sorts
+
+    def _refresh_sort_priority_labels(self):
+        for row in range(self.sorts_table.rowCount()):
+            num_item = self.sorts_table.item(row, 0)
+            if num_item is None:
+                self.sorts_table.setItem(row, 0, QTableWidgetItem(str(row + 1)))
+                num_item = self.sorts_table.item(row, 0)
+            if num_item:
+                num_item.setText(str(row + 1))
+                num_item.setFlags(num_item.flags() & ~Qt.ItemIsEditable)
 
     def _get_sort_definitions(self):
         return [sort_def for sort_def in self._get_sort_rows(include_empty=True) if sort_def.get("column")]
@@ -1123,6 +1336,7 @@ class ReportBuilderWidget(QWidget):
         for row in selected_rows:
             self.columns_list.takeItem(row)
         self.update_sort_options()
+        self._refresh_available_columns_list()
         self._schedule_preview()
 
     def _on_columns_reordered(self, *_args):
@@ -1185,7 +1399,7 @@ class ReportBuilderWidget(QWidget):
     def update_sort_options(self):
         columns = self._get_available_sort_columns()
         for row in range(self.sorts_table.rowCount()):
-            combo = self.sorts_table.cellWidget(row, 0)
+            combo = self.sorts_table.cellWidget(row, 1)
             if combo is None:
                 continue
             current = combo.currentText()
@@ -1199,6 +1413,7 @@ class ReportBuilderWidget(QWidget):
             if current:
                 combo.setCurrentText(current)
             combo.blockSignals(False)
+        self._refresh_sort_priority_labels()
 
     def browse_output_path(self):
         selected_format = self.format_combo.currentText().lower()
@@ -1458,25 +1673,31 @@ class ReportBuilderWidget(QWidget):
         columns = []
         computed_columns = []
         transformations = []
+        column_options = {}
         for row in range(self.columns_list.count()):
             item = self.columns_list.item(row)
             data = item.data(Qt.UserRole) or {}
-            name = (data.get("name") or "").strip()
-            if not name:
+            col_name = (data.get("name") or "").strip()
+            if not col_name:
                 continue
+            column_options[col_name] = {
+                "visible": data.get("visible", True),
+                "header": (data.get("header") or "").strip(),
+            }
             if data.get("type") == "computed":
-                computed_columns.append({"name": name, "parts": data.get("parts", "")})
+                computed_columns.append({"name": col_name, "parts": data.get("parts", "")})
             else:
                 if not (self._use_all_columns and data.get("implicit")):
-                    columns.append(name)
+                    columns.append(col_name)
             for transform in data.get("transformations", []):
                 transform_name = (transform.get("transform") or "").strip()
                 if not transform_name:
                     continue
                 transformations.append(
-                    {"target": name, "transform": transform_name, "value": transform.get("value", "")}
+                    {"target": col_name, "transform": transform_name, "value": transform.get("value", "")}
                 )
 
+        filter_logic = self.filter_logic_combo.currentText() if hasattr(self, "filter_logic_combo") else "AND"
         sort_definitions = self._get_sort_definitions()
         sort_fallback = sort_definitions[0] if sort_definitions else {"column": "", "direction": "asc"}
         report_definition = {
@@ -1490,7 +1711,9 @@ class ReportBuilderWidget(QWidget):
                 "tag": self.tag_edit.text().strip(),
             },
             "filters": filters,
+            "filter_logic": filter_logic,
             "columns": columns,
+            "column_options": column_options,
             "computed_columns": computed_columns,
             "transformations": transformations,
             "sort": sort_fallback,
@@ -1510,7 +1733,8 @@ class ReportBuilderWidget(QWidget):
             return "", "No devices matched the report criteria."
 
         filters = report.get("filters", [])
-        devices = self._apply_filters(devices, filters)
+        filter_logic = report.get("filter_logic", "AND")
+        devices = self._apply_filters(devices, filters, filter_logic)
         if not devices:
             return "", "No devices matched the filters."
 
@@ -1553,19 +1777,24 @@ class ReportBuilderWidget(QWidget):
             return results
         return self.plugin.device_manager.get_devices()
 
-    def _apply_filters(self, devices, filters):
+    def _apply_filters(self, devices, filters, filter_logic="AND"):
+        if not filters:
+            return devices
+        use_or = (filter_logic or "AND").strip().upper() == "OR"
         filtered = []
         for device in devices:
             properties = device.get_properties()
-            passes = True
-            for flt in filters:
-                prop = flt.get("property")
-                operator = flt.get("operator", "equals")
-                expected = flt.get("value", "")
-                actual = properties.get(prop)
-                if not self._filter_match(actual, operator, expected):
-                    passes = False
-                    break
+            if use_or:
+                passes = any(
+                    self._filter_match(properties.get(flt.get("property")), flt.get("operator", "equals"), flt.get("value", ""))
+                    for flt in filters
+                )
+            else:
+                passes = True
+                for flt in filters:
+                    if not self._filter_match(properties.get(flt.get("property")), flt.get("operator", "equals"), flt.get("value", "")):
+                        passes = False
+                        break
             if passes:
                 filtered.append(device)
         return filtered
@@ -1649,15 +1878,20 @@ class ReportBuilderWidget(QWidget):
         output_format = report.get("output", {}).get("format", "HTML")
         columns = report.get("columns", []) or self._collect_device_properties()
         computed_names = [col.get("name") for col in computed_columns if col.get("name")]
-        all_columns = columns + computed_names
+        opts = report.get("column_options") or {}
+        visible = lambda c: opts.get(c, {}).get("visible", True)
+        header = lambda c: (opts.get(c, {}).get("header") or "").strip() or c
+        all_names = [c for c in columns + computed_names if visible(c)]
+        display_names = [header(c) for c in all_names]
 
         if output_format == "JSON":
-            return json.dumps(rows, indent=2), None
+            filtered = [{k: r[k] for k in all_names if k in r} for r in rows]
+            return json.dumps(filtered, indent=2), None
         if output_format == "CSV":
-            return self._rows_to_csv(rows, all_columns), None
+            return self._rows_to_csv(rows, all_names, display_names), None
         if output_format == "TXT":
-            return self._rows_to_txt(rows, all_columns), None
-        return self._rows_to_html(rows, all_columns, report.get("name") or "Report"), None
+            return self._rows_to_txt(rows, all_names, display_names), None
+        return self._rows_to_html(rows, all_names, report.get("name") or "Report", display_names), None
 
     def _render_template_report(self, report, devices, rows, transform_map):
         template = report.get("template", {})
@@ -1698,8 +1932,9 @@ class ReportBuilderWidget(QWidget):
             return self._wrap_report_html(content_html, report.get("name") or "Report"), None
         return content, None
 
-    def _rows_to_html(self, rows, columns, title):
-        header_cells = "".join(f"<th>{html.escape(col)}</th>" for col in columns)
+    def _rows_to_html(self, rows, columns, title, display_headers=None):
+        headers = display_headers if display_headers is not None else columns
+        header_cells = "".join(f"<th>{html.escape(h)}</th>" for h in headers)
         body_rows = []
         for row in rows:
             cells = "".join(f"<td>{html.escape(sanitize_value(row.get(col, '')))}</td>" for col in columns)
@@ -1796,12 +2031,13 @@ class ReportBuilderWidget(QWidget):
             accent_override=accent_color,
         )
 
-    def _rows_to_csv(self, rows, columns):
+    def _rows_to_csv(self, rows, columns, display_headers=None):
         buffer = io.StringIO()
-        writer = csv.DictWriter(buffer, fieldnames=columns)
-        writer.writeheader()
+        headers = display_headers if display_headers is not None else columns
+        writer = csv.writer(buffer)
+        writer.writerow(headers)
         for row in rows:
-            writer.writerow({col: row.get(col, "") for col in columns})
+            writer.writerow([row.get(col, "") for col in columns])
         return buffer.getvalue()
 
     def _lines_to_csv(self, lines):
@@ -1812,8 +2048,9 @@ class ReportBuilderWidget(QWidget):
             writer.writerow([line])
         return buffer.getvalue()
 
-    def _rows_to_txt(self, rows, columns):
-        header = "\t".join(columns)
+    def _rows_to_txt(self, rows, columns, display_headers=None):
+        headers = display_headers if display_headers is not None else columns
+        header = "\t".join(headers)
         lines = [header]
         for row in rows:
             lines.append("\t".join(sanitize_value(row.get(col, "")) for col in columns))
@@ -1825,7 +2062,8 @@ class ReportBuilderDialog(QDialog):
         super().__init__(parent or plugin.main_window)
         mark_plugin_ui(self)
         self.setWindowTitle("Report Generator")
-        self.resize(1300, 800)
+        self.setMinimumSize(1200, 700)
+        self.resize(1420, 860)
 
         layout = QVBoxLayout(self)
         self.builder = ReportBuilderWidget(plugin, self)

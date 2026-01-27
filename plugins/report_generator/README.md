@@ -29,43 +29,40 @@ Choose where devices come from:
 - **Subnet**: devices whose `ip_address` matches the subnet (CIDR supported).
 - **Tag**: devices whose `tags` contain the tag.
 
-### Table Editor
+### Table Editor vs Template Editor
 
-Filters, sorting, and columns are edited together in the **Table Editor** area.
+- **Table mode**: only the **Table Editor** (Columns / Filters / Sorting) is shown.
+- **Template mode**: only the **Template Settings** panel is shown. They are never both visible.
 
-#### Filters
+### Report Generator Wizard (Table Mode)
 
-Add property filters using operators such as `equals`, `contains`, `starts_with`, `regex`, and numeric comparisons.
+The Table Editor is a single wizard with three tabs:
 
-#### Sorting (Table Mode)
+#### 1. Columns
 
-Add one or more sort rules to control priority. The first row is the primary sort, the next row breaks ties.
+- **Available Fields** (left): searchable list of device properties, grouped as *Standard* (id, alias, hostname, ip_address, mac_address, status, notes, tags) or *Custom*. Fields not yet selected are listed.
+- **Selected Columns** (right): drag to reorder. Per column you can toggle **Visible**, set a **Custom header**, or remove. **Add All** / **Remove All** and **Add Column…** (existing/computed/transformed) are available.
 
-Example priority:
+#### 2. Filters
 
-```
-alias (asc)
-ip_address (asc)
-```
+- **Combine with**: AND or OR.
+- Each filter: **[Property]** **[Operator]** **[Value]**.
+- Operators: `equals`, `not_equals`, `contains`, `starts_with`, `ends_with`, `regex`, `>`, `>=`, `<`, `<=`.
+- Use **+ Add Filter** and **Remove Selected** to manage rows.
 
-#### Columns (Table Mode)
+#### 3. Sorting
 
-Use **Add Column** to choose:
+- Sort rules: **[#]** **[Column]** **[Direction]** with numbered priority (1, 2, 3…).
+- Use **+ Add Sort Level**, **Remove Selected**, **Move Up** / **Move Down** to change order.
 
-- **Existing Column**: pick a device property.
-- **Computed Column**: define a column name and parts to concatenate.
-- **Transformed Column**: target a column and apply a transform.
+### Template Editor (Template Mode)
 
-Computed column parts can be:
+- Header / Item / Footer text with `{{property}}` placeholders.
+- **Available properties**: listed as *Standard* and *Custom* (from device properties). Use `{{name}}` in templates.
 
-- Property names (e.g., `hostname`)
-- Quoted literals (e.g., `" - "`)
+### Dialog
 
-Example parts:
-
-```
-hostname, " - ", ip_address
-```
+- The Report Generator dialog opens at a size that shows the left-side content without horizontal scrolling. Minimum size is enforced.
 
 ### Template Mode
 
