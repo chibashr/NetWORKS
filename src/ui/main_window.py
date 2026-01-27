@@ -22,6 +22,7 @@ import re
 
 from .device_table import DeviceTableModel, DeviceTableView, QAbstractItemView
 from .device_tree import DeviceTreeModel, DeviceTreeView, DeviceTreePanel
+from .main_window_actions import create_actions
 from .plugin_manager_dialog import PluginManagerDialog
 from .plugin_ui_theme import mark_plugin_ui
 from .log_panel import LogPanel
@@ -59,7 +60,7 @@ class MainWindow(QMainWindow):
         self.resize(1200, 800)
         
         # Initialize UI components
-        self._create_actions()
+        create_actions(self)
         self._create_menus()
         self._create_toolbar()
         self._create_statusbar()
@@ -133,107 +134,6 @@ class MainWindow(QMainWindow):
         
         logger.debug("UI refresh complete")
         
-    def _create_actions(self):
-        """Create actions for menus and toolbars"""
-        # File menu actions
-        self.action_new_device = QAction("New Device", self)
-        self.action_new_device.setIcon(material_icon("devices", self, QStyle.SP_ComputerIcon))
-        self.action_new_device.setStatusTip("Create a new device")
-        self.action_new_device.triggered.connect(self.on_new_device)
-        
-        self.action_new_group = QAction("New Group", self)
-        self.action_new_group.setIcon(material_icon("create_new_folder", self, QStyle.SP_DirIcon))
-        self.action_new_group.setStatusTip("Create a new device group")
-        self.action_new_group.triggered.connect(self.on_new_group)
-
-        self.action_import_devices = QAction("Import Devices", self)
-        self.action_import_devices.setIcon(material_icon("file_upload", self, QStyle.SP_DialogOpenButton))
-        self.action_import_devices.setStatusTip("Import devices from a file")
-        self.action_import_devices.triggered.connect(self.on_import_devices)
-        
-        self.action_save = QAction("Save", self)
-        self.action_save.setIcon(material_icon("save", self, QStyle.SP_DialogSaveButton))
-        self.action_save.setShortcut(QKeySequence.Save)
-        self.action_save.setStatusTip("Save all devices")
-        self.action_save.triggered.connect(self.on_save)
-        
-        # Workspace actions
-        self.action_new_workspace = QAction("New Workspace", self)
-        self.action_new_workspace.setStatusTip("Create a new workspace")
-        self.action_new_workspace.triggered.connect(self.on_new_workspace)
-        
-        self.action_open_workspace = QAction("Open Workspace", self)
-        self.action_open_workspace.setStatusTip("Open an existing workspace")
-        self.action_open_workspace.triggered.connect(self.on_open_workspace)
-        
-        self.action_save_workspace = QAction("Save Workspace", self)
-        self.action_save_workspace.setStatusTip("Save current workspace")
-        self.action_save_workspace.triggered.connect(self.on_save_workspace)
-        
-        self.action_manage_workspaces = QAction("Manage Workspaces", self)
-        self.action_manage_workspaces.setStatusTip("Manage workspaces")
-        self.action_manage_workspaces.triggered.connect(self.on_manage_workspaces)
-        
-        self.action_exit = QAction("Exit", self)
-        self.action_exit.setShortcut(QKeySequence.Quit)
-        self.action_exit.setStatusTip("Exit the application")
-        self.action_exit.triggered.connect(self.close)
-        
-        # Edit menu actions
-        self.action_select_all = QAction("Select All", self)
-        self.action_select_all.setShortcut(QKeySequence.SelectAll)
-        self.action_select_all.setStatusTip("Select all devices")
-        self.action_select_all.triggered.connect(self.on_select_all)
-        
-        self.action_deselect_all = QAction("Deselect All", self)
-        self.action_deselect_all.setStatusTip("Deselect all devices")
-        self.action_deselect_all.triggered.connect(self.on_deselect_all)
-        
-        self.action_delete = QAction("Delete", self)
-        self.action_delete.setShortcut(QKeySequence.Delete)
-        self.action_delete.setStatusTip("Delete selected devices")
-        self.action_delete.triggered.connect(self.on_delete)
-        
-        # View menu actions
-        self.action_refresh = QAction("Refresh", self)
-        self.action_refresh.setIcon(material_icon("refresh", self, QStyle.SP_BrowserReload))
-        self.action_refresh.setShortcut(QKeySequence.Refresh)
-        self.action_refresh.setStatusTip("Refresh device status")
-        self.action_refresh.triggered.connect(self.on_refresh)
-        
-        # Tools menu actions
-        self.action_plugin_manager = QAction("Plugin Manager", self)
-        self.action_plugin_manager.setStatusTip("Manage plugins")
-        self.action_plugin_manager.triggered.connect(self.on_plugin_manager)
-        
-        self.action_settings = QAction("Settings", self)
-        self.action_settings.setShortcut(QKeySequence.Preferences)
-        self.action_settings.setStatusTip("Configure application settings")
-        self.action_settings.triggered.connect(self.on_settings)
-        
-        # Help menu actions
-        self.action_documentation = QAction("Documentation", self)
-        self.action_documentation.setStatusTip("View program documentation")
-        self.action_documentation.triggered.connect(self.on_documentation)
-        
-        self.action_report_issue = QAction("Report Issue", self)
-        self.action_report_issue.setStatusTip("Report an issue or request a feature")
-        self.action_report_issue.triggered.connect(self.on_report_issue)
-        
-        self.action_check_updates = QAction("Check for Updates", self)
-        self.action_check_updates.setStatusTip("Check for application updates")
-        self.action_check_updates.triggered.connect(self.on_check_updates)
-        
-        self.action_about = QAction("About", self)
-        self.action_about.setStatusTip("About NetWORKS")
-        self.action_about.triggered.connect(self.on_about)
-        
-        # Recycle bin action
-        self.action_recycle_bin = QAction("Recycle Bin", self)
-        self.action_recycle_bin.setIcon(material_icon("restore_from_trash", self, QStyle.SP_TrashIcon))
-        self.action_recycle_bin.setStatusTip("View and restore deleted devices")
-        self.action_recycle_bin.triggered.connect(self.on_recycle_bin)
-        
     def _create_menus(self):
         """Create menu bar and menus"""
         self.menu_bar = self.menuBar()
@@ -245,10 +145,8 @@ class MainWindow(QMainWindow):
         self.menu_file.addAction(self.action_import_devices)
         self.menu_file.addSeparator()
         
-        # Workspace submenu
+        # Workspace submenu (open/new handled by workspace manager)
         self.menu_workspaces = self.menu_file.addMenu("Workspaces")
-        self.menu_workspaces.addAction(self.action_new_workspace)
-        self.menu_workspaces.addAction(self.action_open_workspace)
         self.menu_workspaces.addAction(self.action_save_workspace)
         self.menu_workspaces.addAction(self.action_manage_workspaces)
         
@@ -1285,145 +1183,6 @@ class MainWindow(QMainWindow):
         dialog.exec()
         
     @Slot()
-    def on_new_workspace(self):
-        """Create a new workspace"""
-        logger.debug("Creating new workspace")
-        from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QTextEdit, QMessageBox
-        
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Create New Workspace")
-        dialog.resize(400, 300)
-        
-        layout = QVBoxLayout(dialog)
-        
-        # Name field
-        name_layout = QHBoxLayout()
-        name_layout.addWidget(QLabel("Workspace Name:"))
-        name_edit = QLineEdit()
-        name_layout.addWidget(name_edit)
-        layout.addLayout(name_layout)
-        
-        # Description field
-        layout.addWidget(QLabel("Description:"))
-        desc_edit = QTextEdit()
-        layout.addWidget(desc_edit)
-        
-        # Buttons
-        button_layout = QHBoxLayout()
-        create_button = QPushButton("Create")
-        cancel_button = QPushButton("Cancel")
-        button_layout.addWidget(create_button)
-        button_layout.addWidget(cancel_button)
-        layout.addLayout(button_layout)
-        
-        # Handle creation
-        def on_create():
-            name = name_edit.text().strip()
-            description = desc_edit.toPlainText().strip()
-            
-            if not name:
-                QMessageBox.warning(dialog, "Invalid Name", "Please enter a name for the workspace.")
-                return
-                
-            # Check if workspace already exists
-            workspaces = self.device_manager.list_workspaces()
-            for ws in workspaces:
-                if ws.get("name") == name:
-                    QMessageBox.warning(dialog, "Workspace Exists", f"A workspace named '{name}' already exists.")
-                    return
-            
-            # Save current workspace before creating a new one
-            self.device_manager.save_workspace()
-            
-            # Create the new workspace
-            self.device_manager.create_workspace(name, description)
-            
-            # Switch to the new workspace (will load it)
-            success = self.device_manager.load_workspace(name)
-            if success:
-                # Update UI with new workspace
-                self.updateWindowTitle()
-                self.status_workspace.setText(f"Workspace: {name}")
-                self.status_bar.showMessage(f"Created and switched to workspace: {name}", 3000)
-                
-                # Save the current layout to the new workspace
-                self._save_workspace_layout()
-                
-                dialog.accept()
-            else:
-                QMessageBox.critical(dialog, "Error", f"Failed to load workspace: {name}")
-        
-        create_button.clicked.connect(on_create)
-        cancel_button.clicked.connect(dialog.reject)
-        
-        dialog.exec()
-    
-    @Slot()
-    def on_open_workspace(self):
-        """Open an existing workspace"""
-        logger.debug("Opening workspace")
-        from PySide6.QtCore import QUrl
-        from PySide6.QtGui import QDesktopServices
-        from PySide6.QtWidgets import (
-            QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton, QLabel, QMessageBox
-        )
-        
-        workspaces = self.device_manager.list_workspaces()
-        if not workspaces:
-            self.status_bar.showMessage("No workspaces available", 3000)
-            return
-        
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Open Workspace")
-        dialog.resize(420, 320)
-        
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel("Select a workspace:"))
-        
-        list_widget = QListWidget()
-        for workspace in workspaces:
-            list_widget.addItem(workspace.get("name", "Unknown"))
-        layout.addWidget(list_widget)
-        
-        button_layout = QHBoxLayout()
-        browse_button = QPushButton("Browse Folder")
-        open_button = QPushButton("Open")
-        cancel_button = QPushButton("Cancel")
-        button_layout.addWidget(browse_button)
-        button_layout.addStretch()
-        button_layout.addWidget(open_button)
-        button_layout.addWidget(cancel_button)
-        layout.addLayout(button_layout)
-        
-        def on_browse():
-            QDesktopServices.openUrl(QUrl.fromLocalFile(self.device_manager.workspaces_dir))
-        
-        def on_open():
-            current_item = list_widget.currentItem()
-            if not current_item:
-                QMessageBox.warning(dialog, "No Selection", "Please select a workspace to open.")
-                return
-            
-            name = current_item.text()
-            
-            # Save current workspace before switching
-            self.device_manager.save_workspace()
-            
-            # Load selected workspace
-            success = self.device_manager.load_workspace(name)
-            if success:
-                self.refresh_workspace_ui()
-                dialog.accept()
-            else:
-                self.status_bar.showMessage(f"Failed to load workspace: {name}", 3000)
-        
-        browse_button.clicked.connect(on_browse)
-        open_button.clicked.connect(on_open)
-        cancel_button.clicked.connect(dialog.reject)
-        
-        dialog.exec()
-                
-    @Slot()
     def on_save_workspace(self):
         """Save current workspace"""
         logger.debug("Saving workspace")
@@ -1484,21 +1243,22 @@ class MainWindow(QMainWindow):
         table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         layout.addWidget(table)
         
-        # Add devices to table
+        # Add devices to table (coerce all values to str to avoid shiboken overflow when
+        # a property holds an int like -9223372036854775808, which Qt marshals as 32-bit)
+        def _cell_text(val, default=""):
+            return str(val) if val is not None else default
+
         table.setRowCount(len(recycled_devices))
-        for i, device in enumerate(recycled_devices):
-            table.setItem(i, 0, QTableWidgetItem(device.get_property("alias", "")))
-            table.setItem(i, 1, QTableWidgetItem(device.get_property("hostname", "")))
-            table.setItem(i, 2, QTableWidgetItem(device.get_property("ip_address", "")))
-            table.setItem(i, 3, QTableWidgetItem(device.get_property("status", "")))
-            
-            # Groups column shows the groups this device was in before deletion
+        for row, device in enumerate(recycled_devices):
+            table.setItem(row, 0, QTableWidgetItem(_cell_text(device.get_property("alias", ""))))
+            table.setItem(row, 1, QTableWidgetItem(_cell_text(device.get_property("hostname", ""))))
+            table.setItem(row, 2, QTableWidgetItem(_cell_text(device.get_property("ip_address", ""))))
+            table.setItem(row, 3, QTableWidgetItem(_cell_text(device.get_property("status", ""))))
             groups = device.get_property("_recycled_groups", [])
-            table.setItem(i, 4, QTableWidgetItem(", ".join(groups)))
+            table.setItem(row, 4, QTableWidgetItem(", ".join(str(g) for g in groups)))
             
-            # Store device object in first column's item
-            table.item(i, 0).setData(Qt.UserRole, device)
-        
+            table.item(row, 0).setData(Qt.UserRole, device.id)
+
         # Buttons
         button_layout = QHBoxLayout()
         
@@ -1523,20 +1283,15 @@ class MainWindow(QMainWindow):
         def refresh_table():
             recycled_devices = self.device_manager.get_recycle_bin_devices()
             header_label.setText(f"Recycle Bin - {len(recycled_devices)} deleted device(s)")
-            
             table.setRowCount(len(recycled_devices))
-            for i, device in enumerate(recycled_devices):
-                table.setItem(i, 0, QTableWidgetItem(device.get_property("alias", "")))
-                table.setItem(i, 1, QTableWidgetItem(device.get_property("hostname", "")))
-                table.setItem(i, 2, QTableWidgetItem(device.get_property("ip_address", "")))
-                table.setItem(i, 3, QTableWidgetItem(device.get_property("status", "")))
-                
-                # Groups column shows the groups this device was in before deletion
+            for row, device in enumerate(recycled_devices):
+                table.setItem(row, 0, QTableWidgetItem(_cell_text(device.get_property("alias", ""))))
+                table.setItem(row, 1, QTableWidgetItem(_cell_text(device.get_property("hostname", ""))))
+                table.setItem(row, 2, QTableWidgetItem(_cell_text(device.get_property("ip_address", ""))))
+                table.setItem(row, 3, QTableWidgetItem(_cell_text(device.get_property("status", ""))))
                 groups = device.get_property("_recycled_groups", [])
-                table.setItem(i, 4, QTableWidgetItem(", ".join(groups)))
-                
-                # Store device object in first column's item
-                table.item(i, 0).setData(Qt.UserRole, device)
+                table.setItem(row, 4, QTableWidgetItem(", ".join(str(g) for g in groups)))
+                table.item(row, 0).setData(Qt.UserRole, device.id)
                 
             # Update button state
             has_devices = len(recycled_devices) > 0

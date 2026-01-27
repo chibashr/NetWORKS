@@ -63,9 +63,11 @@ set PIP_BLOCKED=0
 set PROXY_FIXED=0
 
 if "%PIP_NO_INDEX%"=="1" (
-    set PIP_BLOCKED=1
-    echo [ERROR] PIP_NO_INDEX is set to 1. This prevents pip from accessing PyPI.
-    echo [ERROR] This will block dependency installation.
+    echo [INFO] PIP_NO_INDEX is set; unsetting for this session so pip can run if needed.
+    set PIP_NO_INDEX=
+    set PIP_BLOCKED=0
+) else (
+    set PIP_BLOCKED=0
 )
 
 if not "%HTTP_PROXY%"=="" (

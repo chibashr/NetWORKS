@@ -20,11 +20,11 @@ The Command Manager plugin provides a powerful interface for running commands on
 
 The plugin provides a secure way to manage network device credentials:
 
-- **Device-specific credentials**: Stored directly in device properties
-- **Group-based credentials**: Credentials for groups of devices
-- **Subnet-based credentials**: Credentials for IP subnets
+- **Device-specific credentials**: Stored in device properties (saved with the workspace)
+- **Group-based credentials**: Credentials for groups of devices, stored per workspace
+- **Subnet-based credentials**: Credentials for IP subnets, stored per workspace
 
-> **Security Note**: All credentials are encrypted before storage. Device credentials are saved directly to the device properties to ensure they are properly associated with devices.
+> **Security Note**: All credentials are encrypted before storage. Credentials are **saved per workspace**, not shared across workspaces. Device credentials live in device data; group and subnet credentials live under `config/workspaces/<workspace>/plugins/command_manager/credentials/`. This isolates credentials between workspaces (e.g. production vs development).
 
 ## Command Sets
 
@@ -106,12 +106,10 @@ You can access Command Manager features from:
 
 ## Configuration and Storage
 
-Command Manager stores its data inside the plugin directory:
-- `data/commands/`: Command set definitions by platform/firmware
-- `data/credentials/`: Group and subnet credential stores
-- `data/outputs/`: Saved command outputs per device and command
-
-Device-specific credentials are stored directly on the device as encrypted properties and are saved with device data.
+- **Command sets and outputs**: In the plugin directory (e.g. `data/commands/`, `data/outputs/`).
+- **Credentials**: Stored **per workspace** for security.
+  - Device credentials: On the device as encrypted properties (saved with the workspace).
+  - Group and subnet credentials: Under `config/workspaces/<workspace>/plugins/command_manager/credentials/` (groups and subnets subdirs). They are loaded automatically when you switch workspaces.
 
 ## Reports and Outputs
 

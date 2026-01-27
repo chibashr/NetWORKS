@@ -1056,6 +1056,16 @@ class NetworkScannerPlugin(PluginInterface):
             self._refresh_group_choices,
             "group_changed"
         )
+
+        self._connect_to_signal(
+            self.device_manager.selection_changed,
+            self.on_device_selected,
+            "selection_changed"
+        )
+
+        # Sync UI with current state (groups may have been loaded before we connected)
+        self._refresh_group_choices()
+        self._update_selected_devices_ui()
         
     def cleanup(self):
         """Clean up the plugin"""
@@ -1218,6 +1228,8 @@ class NetworkScannerPlugin(PluginInterface):
             self.network_range_edit.setEnabled(target == "custom")
             self.selected_devices_label.setVisible(target == "devices")
             self.panel_group_container.setVisible(target == "group")
+            if target == "group":
+                self._refresh_group_choices()
             
         self.target_combo.currentIndexChanged.connect(update_target_ui_state)
         

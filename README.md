@@ -2,7 +2,7 @@
 
 An extensible device management application.
 
-Current Release: 0.10.6
+Current Release: 0.11.0
 
 ## Features
 
@@ -37,23 +37,16 @@ Current Release: 0.10.6
 
 NetWORKS supports multiple workspaces for managing different device configurations. Each workspace maintains its own set of devices, groups, and enabled plugins.
 
-### Creating a New Workspace
+### Workspace Management
 
-1. Go to **File → Workspaces → New Workspace**
-2. Enter a name and optional description for the workspace
-3. Choose whether to switch to the new workspace immediately
-
-### Switching Workspaces
-
-1. Go to **File → Workspaces → Open Workspace**
-2. Select a workspace from the list
-
-### Managing Workspaces
+All workspace operations (create, switch, delete) are done through the workspace manager:
 
 1. Go to **File → Workspaces → Manage Workspaces**
-2. From here you can:
+2. From the workspace browser you can:
+   - Create a new workspace
    - Switch to a different workspace
    - Delete workspaces (except the default workspace)
+   - Save the current workspace (**File → Workspaces → Save Workspace**)
 
 ## Autosave and Backups
 

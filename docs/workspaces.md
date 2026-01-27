@@ -65,25 +65,14 @@ Device data is stored inside each workspace under `devices/<device-id>/device.js
 
 ## Workspace Operations
 
-### Creating a Workspace
+### Creating and Switching Workspaces
 
-To create a new workspace:
+All workspace creation and switching is done through the workspace manager:
 
-1. Go to "File" → "Workspaces" → "New Workspace"
-2. Enter a name and optional description
-3. Click "Create"
+1. Go to "File" → "Workspaces" → "Manage Workspaces"
+2. In the workspace browser you can create a new workspace or select an existing one to open
 
-A new workspace will be created with default settings and an empty device list. The UI layout of your current workspace will be copied to the new workspace as a starting point.
-
-### Switching Workspaces
-
-To switch to a different workspace:
-
-1. Go to "File" → "Workspaces" → "Open Workspace"
-2. Browse to a workspace folder in the file browser
-3. Click "Open"
-
-When switching workspaces, the UI layout will automatically change to match the saved layout for that workspace.
+A new workspace is created with default settings and an empty device list. When switching workspaces, the UI layout automatically changes to match the saved layout for that workspace.
 
 ### Saving Workspace State
 

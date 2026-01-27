@@ -1,0 +1,40 @@
+Collecting PySide6
+  Downloading pyside6-6.10.1-cp39-abi3-win_amd64.whl.metadata (5.5 kB)
+Collecting shiboken6==6.10.1 (from PySide6)
+  Downloading shiboken6-6.10.1-cp39-abi3-win_amd64.whl.metadata (2.6 kB)
+Collecting PySide6_Essentials==6.10.1 (from PySide6)
+  Downloading pyside6_essentials-6.10.1-cp39-abi3-win_amd64.whl.metadata (3.8 kB)
+Collecting PySide6_Addons==6.10.1 (from PySide6)
+  Downloading pyside6_addons-6.10.1-cp39-abi3-win_amd64.whl.metadata (4.2 kB)
+Downloading pyside6-6.10.1-cp39-abi3-win_amd64.whl (564 kB)
+   ---------------------------------------- 564.4/564.4 kB 13.9 MB/s  0:00:00
+
+Downloading pyside6_addons-6.10.1-cp39-abi3-win_amd64.whl (164.9 MB)
+   ---------------------------------------- 164.9/164.9 MB 74.5 MB/s  0:00:02
+
+Downloading pyside6_essentials-6.10.1-cp39-abi3-win_amd64.whl (74.5 MB)
+   ---------------------------------------- 74.5/74.5 MB 81.5 MB/s  0:00:00
+
+Downloading shiboken6-6.10.1-cp39-abi3-win_amd64.whl (1.2 MB)
+   ---------------------------------------- 1.2/1.2 MB 82.6 MB/s  0:00:00
+
+Installing collected packages: shiboken6, PySide6_Essentials, PySide6_Addons, PySide6
+  Attempting uninstall: shiboken6
+    Found existing installation: shiboken6 6.10.1
+    Uninstalling shiboken6-6.10.1:
+      Successfully uninstalled shiboken6-6.10.1
+  Attempting uninstall: PySide6_Essentials
+    Found existing installation: PySide6_Essentials 6.10.1
+    Uninstalling PySide6_Essentials-6.10.1:
+      Successfully uninstalled PySide6_Essentials-6.10.1
+  Attempting uninstall: PySide6_Addons
+    Found existing installation: PySide6_Addons 6.10.1
+    Uninstalling PySide6_Addons-6.10.1:
+      Successfully uninstalled PySide6_Addons-6.10.1
+  Attempting uninstall: PySide6
+    Found existing installation: PySide6 6.10.1
+    Uninstalling PySide6-6.10.1:
+      Successfully uninstalled PySide6-6.10.1
+
+
+Successfully installed PySide6-6.10.1 PySide6_Addons-6.10.1 PySide6_Essentials-6.10.1 shiboken6-6.10.1
