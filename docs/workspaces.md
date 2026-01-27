@@ -80,6 +80,18 @@ A new workspace is created with default settings and an empty device list. When 
 device_manager.save_workspace()
 ```
 
+Single-item changes (add/remove/edit one device or group) save the workspace immediately. For bulk operations (import many devices, empty recycle bin, restore all, batch edit), wrap the work in `begin_bulk_operation()` / `end_bulk_operation()` so the workspace is saved once at the end:
+
+```python
+device_manager.begin_bulk_operation()
+try:
+    for item in many_items:
+        # add/remove/update devices or groups
+        ...
+finally:
+    device_manager.end_bulk_operation()
+```
+
 ### Listing Available Workspaces
 
 ```python

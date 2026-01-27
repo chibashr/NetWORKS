@@ -216,8 +216,9 @@ class DeviceTableView(QTableView):
         filter_layout.addWidget(search_label)
         filter_layout.addWidget(self.search_edit, 1)
 
-        # Inline icon button: max height of adjacent search bar (24px), square, icon 18px.
+        # Inline filter button: same style as device tree expand/collapse (12×12 icon, 18×18 button)
         add_filter_btn = QToolButton()
+        add_filter_btn.setAutoRaise(True)
         add_filter_btn.setProperty("iconOnlyInline", "true")
         add_filter_btn.setToolTip("Build filters visually; search bar updates to match")
         _filter_icon_path = os.path.join(os.path.dirname(__file__), "resources", "icons", "filter_list.svg")
@@ -225,13 +226,8 @@ class DeviceTableView(QTableView):
             add_filter_btn.setIcon(QIcon(_filter_icon_path))
         else:
             add_filter_btn.setIcon(material_icon("filter_list", self))
-        add_filter_btn.setIconSize(QSize(18, 18))
-        add_filter_btn.setFixedSize(24, 24)
-        add_filter_btn.setStyleSheet(
-            "QToolButton { border: 1px solid palette(mid); border-radius: 2px; "
-            "background: palette(button); min-width: 24px; max-width: 24px; "
-            "min-height: 24px; max-height: 24px; padding: 0; }"
-        )
+        add_filter_btn.setIconSize(QSize(12, 12))
+        add_filter_btn.setFixedSize(18, 18)
         add_filter_btn.clicked.connect(self.show_advanced_filter_dialog)
         filter_layout.addWidget(add_filter_btn)
 
@@ -1070,17 +1066,16 @@ class DeviceTableView(QTableView):
             if group:
                 self._apply_group_filter(group)
 
-        state = self._load_filter_state()
-        if state:
-            self._apply_advanced_filter_state(state, save=False)
-            syntax = filter_state_to_syntax(state, _default_header_to_short())
-            self.search_edit.blockSignals(True)
-            try:
-                self.search_edit.setText(syntax)
-            finally:
-                self.search_edit.blockSignals(False)
-        else:
-            self._update_header_checkbox_state()
+        # Filter bar starts empty on load; do not restore saved filter state
+        self._advanced_filter_state = {"logic": "AND", "rules": []}
+        self.proxy_model.set_advanced_filter(None)
+        self.proxy_model.setFilterFixedString("")
+        self.search_edit.blockSignals(True)
+        try:
+            self.search_edit.clear()
+        finally:
+            self.search_edit.blockSignals(False)
+        self._update_header_checkbox_state()
 
         sort_column = settings.value("sort_column", None)
         sort_order = settings.value("sort_order", None)

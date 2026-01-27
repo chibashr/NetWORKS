@@ -578,10 +578,10 @@ class DeviceImporter:
                 if hostname and hostname.strip():
                     existing_hostnames[hostname.strip()] = device
         
-        # Process each row and create devices
+        # Process each row and create devices (bulk: save workspace once at end)
         total_rows = len(data)
         processed_rows = 0
-        
+        self.device_manager.begin_bulk_operation()
         for row_data in data:
             processed_rows += 1
             if progress_callback:
@@ -722,7 +722,7 @@ class DeviceImporter:
                     if update_props:
                         duplicate_device.update_properties(update_props)
                         self.device_manager.device_changed.emit(duplicate_device)
-                        self.device_manager.save_workspace()
+                        # Workspace saved once at end of bulk import
                     device = duplicate_device
                 else:
                     # Create a device with minimal valid properties
@@ -757,7 +757,8 @@ class DeviceImporter:
             except Exception as e:
                 logger.error(f"Error creating device: {e}", exc_info=True)
                 stats["error_count"] += 1
-        
+
+        self.device_manager.end_bulk_operation()
         return stats["imported_count"] > 0, stats
     
     def _auto_detect_field_mapping(self, headers):

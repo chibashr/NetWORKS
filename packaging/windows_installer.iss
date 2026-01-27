@@ -1,8 +1,8 @@
 ; Inno Setup script for NetWORKS installer
-; Build via: iscc /DMyAppVersion=0.11.0 /DMyAppName=NetWORKS packaging\windows_installer.iss
+; Build via: iscc /DMyAppVersion=11.2 /DMyAppName=NetWORKS packaging\windows_installer.iss
 
 #define MyAppName "NetWORKS"
-#define MyAppVersion "0.11.0"
+#define MyAppVersion "11.2"
 #define MyAppPublisher "chibashr"
 #define MyAppURL "https://github.com/networks/networks"
 #define MyAppExeName "NetWORKS.exe"

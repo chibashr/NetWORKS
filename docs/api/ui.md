@@ -51,9 +51,13 @@ class MainWindow:
 
 This keeps dock positions, visibility, and sizes consistent within each workspace.
 
-### Properties Panel Responsiveness
+### Properties Panel – Toolbar
 
-The Properties panel toolbar in the Details tab uses a responsive wrapper that keeps the layout horizontal at normal widths, and stacks the filter and export controls vertically when the panel is narrow. This prevents overlapping controls while preserving the standard look at typical sizes.
+The Details tab toolbar keeps the “Filter properties…” search bar and the Export button on a single horizontal row at all times; they do not stack when the panel is narrow.
+
+### Properties Panel – Details Table
+
+The Details tab shows a two-column table (Property, Value). Right-clicking a value cell opens a context menu with copy actions and, when one or more devices are selected, **Edit Value...** (single) or **Batch Edit Value...** (multiple). Choosing Edit Value opens a dialog to change that property; the new value is applied to the selected device(s). When multiple devices are selected, batch edit applies the same value to all of them, similar to the table’s “Edit Properties” multi-device flow. List properties (e.g. tags) are edited as comma-separated text; long text (e.g. notes) uses a multiline editor. The `id` property cannot be edited.
 
 ## Device Table
 
@@ -89,7 +93,7 @@ The device table filter bar supports both plain search and structured `field:val
 - **Short names** – `ip`, `host`/`hostname`, `alias`/`name`, `mac`, `status`, `tags`, `groups`. Full column names (e.g. "IP Address") also work.
 - **Multiple terms** – Combined with AND. Example: `ip:192.168 status:online`.
 
-The **Add filter** button opens a graphical filter builder; rules you apply there are reflected in the filter bar as syntax, so you can edit them by hand or learn the syntax from the builder.
+The **Add filter** button uses the same inline button style as the device tree (12×12 icon, 18×18 button, icon-only). It opens a graphical filter builder; rules you apply there are reflected in the filter bar as syntax, so you can edit them by hand or learn the syntax from the builder.
 
 The properties panel uses checked devices for selection. If no devices are checked, the currently highlighted rows are used to populate the Details tab.
 

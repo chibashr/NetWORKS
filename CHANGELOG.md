@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [11.2] - 2026-01-27
+
+### Changed
+- Version bump to 11.2
+
+## [0.11.1] - 2026-01-27
+
+### Added
+- Properties panel: right-click context menu **Edit Value...** when exactly one device is selected; opens a dialog to edit that property (strings, numbers, bools, lists as comma-separated, long text via multiline editor).
+
+### Changed
+- Version bump to 0.11.1
+
 ## [0.11.0] - 2026-01-27
 
 ### Changed

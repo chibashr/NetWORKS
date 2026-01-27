@@ -5,7 +5,7 @@ Model, view, filter bar, and query engine for the device table.
 ## Filter bar (spec-style)
 
 - **Filter** – Text input. Type a query and press **Enter** to search. Updates to match the visual builder when you apply from the Add filter dialog.
-- **Add filter** – Icon-only, small button that opens the visual query builder; applied filters are reflected in the search bar as spec-style text.
+- **Add filter** – Icon-only inline button (12×12 icon, 18×18 button), styled like the device tree expand/collapse buttons; opens the visual query builder; applied filters are reflected in the search bar as spec-style text.
 - **Group** – Filter by device group (separate from text/advanced filter).
 
 The search bar accepts:

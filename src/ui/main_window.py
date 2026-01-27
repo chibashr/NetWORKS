@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTreeView, QFrame, QLabel, QToolButton, QPushButton, QTableView,
     QHeaderView, QAbstractItemView, QSizePolicy, QInputDialog, QLineEdit, QMessageBox, QDialog, QListWidget, QTableWidget, QTableWidgetItem, QTextBrowser,
-    QApplication, QFileDialog
+    QApplication, QFileDialog, QPlainTextEdit
 )
 from PySide6.QtGui import QIcon, QAction, QFont, QKeySequence, QBrush, QColor
 from PySide6.QtCore import Qt, QSize, Signal, Slot, QModelIndex, QSettings, QTimer, QByteArray, QPoint
@@ -26,7 +26,6 @@ from .main_window_actions import create_actions
 from .plugin_manager_dialog import PluginManagerDialog
 from .plugin_ui_theme import mark_plugin_ui
 from .log_panel import LogPanel
-from .responsive_toolbar import ResponsiveToolbar
 from .scalable_toolbar import ScalableToolbar
 from .material_icons import material_icon
 
@@ -304,24 +303,27 @@ class MainWindow(QMainWindow):
         
         # Use global theme styling for properties table
         
-        # Toolbar for property actions
-        toolbar_container = ResponsiveToolbar()
+        # Toolbar for property actions (filter and Export always inline)
+        toolbar_container = QWidget()
         toolbar_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        toolbar_row = QHBoxLayout(toolbar_container)
+        toolbar_row.setContentsMargins(0, 0, 0, 4)
+        toolbar_row.setSpacing(6)
 
-        export_btn = QPushButton("Export")
-        export_btn.setToolTip("Export properties to clipboard or file")
-        export_btn.clicked.connect(self._export_properties)
-        export_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        
         filter_edit = QLineEdit()
         filter_edit.setPlaceholderText("Filter properties...")
         filter_edit.textChanged.connect(self._filter_properties)
         filter_edit.setClearButtonEnabled(True)
         filter_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        
-        toolbar_container.addWidget(filter_edit, 1)
-        toolbar_container.addWidget(export_btn)
-        
+
+        export_btn = QPushButton("Export")
+        export_btn.setToolTip("Export properties to clipboard or file")
+        export_btn.clicked.connect(self._export_properties)
+        export_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
+        toolbar_row.addWidget(filter_edit, 1)
+        toolbar_row.addWidget(export_btn)
+
         self.details_layout.addWidget(toolbar_container)
         self.details_layout.addWidget(self.properties_table)
         
@@ -850,6 +852,15 @@ class MainWindow(QMainWindow):
             )
             self.properties_table.setRowHidden(row, not matches)
     
+    def _get_property_panel_devices(self):
+        """Return the list of devices currently reflected in the property panel.
+        Matches the logic used by on_selection_changed and _on_table_highlight_changed.
+        """
+        devices = self.device_manager.get_selected_devices()
+        if not devices and hasattr(self, "device_table") and self.device_table:
+            devices = self.device_table.get_selected_devices()
+        return devices or []
+    
     def _show_property_context_menu(self, position):
         """Show context menu for property table
         
@@ -864,13 +875,33 @@ class MainWindow(QMainWindow):
         menu.addSeparator()
         copy_all_action = menu.addAction("Copy All Properties")
         
-        # Get selected items
+        # Get selected items and cell under cursor for edit
         selected_indexes = self.properties_table.selectedIndexes()
+        index_at = self.properties_table.indexAt(position)
+        row_at, col_at = index_at.row(), index_at.column()
+        devices = self._get_property_panel_devices()
+        can_edit = (
+            len(devices) >= 1
+            and row_at >= 0
+            and col_at == 1
+            and row_at < self.properties_table.rowCount()
+            and self.properties_table.columnSpan(row_at, 0) == 1
+        )
+        if can_edit:
+            menu.addSeparator()
+            edit_value_action = menu.addAction(
+                "Batch Edit Value..." if len(devices) > 1 else "Edit Value..."
+            )
+        
         if not selected_indexes:
-            return
+            if not can_edit:
+                return
+            # Show menu for edit-only when right-clicking on a value cell
+        else:
+            pass  # continue to add URL/details actions from selection
             
         # If a URL is selected, add open link action
-        for index in selected_indexes:
+        for index in selected_indexes or []:
             if index.column() == 1:  # Value column
                 item = self.properties_table.item(index.row(), index.column())
                 raw_value = item.data(Qt.UserRole)
@@ -908,6 +939,8 @@ class MainWindow(QMainWindow):
             self._open_selected_url()
         elif 'view_details_action' in locals() and action == view_details_action:
             self._view_selected_details()
+        elif 'edit_value_action' in locals() and action == edit_value_action:
+            self._edit_property_value(row_at)
     
     def _copy_selected_values(self):
         """Copy selected property values to clipboard"""
@@ -1001,6 +1034,154 @@ class MainWindow(QMainWindow):
                 key = name_item.text() if name_item else "Property"
                 self._show_detailed_property(key, raw_value)
                 break
+    
+    def _edit_property_value(self, row):
+        """Edit a property value from the properties table.
+        Single device: edit that device. Multiple devices: batch edit (same value applied to all).
+        Invoked from the context menu 'Edit Value...' / 'Batch Edit Value...' when right-clicking a value cell.
+        """
+        devices = self._get_property_panel_devices()
+        if len(devices) < 1:
+            return
+        if row < 0 or row >= self.properties_table.rowCount():
+            return
+        if self.properties_table.columnSpan(row, 0) > 1:
+            return
+        name_item = self.properties_table.item(row, 0)
+        value_item = self.properties_table.item(row, 1)
+        if not name_item or not value_item:
+            return
+        key = name_item.toolTip()
+        raw_value = value_item.data(Qt.UserRole)
+        display_name = name_item.text()
+        multi = len(devices) > 1
+
+        if key == "id":
+            QMessageBox.information(
+                self,
+                "Edit not supported",
+                "The id property cannot be edited.",
+            )
+            return
+
+        # Multi-device "different values" row: raw_value is list of per-device values
+        if multi and isinstance(raw_value, list) and len(raw_value) == len(devices):
+            representative = raw_value[0]
+            initial_empty = True  # show empty so user enters one value to apply to all
+        else:
+            representative = raw_value
+            initial_empty = False
+
+        # Dict and complex types: open view-only; editing would need a dedicated editor
+        if isinstance(representative, dict):
+            QMessageBox.information(
+                self,
+                "Edit not supported",
+                f"'{display_name}' is a dictionary. Use View Details to inspect it.",
+            )
+            return
+        if isinstance(representative, list) and representative and not isinstance(representative[0], (str, int, float, bool)):
+            QMessageBox.information(
+                self,
+                "Edit not supported",
+                f"'{display_name}' contains complex items. Use View Details to inspect.",
+            )
+            return
+
+        title = f"Batch Edit Value ({len(devices)} devices)" if multi else "Edit Value"
+        hint = f" (applies to all {len(devices)} devices)" if multi else ""
+
+        # Build initial text and choose dialog
+        if isinstance(representative, bool):
+            idx = 0 if representative else 1
+            new_text, ok = QInputDialog.getItem(
+                self,
+                title,
+                f"New value for {display_name}:{hint}",
+                ["Yes", "No"],
+                idx,
+                False,
+            )
+            if not ok:
+                return
+            new_value = new_text == "Yes"
+        elif isinstance(representative, list):
+            initial = "" if initial_empty else ", ".join(str(x) for x in representative)
+            new_text, ok = QInputDialog.getText(
+                self,
+                title,
+                f"New value for {display_name} (comma-separated for lists):{hint}",
+                QLineEdit.Normal,
+                initial,
+            )
+            if not ok:
+                return
+            new_value = [s.strip() for s in new_text.split(",") if s.strip()]
+        elif isinstance(representative, (int, float)):
+            initial = "" if initial_empty else str(representative)
+            new_text, ok = QInputDialog.getText(
+                self,
+                title,
+                f"New value for {display_name}:{hint}",
+                QLineEdit.Normal,
+                initial,
+            )
+            if not ok:
+                return
+            try:
+                new_value = int(new_text) if isinstance(representative, int) else float(new_text)
+            except ValueError:
+                QMessageBox.warning(self, "Invalid value", "Please enter a valid number.")
+                return
+        else:
+            # str or None
+            initial = "" if initial_empty else (str(representative) if representative is not None else "")
+            use_multiline = len(initial) > 80 or key in ("notes",)
+            if use_multiline:
+                dialog = QDialog(self)
+                dialog.setWindowTitle(title)
+                layout = QVBoxLayout(dialog)
+                layout.addWidget(QLabel(f"New value for {display_name}:{hint}"))
+                te = QPlainTextEdit()
+                te.setPlainText(initial)
+                te.setMinimumSize(400, 120)
+                layout.addWidget(te)
+                bb = QHBoxLayout()
+                ok_btn = QPushButton("OK")
+                cancel_btn = QPushButton("Cancel")
+                ok_btn.clicked.connect(dialog.accept)
+                cancel_btn.clicked.connect(dialog.reject)
+                bb.addStretch()
+                bb.addWidget(ok_btn)
+                bb.addWidget(cancel_btn)
+                layout.addLayout(bb)
+                if dialog.exec() != QDialog.DialogCode.Accepted:
+                    return
+                new_value = te.toPlainText()
+            else:
+                new_text, ok = QInputDialog.getText(
+                    self,
+                    title,
+                    f"New value for {display_name}:{hint}",
+                    QLineEdit.Normal,
+                    initial,
+                )
+                if not ok:
+                    return
+                new_value = new_text
+        if multi:
+            self.device_manager.begin_bulk_operation()
+        for device in devices:
+            device.set_property(key, new_value)
+        if multi:
+            self.device_manager.end_bulk_operation()
+        else:
+            self.device_manager.save_workspace()
+        self.update_property_panel(devices)
+        self.status_bar.showMessage(
+            f"Updated {display_name} on {len(devices)} devices" if multi else f"Updated {display_name}",
+            2000,
+        )
     
     def _export_properties(self):
         """Export properties to clipboard or file"""

@@ -54,7 +54,30 @@ class DeviceManager(QObject):
         # Current workspace
         self.current_workspace = "default"
         self.workspaces_dir = os.path.join(self.base_dir, "workspaces")
-        
+
+        # Bulk operation nesting: when > 0, per-item saves are deferred until end_bulk_operation()
+        self._bulk_operation_count = 0
+
+    def begin_bulk_operation(self):
+        """Start a bulk operation. Per-item workspace saves are deferred until end_bulk_operation()."""
+        self._bulk_operation_count += 1
+        logger.debug(f"Bulk operation started (nesting={self._bulk_operation_count})")
+
+    def end_bulk_operation(self):
+        """End a bulk operation and save the workspace once if nesting returns to 0."""
+        if self._bulk_operation_count <= 0:
+            logger.warning("end_bulk_operation called without matching begin_bulk_operation")
+            return
+        self._bulk_operation_count -= 1
+        if self._bulk_operation_count == 0:
+            self._save_workspace(self.current_workspace)
+            logger.debug("Bulk operation ended; workspace saved once")
+
+    def _maybe_save_after_change(self):
+        """Save workspace after a single change only when not inside a bulk operation."""
+        if self._bulk_operation_count == 0:
+            self._save_workspace(self.current_workspace)
+
     def initialize(self):
         """Initialize the device manager"""
         logger.debug("Initializing device manager")
@@ -176,8 +199,8 @@ class DeviceManager(QObject):
             self.devices[device.id].update_properties(device.get_properties())
             self.device_changed.emit(self.devices[device.id])
             
-            # Save to current workspace
-            self.save_workspace()
+            # Save to current workspace (skipped during bulk operations)
+            self._maybe_save_after_change()
             
             return self.devices[device.id]
         
@@ -253,8 +276,8 @@ class DeviceManager(QObject):
             # Emit signal
             self.device_removed.emit(device)
             
-            # Save changes to workspace
-            self.save_workspace()
+            # Save changes to workspace (skipped during bulk operations)
+            self._maybe_save_after_change()
             
             return True
         
@@ -294,8 +317,8 @@ class DeviceManager(QObject):
             # Emit signal
             self.device_added.emit(device)
             
-            # Save changes to workspace
-            self.save_workspace()
+            # Save changes to workspace (skipped during bulk operations)
+            self._maybe_save_after_change()
             
             return True
             
@@ -305,10 +328,14 @@ class DeviceManager(QObject):
         """Restore all devices from the recycle bin"""
         if not self.recycle_bin:
             return False
-            
-        devices_to_restore = list(self.recycle_bin.values())
-        for device in devices_to_restore:
-            self.restore_device(device)
+
+        self.begin_bulk_operation()
+        try:
+            devices_to_restore = list(self.recycle_bin.values())
+            for device in devices_to_restore:
+                self.restore_device(device)
+        finally:
+            self.end_bulk_operation()
             
         return True
     
@@ -342,8 +369,8 @@ class DeviceManager(QObject):
                 except Exception as e:
                     logger.error(f"Error deleting device directory: {e}")
         
-        # Save changes to workspace
-        self.save_workspace()
+        # Save changes to workspace (skipped during bulk operations)
+        self._maybe_save_after_change()
         
         return True
         
@@ -351,13 +378,14 @@ class DeviceManager(QObject):
         """Permanently delete all devices in the recycle bin"""
         if not self.recycle_bin:
             return False
-            
-        devices_to_delete = list(self.recycle_bin.keys())
-        for device_id in devices_to_delete:
-            self.permanently_delete_device(device_id)
-            
-        # Save changes to workspace
-        self.save_workspace()
+
+        self.begin_bulk_operation()
+        try:
+            devices_to_delete = list(self.recycle_bin.keys())
+            for device_id in devices_to_delete:
+                self.permanently_delete_device(device_id)
+        finally:
+            self.end_bulk_operation()
         
         return True
     
@@ -394,8 +422,8 @@ class DeviceManager(QObject):
         # Emit signal
         self.group_added.emit(group)
         
-        # Save to workspace
-        self.save_workspace()
+        # Save to workspace (skipped during bulk operations)
+        self._maybe_save_after_change()
         
         return group
 
@@ -437,7 +465,7 @@ class DeviceManager(QObject):
         self.groups[unique_name] = group
         
         self.group_changed.emit(group)
-        self.save_workspace()
+        self._maybe_save_after_change()
         return True
 
     def move_group(self, group, new_parent):
@@ -474,7 +502,7 @@ class DeviceManager(QObject):
         new_parent.add_subgroup(group)
         
         self.group_changed.emit(group)
-        self.save_workspace()
+        self._maybe_save_after_change()
         return True
 
     def _is_descendant(self, group, potential_ancestor):
@@ -507,8 +535,8 @@ class DeviceManager(QObject):
             # Emit signal
             self.group_removed.emit(group)
             
-            # Save to workspace
-            self.save_workspace()
+            # Save to workspace (skipped during bulk operations)
+            self._maybe_save_after_change()
             
             return True
             

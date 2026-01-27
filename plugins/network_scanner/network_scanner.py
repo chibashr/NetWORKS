@@ -736,7 +736,10 @@ class NetworkScannerPlugin(PluginInterface):
             self.main_window = app.main_window
             self.config = app.config
             self.plugin_info = plugin_info
-            
+
+            # Set toolbar action icons (main_window required for material_icon)
+            self._set_action_icons()
+
             # Initialize nmap availability flag
             self.nmap_available = False
             
@@ -1128,11 +1131,16 @@ class NetworkScannerPlugin(PluginInterface):
         self.scan_type_manager_action = QAction("Scan Type Manager")
         self.scan_type_manager_action.setToolTip("Manage scan profiles and types")
         self.scan_type_manager_action.triggered.connect(self.on_scan_type_manager_action)
-        if self.main_window:
-            self.scan_action.setIcon(material_icon("refresh", self.main_window, QStyle.SP_BrowserReload))
-            self.scan_selected_action.setIcon(material_icon("play_arrow", self.main_window, QStyle.SP_ArrowRight))
-            self.scan_type_manager_action.setIcon(material_icon("tune", self.main_window, QStyle.SP_FileDialogDetailedView))
-        
+        self._set_action_icons()
+
+    def _set_action_icons(self):
+        """Set icons on toolbar actions. Requires main_window (called from initialize())."""
+        if not getattr(self, "main_window", None):
+            return
+        self.scan_action.setIcon(material_icon("refresh", self.main_window, QStyle.SP_BrowserReload))
+        self.scan_selected_action.setIcon(material_icon("play_arrow", self.main_window, QStyle.SP_ArrowRight))
+        self.scan_type_manager_action.setIcon(material_icon("tune", self.main_window, QStyle.SP_FileDialogDetailedView))
+
     def _create_widgets(self):
         """Create plugin widgets"""
         # Main widget
@@ -2348,22 +2356,6 @@ class NetworkScannerPlugin(PluginInterface):
         basic_layout.setContentsMargins(10, 10, 10, 10)  # Add margins
         basic_layout.setSpacing(12)  # Increase spacing
         
-        # Network interface selection
-        interface_group = QGroupBox("Network Interface")
-        interface_layout = QVBoxLayout(interface_group)
-        interface_layout.setContentsMargins(10, 15, 10, 10)
-        interface_layout.setSpacing(8)
-        
-        interface_combo = QComboBox()
-        # Add interfaces from settings
-        interface_combo.addItems(self.settings["preferred_interface"]["choices"])
-        current_interface = self.settings["preferred_interface"]["value"]
-        if current_interface and current_interface in self.settings["preferred_interface"]["choices"]:
-            interface_combo.setCurrentText(current_interface)
-            
-        interface_layout.addWidget(interface_combo)
-        basic_layout.addWidget(interface_group)
-        
         # Scan target options - single dropdown
         target_group = QGroupBox("Scan Target")
         target_layout = QVBoxLayout(target_group)
@@ -2426,6 +2418,26 @@ class NetworkScannerPlugin(PluginInterface):
         target_row.addWidget(target_combo, 1)
         target_layout.insertLayout(0, target_row)
         
+        # Interface selector - shown only when target is "Interface Subnet"
+        interface_container = QWidget()
+        interface_row = QHBoxLayout(interface_container)
+        interface_row.setContentsMargins(0, 0, 0, 0)
+        interface_row.setSpacing(8)
+        interface_row.addWidget(QLabel("Interface:"))
+        interface_combo = QComboBox()
+        interface_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        if not self.settings["preferred_interface"]["choices"]:
+            self._update_interface_choices()
+        interface_combo.addItems(self.settings["preferred_interface"]["choices"])
+        current_interface = self.settings["preferred_interface"]["value"]
+        if current_interface and current_interface in self.settings["preferred_interface"]["choices"]:
+            interface_combo.setCurrentText(current_interface)
+        interface_row.addWidget(interface_combo, 1)
+        refresh_interfaces_btn = QPushButton("Refresh")
+        refresh_interfaces_btn.setToolTip("Refresh network interface list")
+        interface_row.addWidget(refresh_interfaces_btn)
+        target_layout.addWidget(interface_container)
+        
         custom_range_container = QWidget()
         custom_range_layout = QHBoxLayout(custom_range_container)
         custom_range_layout.setContentsMargins(0, 0, 0, 0)
@@ -2448,7 +2460,16 @@ class NetworkScannerPlugin(PluginInterface):
                 list_container.setVisible(t == "devices")
             if group_combo:
                 group_combo.setVisible(t == "group")
-            interface_group.setEnabled(t == "interface")
+            interface_container.setVisible(t == "interface")
+        
+        def refresh_interfaces_in_dialog():
+            self._update_interface_choices()
+            interface_combo.clear()
+            interface_combo.addItems(self.settings["preferred_interface"]["choices"])
+            if self.settings["preferred_interface"]["value"] in self.settings["preferred_interface"]["choices"]:
+                interface_combo.setCurrentText(self.settings["preferred_interface"]["value"])
+        
+        refresh_interfaces_btn.clicked.connect(refresh_interfaces_in_dialog)
         
         target_combo.currentIndexChanged.connect(update_ui_state)
 

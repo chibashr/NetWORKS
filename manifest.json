@@ -1,6 +1,6 @@
 {
   "name": "NetWORKS",
-  "version": "0.11.0",
+  "version": "11.2",
   "description": "Network management and monitoring tool",
   "author": "chibashr",
   "license": "MIT",
@@ -9,12 +9,12 @@
     "type": "git",
     "url": "https://github.com/networks/networks.git"
   },
-  "version_string": "0.11.0",
+  "version_string": "11.2",
   "version_info": {
-    "major": 0,
-    "minor": 11,
+    "major": 11,
+    "minor": 2,
     "patch": 0,
-    "build": 225
+    "build": 227
   },
   "app_directory": "src",
   "main_module": "main",
@@ -37,7 +37,7 @@
   "telemetry_enabled": false,
   "analytics_enabled": false,
   "build_date": "2026-01-27",
-  "release_notes": "Update system now always backs up local files before overwriting them. Local files are automatically backed up to backups/ directory before any update or git initialization.",
+  "release_notes": "Properties panel: right-click on a value cell shows Edit Value... when one device is selected, allowing inline editing of property values (strings, numbers, lists, notes).",
   "release_type": "stable",
   "versioning_scheme": "semver",
   "update_channel": "stable"
