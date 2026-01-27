@@ -80,6 +80,17 @@ The device table view uses uniform row heights, when supported by the Qt binding
 
 The device table filter controls are wrapped in a responsive container. When the main window is narrow, the filter and action buttons stack vertically instead of overlapping.
 
+### Filter bar syntax
+
+The device table filter bar supports both plain search and structured `field:value` filters (similar to search bars in Jira/Gmail):
+
+- **Plain text** – Searches all columns. Example: `router` matches any cell containing "router".
+- **field:value** – Restricts to a column. Example: `ip:192.168`, `alias:gateway`, `status:online`.
+- **Short names** – `ip`, `host`/`hostname`, `alias`/`name`, `mac`, `status`, `tags`, `groups`. Full column names (e.g. "IP Address") also work.
+- **Multiple terms** – Combined with AND. Example: `ip:192.168 status:online`.
+
+The **Add filter** button opens a graphical filter builder; rules you apply there are reflected in the filter bar as syntax, so you can edit them by hand or learn the syntax from the builder.
+
 The properties panel uses checked devices for selection. If no devices are checked, the currently highlighted rows are used to populate the Details tab.
 
 ## Device Tree

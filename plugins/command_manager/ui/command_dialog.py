@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QCheckBox, QGroupBox, QFormLayout, QDialogButtonBox, QTabWidget,
     QLineEdit, QInputDialog
 )
-from PySide6.QtGui import QAction, QIcon, QFont, QTextCursor
+from PySide6.QtGui import QAction, QIcon, QFont, QTextCursor, QShowEvent
 
 from src.ui.plugin_ui_theme import mark_plugin_ui
 import math
@@ -253,6 +253,15 @@ class CommandDialog(QDialog):
         # Pre-select devices if provided
         if self.selected_devices:
             self.set_selected_devices(self.selected_devices)
+
+    def showEvent(self, event):
+        """Refresh devices, groups, and saved command sets when the dialog is shown.
+        Ensures the dialog always displays current data, not cached data from a
+        previous session or an earlier time the dialog was open.
+        """
+        super().showEvent(event)
+        self.refresh_devices()
+        self.refresh_command_sets()
         
     def _create_ui(self):
         """Create the UI components"""

@@ -19,6 +19,106 @@ import json
 import os
 
 
+# Short names for filter bar syntax (e.g. "ip:192.168" -> IP Address). Used by parse_filter_syntax.
+FILTER_FIELD_ALIASES = {
+    "alias": "Alias", "name": "Alias",
+    "hostname": "Hostname", "host": "Hostname",
+    "ip": "IP Address", "ip_address": "IP Address",
+    "mac": "MAC Address", "mac_address": "MAC Address",
+    "status": "Status", "tags": "Tags", "groups": "Groups",
+    "any": "Any Column",
+}
+
+
+def parse_filter_syntax(text, all_headers=None):
+    """
+    Parse filter bar text into either a simple search string or advanced rules.
+
+    Syntax (similar to search bars in Jira/Gmail):
+      - Bare words: match any column (e.g. "router" -> search all columns for "router").
+      - field:value: match specific column (e.g. "ip:192.168", "status:online").
+      - Short names: ip, host, alias, mac, status, tags, groups (see FILTER_FIELD_ALIASES).
+      - Multiple terms are AND together.
+
+    Returns:
+      (simple_text, None) when there are no "field:value" tokens -> use simple search.
+      (None, {"logic": "AND", "rules": [...]}) when there is at least one field:value -> use advanced.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return "", None
+
+    all_headers = set(all_headers or []) | {"Any Column"}
+    # Tokenize: split on whitespace but keep "field:value" as one token (value may contain . and :)
+    tokens = re.split(r"\s+", raw)
+    rules = []
+    simple_parts = []
+
+    for t in tokens:
+        if not t:
+            continue
+        # Match "field:value" (field = word, value = rest, allow e.g. ip:192.168.1.1)
+        m = re.match(r"^([a-zA-Z_][a-zA-Z0-9_]*):(.+)$", t)
+        if m:
+            key, val = m.group(1).strip().lower(), m.group(2).strip()
+            if not val:
+                continue
+            header = FILTER_FIELD_ALIASES.get(key)
+            if not header:
+                # Try exact match on headers (case-insensitive)
+                for h in all_headers:
+                    if h.lower() == key:
+                        header = h
+                        break
+            if not header:
+                header = "Any Column"
+            if header in all_headers:
+                rules.append({"field": header, "operator": "contains", "value": val})
+        else:
+            simple_parts.append(t)
+
+    if rules:
+        # If we have any field:value, add bare words as "Any Column" contains rules
+        for w in simple_parts:
+            rules.append({"field": "Any Column", "operator": "contains", "value": w})
+        return None, {"logic": "AND", "rules": rules}
+    if simple_parts:
+        return " ".join(simple_parts), None
+    return "", None
+
+
+def filter_state_to_syntax(state, header_to_short=None):
+    """
+    Convert advanced filter state to filter bar syntax string.
+    Used to show in the bar when the user applies filters from the graphical dialog.
+    """
+    if not state or not state.get("rules"):
+        return ""
+    header_to_short = header_to_short or _default_header_to_short()
+    parts = []
+    for r in state.get("rules", []):
+        f = (r.get("field") or "").strip()
+        op = (r.get("operator") or "contains").strip()
+        v = (r.get("value") or "").strip()
+        if not v and op not in ("is_empty", "is_not_empty"):
+            continue
+        short = (header_to_short.get(f) or f.replace(" ", "_").lower()).strip() or f
+        # Keep value parseable (no spaces) so the bar stays editable
+        safe_val = v.replace(" ", "_") if v else ""
+        if safe_val:
+            parts.append(f"{short}:{safe_val}")
+    return " ".join(parts)
+
+
+def _default_header_to_short():
+    """Map display headers to preferred short names for filter bar."""
+    return {
+        "Alias": "alias", "Hostname": "hostname", "IP Address": "ip",
+        "MAC Address": "mac", "Status": "status", "Tags": "tags", "Groups": "groups",
+        "Any Column": "any",
+    }
+
+
 class IPSortFilterProxyModel(QSortFilterProxyModel):
     """Custom proxy model that handles sorting IP addresses correctly"""
     
@@ -973,14 +1073,25 @@ class DeviceTableView(QTableView):
         filter_layout.setContentsMargins(5, 5, 5, 5)
         filter_layout.setSpacing(8)
 
-        # Search bar on the left
-        search_label = QLabel("Search:")
+        # Filter bar (syntax-aware search) and "Add filter" button
+        search_label = QLabel("Filter:")
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Search devices...")
-        self.search_edit.setToolTip("Search devices by any column")
-        self.search_edit.textChanged.connect(self.filter_table)
+        self.search_edit.setPlaceholderText("Search or filter (e.g. ip:192.168 status:online)")
+        self.search_edit.setToolTip(
+            "Plain text searches all columns. Use field:value for a column (e.g. ip:192.168, alias:router). "
+            "Short names: ip, host, alias, mac, status, tags, groups. Multiple terms = AND."
+        )
+        self.search_edit.setClearButtonEnabled(True)
+        self.search_edit.textChanged.connect(self._on_filter_bar_changed)
         filter_layout.addWidget(search_label)
-        filter_layout.addWidget(self.search_edit, 1)  # Stretch to fill available space
+        filter_layout.addWidget(self.search_edit, 1)
+
+        add_filter_btn = QToolButton()
+        add_filter_btn.setToolTip("Build filters visually (rules are reflected in the filter bar)")
+        add_filter_btn.setText("Add filter")
+        add_filter_btn.setIcon(material_icon("filter_list", self))
+        add_filter_btn.clicked.connect(self.show_advanced_filter_dialog)
+        filter_layout.addWidget(add_filter_btn)
 
         # Group selector on the right
         group_filter_label = QLabel("Group:")
@@ -1073,9 +1184,26 @@ class DeviceTableView(QTableView):
             # No filter active, ensure "All Devices" is selected
             self.group_filter_combo.setCurrentIndex(0)
     
+    def _on_filter_bar_changed(self, text):
+        """Apply filter from the filter bar. Parses field:value syntax or uses plain search."""
+        all_headers = ["Any Column"] + self.table_model.get_all_headers()
+        simple, advanced = parse_filter_syntax(text, all_headers)
+        if advanced:
+            self._advanced_filter_state = advanced
+            self.proxy_model.setFilterFixedString("")
+            self.proxy_model.set_advanced_filter(
+                advanced.get("rules", []),
+                advanced.get("logic", "AND"),
+            )
+        else:
+            self._advanced_filter_state = {"logic": "AND", "rules": []}
+            self.proxy_model.set_advanced_filter([], "AND")
+            self.proxy_model.setFilterFixedString(simple or "")
+        self._update_header_checkbox_state()
+
     def filter_table(self, text):
-        """Filter the table based on the text"""
-        self.proxy_model.setFilterFixedString(text)
+        """Filter the table based on the text (legacy / programmatic). Prefer _on_filter_bar_changed."""
+        self._on_filter_bar_changed(text)
         
     def filter_by_group(self, index):
         """Filter the table by selected group"""
@@ -1627,7 +1755,16 @@ class DeviceTableView(QTableView):
             on_delete_preset=self._delete_filter_preset,
             parent=self,
         )
-        dialog.apply_requested.connect(lambda state: self._apply_advanced_filter_state(state))
+        def on_apply(state):
+            self._apply_advanced_filter_state(state)
+            syntax = filter_state_to_syntax(state, _default_header_to_short())
+            self.search_edit.blockSignals(True)
+            try:
+                self.search_edit.setText(syntax)
+            finally:
+                self.search_edit.blockSignals(False)
+
+        dialog.apply_requested.connect(on_apply)
         dialog.open()
         self._advanced_filter_dialog = dialog
 
@@ -1802,6 +1939,12 @@ class DeviceTableView(QTableView):
         state = self._load_filter_state()
         if state:
             self._apply_advanced_filter_state(state, save=False)
+            syntax = filter_state_to_syntax(state, _default_header_to_short())
+            self.search_edit.blockSignals(True)
+            try:
+                self.search_edit.setText(syntax)
+            finally:
+                self.search_edit.blockSignals(False)
         else:
             self._update_header_checkbox_state()
 

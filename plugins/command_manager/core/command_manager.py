@@ -6,6 +6,7 @@ Core Command Manager Plugin implementation
 """
 
 import os
+import json
 import datetime
 from pathlib import Path
 from loguru import logger
@@ -85,6 +86,7 @@ class CommandManagerPlugin(PluginInterface):
         
         # Data components
         self.command_sets = {}  # {device_type: {firmware: CommandSet}}
+        self.saved_command_sets = {}  # {set_name: [row_indices]} for "Save Selection as Set"
         self.credential_store = None
         self.outputs = {}       # {device_id: {command_id: {timestamp: output}}}
         
@@ -101,6 +103,9 @@ class CommandManagerPlugin(PluginInterface):
         
         # Create data directories
         self._create_data_directories()
+        
+        # Load user-saved command sets (named selections)
+        self._load_saved_command_sets_from_disk()
         
         # Create credential store
         try:
@@ -939,6 +944,45 @@ class CommandManagerPlugin(PluginInterface):
         if hasattr(self, 'command_handler') and self.command_handler:
             return self.command_handler.get_command_set(device_type, firmware_version)
         return None
+    
+    def _saved_command_sets_path(self):
+        """Path to the JSON file storing user-saved command set names and row indices."""
+        return (self.data_dir or Path(self.plugin_info.path) / "data") / "saved_command_sets.json"
+    
+    def _load_saved_command_sets_from_disk(self):
+        """Load saved command sets (named selections) from disk."""
+        p = self._saved_command_sets_path()
+        if not p.exists():
+            return
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                self.saved_command_sets = {k: list(v) if isinstance(v, list) else [] for k, v in data.items()}
+        except Exception as e:
+            logger.warning("Could not load saved command sets: %s", e)
+    
+    def _persist_saved_command_sets(self):
+        """Write saved command sets to disk."""
+        p = self._saved_command_sets_path()
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                json.dump(self.saved_command_sets, f, indent=2)
+        except Exception as e:
+            logger.warning("Could not persist saved command sets: %s", e)
+    
+    def get_saved_command_sets(self):
+        """Return user-saved command set names and their command row indices. Used by the command dialog Saved Sets list."""
+        return dict(getattr(self, "saved_command_sets", {}))
+    
+    def save_command_set(self, name, selected_rows):
+        """Save a named command set (list of command row indices). Returns True on success."""
+        if not name or not isinstance(selected_rows, (list, tuple)):
+            return False
+        self.saved_command_sets[name.strip()] = list(selected_rows)
+        self._persist_saved_command_sets()
+        return True
     
     def get_command_outputs(self, device_id):
         """Get command outputs for a device

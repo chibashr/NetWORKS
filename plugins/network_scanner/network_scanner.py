@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
     QSplitter, QProgressBar, QMessageBox, QLineEdit, QTableWidget,
     QTableWidgetItem, QDialog, QDialogButtonBox, QMenu, QFileDialog,
     QRadioButton, QInputDialog, QHeaderView, QSizePolicy, QListWidget,
-    QListWidgetItem, QStyle
+    QListWidgetItem, QStyle, QSpinBox
 )
 from PySide6.QtCore import Qt, Signal, Slot, QSize, QTimer, QThread, QObject
 from PySide6.QtGui import QIcon, QAction, QFont, QColor, QIntValidator
@@ -560,7 +560,7 @@ class ScannerWorker(QObject):
                             "  • Network timeout issues\n\n"
                             "Suggestions:\n"
                             "  • Try scanning a smaller range (e.g., /24 instead of /22)\n"
-                            "  • Use the 'Quick Ping' option for faster discovery\n"
+                            "  • Use a ping-only scan type for faster discovery\n"
                             "  • Update nmap to the latest version\n"
                             "  • Try increasing the scan timeout in settings"
                         )
@@ -580,7 +580,7 @@ class ScannerWorker(QObject):
                             "Troubleshooting:\n"
                             "  • Try scanning a smaller network range\n"
                             "  • Check that nmap is properly installed\n"
-                            "  • Try using the 'Quick Ping' scan option\n"
+                            "  • Try using a ping-only scan type\n"
                             "  • Ensure you have network connectivity"
                         )
                         self.scan_error.emit(generic_msg)
@@ -645,6 +645,7 @@ class NetworkScannerPlugin(PluginInterface):
         self._batch_scan_index = 0
         self._batch_scan_current = None
         self._batch_scan_active = False
+        self._batch_scan_slots = []  # for parallel batch: list of {"thread", "worker", "target", "index"}
         
         # Plugin settings
         self.settings = {
@@ -710,6 +711,13 @@ class NetworkScannerPlugin(PluginInterface):
                 "type": "bool",
                 "default": True,
                 "value": True
+            },
+            "batch_scan_threads": {
+                "name": "Batch scan threads",
+                "description": "Number of devices to scan in parallel during batch scans (1 = sequential)",
+                "type": "int",
+                "default": 1,
+                "value": 1
             }
         }
         
@@ -1228,7 +1236,7 @@ class NetworkScannerPlugin(PluginInterface):
         scan_type_layout.addWidget(self.scan_type_manager_button)
         control_layout.addLayout(scan_type_layout)
         
-        # Scan buttons - 2x2 grid layout to prevent overlapping
+        # Scan buttons: one Start/Stop button (shows "Stop" when scanning) plus Advanced
         button_grid = QGridLayout()
         button_grid.setSpacing(4)
         button_grid.setHorizontalSpacing(4)
@@ -1236,26 +1244,15 @@ class NetworkScannerPlugin(PluginInterface):
         
         self.scan_button = QPushButton("Start Scan")
         self.scan_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.scan_button.clicked.connect(self.on_scan_button_clicked)
+        self.scan_button.clicked.connect(self.on_scan_stop_button_clicked)
+        self.scan_button.setToolTip("Start a scan, or stop the current scan")
         button_grid.addWidget(self.scan_button, 0, 0)
-        
-        self.quick_ping_button = QPushButton("Quick Ping")
-        self.quick_ping_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.quick_ping_button.clicked.connect(self.on_quick_ping_button_clicked)
-        self.quick_ping_button.setToolTip("Fast ping scan without using nmap")
-        button_grid.addWidget(self.quick_ping_button, 0, 1)
         
         self.advanced_scan_button = QPushButton("Advanced...")
         self.advanced_scan_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.advanced_scan_button.clicked.connect(self.on_advanced_scan_button_clicked)
         self.advanced_scan_button.setToolTip("Open the advanced scan configuration dialog")
-        button_grid.addWidget(self.advanced_scan_button, 1, 0)
-        
-        self.stop_button = QPushButton("Stop")
-        self.stop_button.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.stop_button.clicked.connect(self.on_stop_button_clicked)
-        self.stop_button.setEnabled(False)
-        button_grid.addWidget(self.stop_button, 1, 1)
+        button_grid.addWidget(self.advanced_scan_button, 0, 1)
         
         control_layout.addLayout(button_grid)
         
@@ -1490,12 +1487,7 @@ class NetworkScannerPlugin(PluginInterface):
             self._scan_log = []
             self.log_message(f"Starting {scan_type} scan of {network_range}")
             self._scan_results = {}
-            
-            # Update scanner widget status if available
-            if hasattr(self, "scan_button") and self.scan_button:
-                self.scan_button.setEnabled(False)
-            if hasattr(self, "stop_button") and self.stop_button:
-                self.stop_button.setEnabled(True)
+            self._update_scan_button_state()
             if hasattr(self, "progress_bar") and self.progress_bar:
                 self.progress_bar.setValue(0)
                 self.progress_bar.setVisible(True)
@@ -1552,8 +1544,18 @@ class NetworkScannerPlugin(PluginInterface):
         self._batch_scan_index = 0
         self._batch_scan_current = None
         self._batch_scan_active = True
+        threads = max(1, min(8, int(self.settings.get("batch_scan_threads", {}).get("value", 1) or 1)))
 
-        self.log_message(f"Starting batch scan for {self._batch_scan_total} device(s)")
+        self.log_message(f"Starting batch scan for {self._batch_scan_total} device(s)" + (f" ({threads} parallel)" if threads > 1 else ""))
+
+        if threads > 1:
+            self._is_scanning = True
+            self._update_scan_button_state()
+            if hasattr(self, "progress_bar") and self.progress_bar:
+                self.progress_bar.setValue(0)
+                self.progress_bar.setVisible(True)
+            self._refill_batch_slots(scan_type)
+            return True
         return self._start_next_batch_scan(scan_type)
 
     def _start_next_batch_scan(self, scan_type):
@@ -1583,11 +1585,124 @@ class NetworkScannerPlugin(PluginInterface):
 
     def _clear_batch_scan(self):
         """Reset batch scan state"""
+        for slot in list(self._batch_scan_slots):
+            try:
+                if slot.get("worker"):
+                    slot["worker"].stop()
+                if slot.get("thread") and slot["thread"].isRunning():
+                    slot["thread"].quit()
+                    slot["thread"].wait(500)
+            except Exception as e:
+                logger.debug(f"Error clearing batch slot: {e}")
+        self._batch_scan_slots = []
         self._batch_scan_queue = []
         self._batch_scan_total = 0
         self._batch_scan_index = 0
         self._batch_scan_current = None
         self._batch_scan_active = False
+        
+    def _create_worker_for_target(self, ip, scan_type):
+        """Create (thread, worker) for a single target. Caller connects signals and starts thread."""
+        scan_profiles = self.settings["scan_profiles"]["value"]
+        custom_args = self.settings["custom_scan_args"]["value"]
+        use_sudo = self.settings["use_sudo"]["value"]
+        timeout = self.settings["scan_timeout"]["value"]
+        if scan_type in scan_profiles:
+            profile = scan_profiles[scan_type]
+            if not custom_args:
+                custom_args = profile.get("arguments", "")
+            if timeout == self.settings["scan_timeout"]["default"]:
+                timeout = profile.get("timeout", timeout)
+        nmap_path = getattr(self, "nmap_path", None)
+        thread = QThread()
+        worker = ScannerWorker(
+            network_range=ip,
+            scan_type=scan_type,
+            timeout=timeout,
+            use_sudo=use_sudo,
+            custom_scan_args=custom_args,
+            nmap_path=nmap_path
+        )
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        return thread, worker
+        
+    def _refill_batch_slots(self, scan_type):
+        """Start up to batch_scan_threads workers for queued targets."""
+        max_n = max(1, min(8, int(self.settings.get("batch_scan_threads", {}).get("value", 1) or 1)))
+        while self._batch_scan_active and self._batch_scan_queue and len(self._batch_scan_slots) < max_n:
+            target = self._batch_scan_queue.pop(0)
+            self._batch_scan_index += 1
+            self._batch_scan_current = target
+            current_ip = target["ip"]
+            current_label = target["label"]
+            if hasattr(self, "status_label"):
+                self.status_label.setText(
+                    f"Scanning device {self._batch_scan_index}/{self._batch_scan_total}: {current_label}"
+                )
+            self.log_message(
+                f"Starting device {self._batch_scan_index}/{self._batch_scan_total} scan: {current_label}"
+            )
+            thread, worker = self._create_worker_for_target(current_ip, scan_type)
+            slot = {"thread": thread, "worker": worker, "target": target, "index": self._batch_scan_index}
+            worker.progress.connect(self._on_scan_progress)
+            worker.device_found.connect(self._on_device_found)
+            worker.scan_complete.connect(
+                lambda results, s=slot, st=scan_type: self._on_batch_slot_complete(s, results, st)
+            )
+            worker.scan_error.connect(
+                lambda msg, s=slot, st=scan_type: self._on_batch_slot_error(s, msg, st)
+            )
+            self._batch_scan_slots.append(slot)
+            thread.start()
+        if self._batch_scan_active and not self._batch_scan_queue and not self._batch_scan_slots:
+            self._batch_scan_done()
+        
+    def _on_batch_slot_complete(self, slot, results, scan_type):
+        """Handle completion of one batch slot (parallel batch)."""
+        try:
+            if slot.get("worker"):
+                slot["worker"].stop()
+            if slot.get("thread") and slot["thread"].isRunning():
+                slot["thread"].quit()
+                slot["thread"].wait(1000)
+        except Exception as e:
+            logger.debug(f"Error cleaning batch slot: {e}")
+        if slot in self._batch_scan_slots:
+            self._batch_scan_slots.remove(slot)
+        # Merge results
+        if isinstance(results, dict) and results.get("devices"):
+            self._scan_results.update({d.get("ip_address", str(i)): d for i, d in enumerate(results["devices"])})
+        if hasattr(self, "progress_bar") and self.progress_bar:
+            self.progress_bar.setValue(min(100, int(100 * (self._batch_scan_total - len(self._batch_scan_queue) - len(self._batch_scan_slots)) / max(1, self._batch_scan_total))))
+        self._refill_batch_slots(scan_type)
+        
+    def _on_batch_slot_error(self, slot, error_message, scan_type):
+        """Handle error from one batch slot (parallel batch)."""
+        try:
+            if slot.get("worker"):
+                slot["worker"].stop()
+            if slot.get("thread") and slot["thread"].isRunning():
+                slot["thread"].quit()
+                slot["thread"].wait(1000)
+        except Exception as e:
+            logger.debug(f"Error cleaning batch slot: {e}")
+        if slot in self._batch_scan_slots:
+            self._batch_scan_slots.remove(slot)
+        label = slot.get("target", {}).get("label", "device")
+        self.log_message(f"Batch scan error: {label} - {error_message}")
+        self._refill_batch_slots(scan_type)
+        
+    def _batch_scan_done(self):
+        """Called when all parallel batch slots and queue are empty."""
+        self._clear_batch_scan()
+        self._is_scanning = False
+        self._update_scan_button_state()
+        if hasattr(self, "status_label"):
+            self.status_label.setText("Batch scan complete")
+        if hasattr(self, "progress_bar") and self.progress_bar:
+            self.progress_bar.setValue(100)
+        self.scan_completed.emit({"devices_found": len(self._scan_results), "scan_time": 0, "devices": list(self._scan_results.values())})
         
     def _cleanup_previous_scan(self):
         """Clean up any previous scan thread and worker"""
@@ -1627,9 +1742,8 @@ class NetworkScannerPlugin(PluginInterface):
             self._is_scanning = False
             
             # Update UI
-            if hasattr(self, "scan_button"):
-                self.scan_button.setEnabled(True)
-                self.stop_button.setEnabled(False)
+            self._update_scan_button_state()
+            if hasattr(self, "status_label"):
                 self.status_label.setText("Scan interrupted unexpectedly")
                 
             self.log_message("Scan interrupted unexpectedly")
@@ -1659,9 +1773,7 @@ class NetworkScannerPlugin(PluginInterface):
         logger.info("Stopping scan...")
         
         # Update UI first to give immediate feedback
-        if hasattr(self, "scan_button"):
-            self.scan_button.setEnabled(True)
-            self.stop_button.setEnabled(False)
+        if hasattr(self, "status_label"):
             self.status_label.setText("Stopping scan...")
             
         # Try to stop ping scan if it's running
@@ -1722,11 +1834,8 @@ class NetworkScannerPlugin(PluginInterface):
                 
         # Mark as not scanning
         self._is_scanning = False
-        
-        # Update UI
-        if hasattr(self, "scan_button"):
-            self.scan_button.setEnabled(True)
-            self.stop_button.setEnabled(False)
+        self._update_scan_button_state()
+        if hasattr(self, "status_label"):
             self.status_label.setText("Scan stopped by user")
             
         self.log_message("Scan stopped by user")
@@ -1896,14 +2005,10 @@ class NetworkScannerPlugin(PluginInterface):
             
     def _on_scan_complete(self, results):
         """Handle scan completion"""
+        self._is_scanning = False
         # Store the results
         self._scan_results = results
-        
-        # Update UI
-        if hasattr(self, "scan_button"):
-            self.scan_button.setEnabled(True)
-            self.stop_button.setEnabled(False)
-            
+        self._update_scan_button_state()
         # Update status
         if hasattr(self, "status_label"):
             if self._batch_scan_active and self._batch_scan_current:
@@ -1924,9 +2029,6 @@ class NetworkScannerPlugin(PluginInterface):
         # Log results
         scan_time = round(results["scan_time"], 1)
         self.log_message(f"Scan complete: Found {results['devices_found']} devices in {scan_time} seconds")
-        
-        # Clean up
-        self._is_scanning = False
         
         # Stop the thread and ensure proper cleanup
         if self._scanner_thread and self._scanner_thread.isRunning():
@@ -1961,11 +2063,8 @@ class NetworkScannerPlugin(PluginInterface):
         
     def _on_scan_error(self, error_message):
         """Handle scan errors"""
-        # Update UI
-        if hasattr(self, "scan_button"):
-            self.scan_button.setEnabled(True)
-            self.stop_button.setEnabled(False)
-            
+        self._is_scanning = False
+        self._update_scan_button_state()
         # Update status
         if hasattr(self, "status_label"):
             if self._batch_scan_active and self._batch_scan_current:
@@ -1985,9 +2084,6 @@ class NetworkScannerPlugin(PluginInterface):
                 f"Batch scan error on device {self._batch_scan_index}/{self._batch_scan_total}: "
                 f"{current_label} - {error_message}"
             )
-        
-        # Clean up
-        self._is_scanning = False
         
         # Stop the thread
         if self._scanner_thread and self._scanner_thread.isRunning():
@@ -2058,9 +2154,24 @@ class NetworkScannerPlugin(PluginInterface):
 
         self._handle_scan_target(dialog_result, scan_type)
         
-    @safe_action_wrapper
-    def on_scan_button_clicked(self):
-        """Handle scan button click"""
+    def _update_scan_button_state(self):
+        """Update scan button label and state: 'Stop' when scanning, 'Start Scan' when idle."""
+        if hasattr(self, "scan_button") and self.scan_button:
+            if self._is_scanning:
+                self.scan_button.setText("Stop")
+            else:
+                self.scan_button.setText("Start Scan")
+            self.scan_button.setEnabled(True)
+
+    def on_scan_stop_button_clicked(self):
+        """Single handler: start scan when idle, stop scan when running."""
+        if self._is_scanning:
+            self.stop_scan()
+            return
+        self._do_start_scan_from_panel()
+
+    def _do_start_scan_from_panel(self):
+        """Start a scan using current panel target/range/type (called when Start Scan is clicked)."""
         # Check if nmap is available
         if not hasattr(self, 'nmap_available') or not self.nmap_available:
             QMessageBox.warning(
@@ -2071,15 +2182,6 @@ class NetworkScannerPlugin(PluginInterface):
                 "1. Install the nmap executable (see https://nmap.org/download.html)\n"
                 "2. Make sure nmap is in your system PATH\n"
                 "3. Restart NetWORKS"
-            )
-            return
-            
-        # Check if scan already in progress
-        if self._is_scanning:
-            QMessageBox.information(
-                self.main_window,
-                "Scan in Progress",
-                "A scan is already in progress. Please wait for it to complete or click Stop to cancel it."
             )
             return
             
@@ -2155,7 +2257,7 @@ class NetworkScannerPlugin(PluginInterface):
         
         # Start the scan directly with the current panel settings
         self.scan_network(network_range, scan_type)
-        
+
     @safe_action_wrapper
     def on_advanced_scan_button_clicked(self):
         """Handle advanced scan button click - opens the full scan dialog"""
@@ -3358,6 +3460,16 @@ class NetworkScannerPlugin(PluginInterface):
         )
         advanced_layout.addRow("Auto Tag Devices:", auto_tag_check)
         
+        # Batch scan threads (parallel batch scans)
+        batch_threads_spin = QSpinBox()
+        batch_threads_spin.setRange(1, 8)
+        batch_threads_spin.setValue(max(1, min(8, int(self.settings["batch_scan_threads"]["value"] or 1))))
+        batch_threads_spin.setToolTip("Number of devices to scan in parallel during batch scans. 1 = sequential.")
+        batch_threads_spin.valueChanged.connect(
+            lambda v: self.update_setting("batch_scan_threads", v)
+        )
+        advanced_layout.addRow("Batch scan threads:", batch_threads_spin)
+        
         main_layout.addWidget(advanced_group)
         
         # Add a spacer at the bottom to push everything up
@@ -4359,12 +4471,7 @@ class NetworkScannerPlugin(PluginInterface):
             
             # Set scanning flag
             self._is_scanning = True
-            
-            # Update scanner widget status if available
-            if hasattr(self, "scan_button") and self.scan_button:
-                self.scan_button.setEnabled(False)
-            if hasattr(self, "stop_button") and self.stop_button:
-                self.stop_button.setEnabled(True)
+            self._update_scan_button_state()
             if hasattr(self, "progress_bar") and self.progress_bar:
                 self.progress_bar.setValue(0)
                 self.progress_bar.setVisible(True)
@@ -4469,14 +4576,9 @@ class NetworkScannerPlugin(PluginInterface):
             
     def _on_ping_scan_complete(self, results):
         """Handle ping scan completion in a thread-safe way"""
-        # Store the results
+        self._is_scanning = False
         self._scan_results = results
-        
-        # Update UI
-        if hasattr(self, "scan_button"):
-            self.scan_button.setEnabled(True)
-            self.stop_button.setEnabled(False)
-            
+        self._update_scan_button_state()
         # Update status
         if hasattr(self, "status_label"):
             self.status_label.setText("Scan complete")
@@ -4485,9 +4587,6 @@ class NetworkScannerPlugin(PluginInterface):
         if hasattr(self, "progress_bar"):
             self.progress_bar.setValue(self.progress_bar.maximum())
             
-        # Clean up
-        self._is_scanning = False
-        
         # Clean up thread
         if hasattr(self, "_ping_scan_thread") and self._ping_scan_thread.isRunning():
             self._ping_scan_thread.quit()
@@ -4503,54 +4602,6 @@ class NetworkScannerPlugin(PluginInterface):
             self.log_message("Stopping ping scan...")
             return True
         return False
-
-    @safe_action_wrapper
-    def on_quick_ping_button_clicked(self):
-        """Handle quick ping button click"""
-        # Check if scan already in progress
-        if self._is_scanning:
-            QMessageBox.information(
-                self.main_window,
-                "Scan in Progress",
-                "A scan is already in progress. Please wait for it to complete or click Stop to cancel it."
-            )
-            return
-            
-        # Get network range from the UI based on target dropdown
-        target = self.target_combo.currentData() if hasattr(self, "target_combo") and self.target_combo.currentData() is not None else "interface"
-        if target == "interface":
-            network_range = self._get_interface_subnet(self.interface_combo.currentText())
-            if not network_range:
-                QMessageBox.warning(
-                    self.main_window,
-                    "Missing Network Range",
-                    "Could not determine subnet for the selected interface. Please select a different interface or use Custom Network Range."
-                )
-                return
-        elif target == "custom":
-            network_range = self.network_range_edit.text().strip()
-            if not network_range:
-                QMessageBox.warning(
-                    self.main_window,
-                    "Missing Network Range",
-                    "Please enter a network range (e.g., 192.168.1.0/24 or 10.0.0.1-10.0.0.254)."
-                )
-                return
-        else:
-            # devices or unknown: quick ping uses range only; fallback to interface or custom
-            network_range = self.network_range_edit.text().strip()
-            if not network_range:
-                network_range = self._get_interface_subnet(self.interface_combo.currentText())
-                if not network_range:
-                    QMessageBox.warning(
-                        self.main_window,
-                        "Missing Network Range",
-                        "Please enter a network range or select a valid interface."
-                    )
-                    return
-        
-        self.quick_ping_scan(network_range)
-
 
 # Create plugin instance (will be loaded by the plugin manager)
 logger.info("Creating Network Scanner plugin instance")
