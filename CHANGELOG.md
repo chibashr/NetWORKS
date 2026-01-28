@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.11.4] - 2026-01-28
+
+### Added
+- Command Manager: `run_command_set(devices, command_set=..., show_progress=True)` API to run a command set on devices without opening the dialog; used by Template Manager to apply templates.
+- Template Manager: **Run template on selected devices** (panel) runs the current template on device-table selection via Command Manager.
+- Template Manager: **Send to Command Manager and run** in Export dialog runs the first template on scope/filter-resolved devices.
+- Template Manager: **Run in Command Manager** in Batch export dialog runs the first template on batch-resolved devices.
+
+### Changed
+- Command Manager and Template Manager integrate via `run_command_set` only; both plugins remain independent.
+- Command Manager API.md documents `run_command_set` and `add_command_set(..., temporary=True)`.
+- Template Manager API.md documents Run template on selected devices, Send to Command Manager and run, and Run in Command Manager flows.
+
+## [0.11.3] - 2026-01-28
+
+### Changed
+- Version bump to 0.11.3
+- Settings menu: moved from Tools to File; fixed duplicate Settings entry on same line
+
 ## [11.2] - 2026-01-27
 
 ### Changed

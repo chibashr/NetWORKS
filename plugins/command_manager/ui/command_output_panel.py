@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QSplitter, QTextEdit, QMenu, QFileDialog, QMessageBox,
     QTreeWidget, QTreeWidgetItem, QDialog, QFormLayout, QLineEdit, QGroupBox, QCheckBox
 )
-from PySide6.QtGui import QAction, QIcon, QFont
+from PySide6.QtGui import QAction, QIcon, QFont, QPalette
 
 from src.ui.plugin_ui_theme import mark_plugin_ui
 
@@ -477,21 +477,26 @@ class CommandOutputPanel(QWidget):
                     f.write("\n\n" + "=" * 80 + "\n\n")
                     
     def _export_all_html(self, file_path, all_outputs):
-        """Export all outputs to an HTML file"""
+        """Export all outputs to an HTML file (colors from palette for theme consistency)."""
         device_name = self.device.get_property("alias", "device")
-        
+        win = getattr(self.plugin, "main_window", None) if self.plugin else None
+        pal = win.palette() if win else self.palette()
+        text_c = pal.color(QPalette.Text).name()
+        base_c = pal.color(QPalette.Base).name()
+        border_c = pal.color(QPalette.Mid).name()
+        muted_c = pal.color(QPalette.PlaceholderText).name()
         with open(file_path, "w") as f:
             f.write(f"""<!DOCTYPE html>
 <html>
 <head>
     <title>Command Outputs for {device_name}</title>
     <style>
-        body {{ font-family: Arial, sans-serif; margin: 20px; }}
-        h1 {{ color: #2c3e50; }}
-        h2 {{ color: #3498db; }}
-        pre {{ background-color: #f5f5f5; padding: 10px; border: 1px solid #ddd; overflow-x: auto; }}
+        body {{ font-family: Arial, sans-serif; margin: 20px; color: {text_c}; }}
+        h1 {{ color: {text_c}; }}
+        h2 {{ color: {text_c}; }}
+        pre {{ background-color: {base_c}; padding: 10px; border: 1px solid {border_c}; overflow-x: auto; }}
         .command {{ margin-bottom: 30px; }}
-        .timestamp {{ color: #7f8c8d; font-style: italic; }}
+        .timestamp {{ color: {muted_c}; font-style: italic; }}
     </style>
 </head>
 <body>

@@ -141,4 +141,12 @@ def plugin_ui_stylesheet(tokens=None) -> str:
         color: {theme.header_text};
         border: 1px solid {theme.border};
     }}
+    QDialog[plugin_ui="true"] QLabel[plugin_ui_muted="true"],
+    QWidget[plugin_ui="true"] QLabel[plugin_ui_muted="true"] {{
+        color: {theme.text_muted};
+    }}
+    QDialog[plugin_ui="true"] QLabel[plugin_ui_warning="true"],
+    QWidget[plugin_ui="true"] QLabel[plugin_ui_warning="true"] {{
+        color: #F59E0B;
+    }}
     """

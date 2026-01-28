@@ -11,6 +11,7 @@ from pathlib import Path
 from loguru import logger
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QMessageBox,
@@ -181,7 +182,8 @@ class CommandBatchExport(QDialog):
         
         self.preview_text = QLabel("Select devices/groups/subnets and commands to see export preview")
         self.preview_text.setAlignment(Qt.AlignCenter)
-        self.preview_text.setStyleSheet("color: #888;")
+        _pal = self.preview_text.palette()
+        self.preview_text.setStyleSheet(f"color: {_pal.color(QPalette.PlaceholderText).name()};")
         self.preview_text.setWordWrap(True)
         preview_layout.addWidget(self.preview_text)
         
@@ -438,8 +440,9 @@ class CommandBatchExport(QDialog):
             preview_text += "<br>... and more"
             
         self.preview_text.setText(preview_text)
-        self.preview_text.setStyleSheet("color: #000;")
-        
+        _pal = self.preview_text.palette()
+        self.preview_text.setStyleSheet(f"color: {_pal.color(QPalette.Text).name()};")
+
     def _on_export(self):
         """Handle export button"""
         selected_devices = self._get_selected_devices()

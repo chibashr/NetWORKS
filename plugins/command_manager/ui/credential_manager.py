@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QTabWidget, QWidget, QMessageBox, QGroupBox, QListWidget,
     QListWidgetItem
 )
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QPalette
 
 from src.ui.plugin_ui_theme import mark_plugin_ui
 
@@ -93,9 +93,12 @@ class CredentialManager(QDialog):
         button_box.accepted.connect(self.accept)
         button_box.rejected.connect(self.reject)
         
-        # Add help text
+        # Add help text (use palette for theme consistency)
         help_label = QLabel("Note: Credentials are stored securely and used for device access.")
-        help_label.setStyleSheet("font-style: italic; color: #666;")
+        _pal = help_label.palette()
+        help_label.setStyleSheet(
+            f"font-style: italic; color: {_pal.color(QPalette.PlaceholderText).name()};"
+        )
         
         layout.addWidget(help_label)
         layout.addWidget(button_box)

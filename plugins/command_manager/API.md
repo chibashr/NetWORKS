@@ -48,14 +48,50 @@ def get_command_set(self, device_type, firmware)
 Returns a `CommandSet` object for the specified device type and firmware.
 
 ```python
-def add_command_set(self, command_set)
+def add_command_set(self, command_set, temporary=False)
 ```
-Adds or updates a command set in the plugin.
+Adds or updates a command set in the plugin (device type / firmware). If `temporary=True`, the set is not persisted and is removed after it is run. Template Manager loads templates as **temporary saved sets** (see `add_temporary_saved_set`), not as device-type command sets.
 
 ```python
 def delete_command_set(self, device_type, firmware)
 ```
 Deletes a command set.
+
+```python
+def add_temporary_saved_set(self, name, commands)
+```
+Adds a temporary saved set (e.g. from Template Manager). The set appears in the dialog under **Saved Sets:**, not as a device type. `commands` is a list of dicts with keys `command`, `alias`, `description` (or objects with `to_dict()`). Not persisted.
+
+```python
+def get_temporary_saved_set_names(self)
+```
+Returns the names of temporary saved sets (for the Saved Sets dropdown).
+
+```python
+def get_temporary_saved_set_commands(self, name)
+```
+Returns the list of command dicts for a temporary saved set, or `None` if not found.
+
+```python
+def open_dialog(self, device_type=None, firmware_version=None, temporary_saved_set_name=None)
+```
+Shows the Command Manager dialog. If `temporary_saved_set_name` is set (e.g. from Template Manager), that temporary saved set is selected in Saved Sets. Otherwise, if `device_type` and `firmware_version` are given, that command set is selected.
+
+### Run command set (programmatic)
+
+```python
+def run_command_set(self, devices, command_set=None, device_type=None, firmware_version=None, show_progress=True)
+```
+Runs a command set on a list of devices **without opening the dialog**. Used by Template Manager (and others) to apply templates or run stored sets. Results are written to the device Command Output tab via the same pipeline as the dialog.
+
+- **devices**: List of device objects to run on.
+- **command_set**: Optional `CommandSet` to run (in-memory; not added to stored sets). Use this when the caller builds the set (e.g. Template Manager).
+- **device_type** / **firmware_version**: If `command_set` is not provided, the set is resolved with `get_command_set(device_type, firmware_version)`.
+- **show_progress**: If `True`, a non-modal progress dialog is shown.
+
+**Returns:** `True` if the run was started, `False` if there are no devices/commands or another run is already in progress (dialog or programmatic). Only one run is allowed at a time.
+
+Command sets from Template Manager can be run by passing a `CommandSet` directly (`run_command_set(devices, command_set=cs, show_progress=True)`) or, if the set was added with `add_command_set(cs, temporary=True)`, by device_type and firmware_version.
 
 ## Credential Management
 
@@ -253,7 +289,9 @@ The Command Manager Plugin provides the following API methods:
 - `get_firmware_versions(device_type)` - Get all available firmware versions for a device type
 - `get_commands(device_type, firmware_version)` - Get all commands for a device type and firmware version
 - `get_command_set(device_type, firmware_version)` - Get a command set for a device type and firmware version
-- `run_command(device, command, credentials=None)` - Run a command on a device
+- `add_command_set(command_set, temporary=False)` - Add or update a command set (temporary sets are not persisted; used by Template Manager)
+- `run_command(device, command, credentials=None)` - Run a single command on a device
+- `run_command_set(devices, command_set=None, device_type=None, firmware_version=None, show_progress=True)` - Run a full command set on devices without opening the dialog (used by Template Manager to apply templates)
 
 ### Command Outputs
 

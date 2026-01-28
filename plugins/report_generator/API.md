@@ -66,11 +66,10 @@ Each report definition is stored as JSON in `reports.json`.
 
 - `{{property}}` placeholders map to device properties.
 - `{{index}}` and `{{total}}` are available in template mode.
-- Per-line concatenation supports the pattern:
+- **Expression-style lines**: per-line concatenation using `+` and quoted literals, e.g. `{{device_type}} + " " + {{ip_address}}`.
+- **Computed columns**: comma-separated parts (property names or quoted literals), e.g. `hostname, " - ", ip_address` in the Parts field. Both expression-style lines and comma-separated parts are supported.
 
-```
-{{device_type}} + " " + {{ip_address}}
-```
+Implementation note: report execution lives in `core/report_engine.py`; template rendering (expression lines and `{{key}}` substitution) lives in `core/template_engine.py`.
 
 ## Settings
 

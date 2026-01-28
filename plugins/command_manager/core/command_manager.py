@@ -29,6 +29,8 @@ from plugins.command_manager.ui.settings_dialog import SettingsDialog
 from .plugin_setup import register_ui, register_context_menu
 from .command_handler import CommandHandler
 from .output_handler import OutputHandler
+from . import credential_api
+from . import plugin_actions
 
 # Import utilities
 from plugins.command_manager.utils.credential_store import CredentialStore
@@ -86,10 +88,20 @@ class CommandManagerPlugin(PluginInterface):
         
         # Data components
         self.command_sets = {}  # {device_type: {firmware: CommandSet}}
+        self.temporary_command_sets = set()  # (device_type, firmware_version) for template-loaded sets
         self.saved_command_sets = {}  # {set_name: [row_indices]} for "Save Selection as Set"
+        self.temporary_saved_sets = {}  # {set_name: [{"command", "alias", "description"}, ...]} for template-loaded sets
         self.credential_store = None
         self.outputs = {}       # {device_id: {command_id: {timestamp: output}}}
-        
+        self.pending_custom_commands_text = ""  # prefill for Custom Commands dialog (e.g. from Template Manager)
+
+        # Programmatic run (run_command_set): worker, thread, progress dialog; only one run at a time
+        self._run_command_set_worker = None
+        self._run_command_set_thread = None
+        self._run_command_set_progress_dialog = None
+        self._run_command_set_used_device_type = None
+        self._run_command_set_used_firmware_version = None
+
         logger.debug("Command Manager Plugin instance initialized")
         
     def initialize(self, app, plugin_info):
@@ -554,7 +566,8 @@ class CommandManagerPlugin(PluginInterface):
         settings_action.triggered.connect(self._on_open_settings)
         tools_menu.append(settings_action)
         
-        actions["Tools"] = tools_menu
+        tools_menu_name = self.find_existing_menu("Tools")
+        actions[tools_menu_name] = tools_menu
         
         logger.debug(f"Returning {len(actions)} menu actions")
         return actions
@@ -592,337 +605,80 @@ class CommandManagerPlugin(PluginInterface):
         """
         return self.output_handler.get_device_panels()
         
-    # Event handlers for UI actions
-    
+    # Event handlers for UI actions (delegate to plugin_actions)
     def _on_device_context_run_commands(self, devices):
         """Handle run commands context menu item"""
-        # Fix: Check if devices is a single Device object or a list
-        if not isinstance(devices, list):
-            # Convert to a list with a single device
-            devices = [devices]
-        
-        dialog = CommandDialog(self, devices, parent=self.main_window)
-        dialog.exec()
-        
+        plugin_actions.on_device_context_run_commands(self, devices)
+
     def _on_device_context_credentials(self, devices):
-        """Handle credential manager context menu action
-        
-        Args:
-            devices: List of selected devices
-        """
-        logger.debug(f"Opening credential manager for {len(devices)} devices")
-        
-        try:
-            from plugins.command_manager.ui.credential_manager import CredentialManager
-            dialog = CredentialManager(self, devices=devices, parent=self.main_window)
-            dialog.exec()
-        except Exception as e:
-            logger.error(f"Error opening credential manager: {e}")
-            logger.exception("Exception details:")
-            
-            # Show error dialog
-            QMessageBox.critical(
-                self.main_window,
-                "Error",
-                f"An error occurred while opening the credential manager: {str(e)}"
-            )
-    
+        """Handle credential manager context menu action for devices."""
+        plugin_actions.on_device_context_credentials(self, devices)
+
     def _on_group_context_run_commands(self, groups):
-        """Handle run commands on group context menu action
-        
-        Args:
-            groups: List of selected device groups
-        """
-        logger.debug(f"Opening command dialog for {len(groups)} device groups")
-        
-        try:
-            # Get all devices from the selected groups
-            all_devices = []
-            for group in groups:
-                try:
-                    # Get all devices in this group (more reliable now with DeviceGroup class)
-                    if hasattr(group, 'get_all_devices'):
-                        group_devices = group.get_all_devices()
-                    elif hasattr(group, 'devices'):
-                        group_devices = group.devices
-                    else:
-                        logger.warning(f"Unknown group structure, cannot get devices: {group}")
-                        continue
-                        
-                    # Add to all devices list, avoiding duplicates
-                    for device in group_devices:
-                        if device not in all_devices:
-                            all_devices.append(device)
-                            
-                except Exception as e:
-                    logger.error(f"Error getting devices from group: {e}")
-            
-            if not all_devices:
-                logger.warning("No devices found in selected groups")
-                QMessageBox.warning(
-                    self.main_window,
-                    "No Devices",
-                    "No devices found in the selected groups."
-                )
-                return
-                
-            logger.debug(f"Found {len(all_devices)} unique devices in selected groups")
-            
-            # Open command dialog with these devices
-            from plugins.command_manager.ui.command_dialog import CommandDialog
-            self.command_dialog = CommandDialog(self, devices=all_devices, parent=self.main_window)
-            self.command_dialog.show()
-        except Exception as e:
-            logger.error(f"Error opening command dialog for group: {e}")
-            logger.exception("Exception details:")
-            
-            # Show error dialog
-            QMessageBox.critical(
-                self.main_window,
-                "Error",
-                f"An error occurred while opening the command dialog: {str(e)}"
-            )
-    
+        """Handle run commands on group context menu action"""
+        plugin_actions.on_group_context_run_commands(self, groups)
+
     def _on_group_context_credentials(self, groups):
-        """Handle credential manager context menu action for groups
-        
-        Args:
-            groups: List of selected device groups
-        """
-        logger.debug(f"Opening credential manager for {len(groups)} device groups")
-        
-        try:
-            from plugins.command_manager.ui.credential_manager import CredentialManager
-            dialog = CredentialManager(self, groups=groups, parent=self.main_window)
-            dialog.exec()
-        except Exception as e:
-            logger.error(f"Error opening credential manager for groups: {e}")
-            logger.exception("Exception details:")
-            
-            # Show error dialog
-            QMessageBox.critical(
-                self.main_window,
-                "Error",
-                f"An error occurred while opening the credential manager: {str(e)}"
-            )
-    
+        """Handle credential manager context menu action for groups"""
+        plugin_actions.on_group_context_credentials(self, groups)
+
     def _on_subnet_context_run_commands(self, subnets):
-        """Handle run commands on subnet context menu action
-        
-        Args:
-            subnets: List of selected subnets
-        """
-        logger.debug(f"Opening command dialog for {len(subnets)} subnets")
-        
-        try:
-            # Get all devices from the selected subnets
-            all_devices = []
-            for subnet in subnets:
-                if 'devices' in subnet:
-                    for device in subnet['devices']:
-                        if device not in all_devices:
-                            all_devices.append(device)
-            
-            if not all_devices:
-                QMessageBox.warning(
-                    self.main_window,
-                    "No Devices",
-                    "The selected subnets do not contain any devices."
-                )
-                return
-            
-            # Open command dialog with these devices
-            from plugins.command_manager.ui.command_dialog import CommandDialog
-            if not hasattr(self, 'command_dialog') or not self.command_dialog:
-                self.command_dialog = CommandDialog(self, all_devices, self.main_window)
-            else:
-                self.command_dialog.set_selected_devices(all_devices)
-                
-            self.command_dialog.show()
-            self.command_dialog.raise_()
-            self.command_dialog.activateWindow()
-            
-            # Switch to the Subnets tab and select the subnets
-            self.command_dialog.target_tabs.setCurrentIndex(2)
-            
-            # Select the subnets in the subnet table
-            self.command_dialog.subnet_table.clearSelection()
-            for row in range(self.command_dialog.subnet_table.rowCount()):
-                subnet_item = self.command_dialog.subnet_table.item(row, 0)
-                if subnet_item and subnet_item.data(Qt.UserRole)['subnet'] in [s['subnet'] for s in subnets]:
-                    self.command_dialog.subnet_table.selectRow(row)
-            
-        except Exception as e:
-            logger.error(f"Error opening command dialog for subnets: {e}")
-            logger.exception("Exception details:")
-            
-            # Show error dialog
-            QMessageBox.critical(
-                self.main_window,
-                "Error",
-                f"An error occurred while opening the command dialog: {str(e)}"
-            )
-    
+        """Handle run commands on subnet context menu action"""
+        plugin_actions.on_subnet_context_run_commands(self, subnets)
+
     def _on_subnet_context_credentials(self, subnets):
-        """Handle credential manager context menu action for subnets
-        
-        Args:
-            subnets: List of selected subnets
-        """
-        logger.debug(f"Opening credential manager for {len(subnets)} subnets")
-        
-        try:
-            from plugins.command_manager.ui.credential_manager import CredentialManager
-            dialog = CredentialManager(self, subnets=subnets, parent=self.main_window)
-            dialog.exec()
-        except Exception as e:
-            logger.error(f"Error opening credential manager for subnets: {e}")
-            logger.exception("Exception details:")
-            
-            # Show error dialog
-            QMessageBox.critical(
-                self.main_window,
-                "Error",
-                f"An error occurred while opening the credential manager: {str(e)}"
-            )
-    
-    # Methods for credential handling
-    
+        """Handle credential manager context menu action for subnets"""
+        plugin_actions.on_subnet_context_credentials(self, subnets)
+
+    # Credential API (delegate to credential_api)
     def get_all_device_credentials(self):
         """Get all device credentials"""
-        return self.credential_store.get_all_device_credentials() if self.credential_store else {}
-        
+        return credential_api.get_all_device_credentials(self)
+
     def get_all_group_credentials(self):
         """Get all group credentials"""
-        return self.credential_store.get_all_group_credentials() if self.credential_store else {}
-        
+        return credential_api.get_all_group_credentials(self)
+
     def get_all_subnet_credentials(self):
         """Get all subnet credentials"""
-        return self.credential_store.get_all_subnet_credentials() if self.credential_store else {}
-        
+        return credential_api.get_all_subnet_credentials(self)
+
     def get_device_credentials(self, device_id, device_ip=None, groups=None):
-        """Get credentials for a device
-        
-        Args:
-            device_id: The device ID
-            device_ip: The device IP address (for subnet matching)
-            groups: Optional list of group names the device belongs to
-            
-        Returns:
-            dict: Credentials dictionary or None if not found
-        """
-        logger.debug(f"Getting credentials for device {device_id}")
-        
-        if not self.credential_store:
-            logger.error("Credential store is not available")
-            return None
-        
-        # 1. First try device-specific credentials
-        device_credentials = self.credential_store.get_device_credentials(device_id)
-        if device_credentials:
-            logger.debug(f"Found device-specific credentials for {device_id}")
-            return device_credentials
-            
-        # 2. If no device credentials, try group credentials
-        if self.device_manager:
-            try:
-                # Get all groups this device belongs to using new method
-                device_groups = self.device_manager.get_device_groups_for_device(device_id)
-                
-                if device_groups:
-                    logger.debug(f"Found {len(device_groups)} groups for device {device_id}")
-                    
-                    # Try each group's credentials
-                    for group in device_groups:
-                        group_name = group.name if hasattr(group, 'name') else str(group)
-                        group_credentials = self.credential_store.get_group_credentials(group_name)
-                        if group_credentials:
-                            logger.debug(f"Using credentials from group '{group_name}' for device {device_id}")
-                            return group_credentials
-            except Exception as e:
-                logger.error(f"Error getting group credentials for device {device_id}: {e}")
-                
-        # 3. If still no credentials, try subnet matching
-        if device_ip:
-            try:
-                # Extract subnet from IP
-                parts = device_ip.split('.')
-                if len(parts) == 4:
-                    subnet = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
-                    subnet_credentials = self.credential_store.get_subnet_credentials(subnet)
-                    if subnet_credentials:
-                        logger.debug(f"Using credentials from subnet {subnet} for device {device_id}")
-                        return subnet_credentials
-            except Exception as e:
-                logger.error(f"Error getting subnet credentials: {e}")
-                
-        logger.debug(f"No credentials found for device {device_id}")
-        return None
-        
+        """Get credentials for a device with fallback to group/subnet."""
+        return credential_api.get_device_credentials(self, device_id, device_ip, groups)
+
     def get_group_credentials(self, group_name):
-        """Get credentials for a device group
-        
-        Args:
-            group_name: Name of the device group
-            
-        Returns:
-            dict: Credentials dictionary or None if not found
-        """
-        logger.debug(f"Getting credentials for group {group_name}")
-        
-        if not self.credential_store:
-            logger.error("Credential store is not available")
-            return None
-            
-        return self.credential_store.get_group_credentials(group_name)
-    
+        """Get credentials for a device group"""
+        return credential_api.get_group_credentials(self, group_name)
+
     def get_subnet_credentials(self, subnet):
-        """Get credentials for a subnet
-        
-        Args:
-            subnet: Subnet in CIDR notation (e.g. 192.168.1.0/24)
-            
-        Returns:
-            dict: Credentials dictionary or None if not found
-        """
-        logger.debug(f"Getting credentials for subnet {subnet}")
-        
-        if not self.credential_store:
-            logger.error("Credential store is not available")
-            return None
-            
-        return self.credential_store.get_subnet_credentials(subnet)
-    
+        """Get credentials for a subnet (CIDR notation)"""
+        return credential_api.get_subnet_credentials(self, subnet)
+
     def set_device_credentials(self, device_id, credentials):
         """Set credentials for a device"""
-        if hasattr(self, 'credential_store') and self.credential_store:
-            return self.credential_store.set_device_credentials(device_id, credentials)
-            
+        return credential_api.set_device_credentials(self, device_id, credentials)
+
     def set_group_credentials(self, group_name, credentials):
         """Set credentials for a group"""
-        if hasattr(self, 'credential_store') and self.credential_store:
-            return self.credential_store.set_group_credentials(group_name, credentials)
-            
+        return credential_api.set_group_credentials(self, group_name, credentials)
+
     def set_subnet_credentials(self, subnet, credentials):
         """Set credentials for a subnet"""
-        if hasattr(self, 'credential_store') and self.credential_store:
-            return self.credential_store.set_subnet_credentials(subnet, credentials)
-            
+        return credential_api.set_subnet_credentials(self, subnet, credentials)
+
     def delete_device_credentials(self, device_id):
         """Delete credentials for a device"""
-        if hasattr(self, 'credential_store') and self.credential_store:
-            return self.credential_store.delete_device_credentials(device_id)
-            
+        return credential_api.delete_device_credentials(self, device_id)
+
     def delete_group_credentials(self, group_name):
         """Delete credentials for a group"""
-        if hasattr(self, 'credential_store') and self.credential_store:
-            return self.credential_store.delete_group_credentials(group_name)
-            
+        return credential_api.delete_group_credentials(self, group_name)
+
     def delete_subnet_credentials(self, subnet):
         """Delete credentials for a subnet"""
-        if hasattr(self, 'credential_store') and self.credential_store:
-            return self.credential_store.delete_subnet_credentials(subnet)
-            
+        return credential_api.delete_subnet_credentials(self, subnet)
+
     # Methods for command set handling
     
     def get_device_types(self):
@@ -948,7 +704,146 @@ class CommandManagerPlugin(PluginInterface):
         if hasattr(self, 'command_handler') and self.command_handler:
             return self.command_handler.get_command_set(device_type, firmware_version)
         return None
-    
+
+    def add_command_set(self, command_set, temporary=False):
+        """Add or update a command set (public API for Template Manager and UI).
+        If temporary=True, the set is not persisted and is unloaded when applied (run) in the dialog."""
+        if not self.command_handler:
+            return
+        self.command_handler.add_command_set(command_set, temporary=temporary)
+        if temporary:
+            self.temporary_command_sets.add((command_set.device_type, command_set.firmware_version))
+
+    def is_temporary_command_set(self, device_type, firmware_version):
+        """Return True if this command set is temporary (e.g. from Template Manager)."""
+        return (device_type, firmware_version) in getattr(self, "temporary_command_sets", set())
+
+    def delete_command_set(self, device_type, firmware_version):
+        """Remove a command set from memory and disk."""
+        self.temporary_command_sets.discard((device_type, firmware_version))
+        if self.command_handler:
+            self.command_handler.delete_command_set(device_type, firmware_version)
+
+    def _is_command_run_in_progress(self):
+        """Return True if a command run is in progress (dialog or programmatic). Only one run at a time."""
+        if self.command_dialog and getattr(self.command_dialog, "worker_thread", None) and self.command_dialog.worker_thread.isRunning():
+            return True
+        if getattr(self, "_run_command_set_thread", None) and self._run_command_set_thread.isRunning():
+            return True
+        return False
+
+    def _normalize_commands_to_dicts(self, command_set):
+        """Convert command set commands to list of dicts {command, alias, description} for CommandWorker."""
+        out = []
+        for c in command_set.commands:
+            if hasattr(c, "to_dict"):
+                out.append(c.to_dict())
+            elif isinstance(c, dict) and "command" in c:
+                out.append(c)
+            else:
+                out.append({"command": str(c), "alias": "", "description": ""})
+        return out
+
+    def run_command_set(self, devices, command_set=None, device_type=None, firmware_version=None, show_progress=True):
+        """Run a command set on a list of devices without opening the dialog.
+
+        Used by Template Manager (and others) to apply templates or run stored sets.
+        Results go to the device Command Output tab via add_command_output.
+        Only one run (dialog or this) is allowed at a time.
+
+        Args:
+            devices: List of device objects.
+            command_set: Optional CommandSet to run (in-memory; not added to stored sets).
+            device_type: If command_set is None, resolve set by device_type and firmware_version.
+            firmware_version: If command_set is None, resolve set by device_type and firmware_version.
+            show_progress: If True, show a non-modal progress indicator.
+
+        Returns:
+            True if the run was started, False if no devices/commands, or another run is in progress.
+        """
+        from PySide6.QtCore import QThread, Qt
+        from plugins.command_manager.ui.command_worker import CommandWorker
+
+        if not devices or not isinstance(devices, list):
+            return False
+        if self._is_command_run_in_progress():
+            logger.warning("run_command_set: another command run is already in progress")
+            return False
+
+        resolved_set = command_set
+        if resolved_set is None:
+            if not device_type or not firmware_version:
+                return False
+            resolved_set = self.get_command_set(device_type, firmware_version)
+            if not resolved_set or not getattr(resolved_set, "commands", None):
+                return False
+            self._run_command_set_used_device_type = device_type
+            self._run_command_set_used_firmware_version = firmware_version
+        else:
+            self._run_command_set_used_device_type = None
+            self._run_command_set_used_firmware_version = None
+
+        commands_list = self._normalize_commands_to_dicts(resolved_set)
+        if not commands_list:
+            return False
+
+        self._run_command_set_thread = QThread()
+        self._run_command_set_worker = CommandWorker(self, devices, commands_list, resolved_set)
+        self._run_command_set_worker.moveToThread(self._run_command_set_thread)
+        self._run_command_set_thread.started.connect(self._run_command_set_worker.run)
+        self._run_command_set_worker.all_commands_complete.connect(
+            self._on_run_command_set_complete, Qt.QueuedConnection
+        )
+        total = len(devices) * len(commands_list)
+        if show_progress and self.main_window:
+            from PySide6.QtWidgets import QProgressDialog
+            self._run_command_set_progress_dialog = QProgressDialog(
+                "Running commands...", None, 0, total, self.main_window
+            )
+            self._run_command_set_progress_dialog.setWindowTitle("Command Manager")
+            self._run_command_set_progress_dialog.setMinimumDuration(0)
+            self._run_command_set_progress_dialog.setModal(False)
+            self._run_command_set_worker.command_progress.connect(
+                self._on_run_command_set_progress, Qt.QueuedConnection
+            )
+        self._run_command_set_thread.finished.connect(self._on_run_command_set_thread_finished)
+        self._run_command_set_thread.start()
+        logger.debug("run_command_set started: %d devices, %d commands", len(devices), len(commands_list))
+        return True
+
+    def _on_run_command_set_progress(self, current, total):
+        """Update progress dialog for programmatic run."""
+        if getattr(self, "_run_command_set_progress_dialog", None) and self._run_command_set_progress_dialog:
+            self._run_command_set_progress_dialog.setValue(current)
+            self._run_command_set_progress_dialog.setMaximum(total)
+
+    def _on_run_command_set_complete(self, command_set):
+        """Clean up after programmatic run; delete temporary set if it was resolved by device_type/firmware."""
+        dt = getattr(self, "_run_command_set_used_device_type", None)
+        fw = getattr(self, "_run_command_set_used_firmware_version", None)
+        if dt and fw and self.is_temporary_command_set(dt, fw):
+            self.delete_command_set(dt, fw)
+        if getattr(self, "_run_command_set_progress_dialog", None) and self._run_command_set_progress_dialog:
+            self._run_command_set_progress_dialog.close()
+            self._run_command_set_progress_dialog = None
+        self._run_command_set_used_device_type = None
+        self._run_command_set_used_firmware_version = None
+        if getattr(self, "_run_command_set_thread", None):
+            self._run_command_set_thread.quit()
+            self._run_command_set_thread.wait()
+        # Worker/thread references are cleared in _on_run_command_set_thread_finished (deleteLater)
+
+    def _on_run_command_set_thread_finished(self):
+        """Clean up thread/worker references when thread finishes (deleteLater then clear)."""
+        w = getattr(self, "_run_command_set_worker", None)
+        t = getattr(self, "_run_command_set_thread", None)
+        self._run_command_set_worker = None
+        self._run_command_set_thread = None
+        if w:
+            w.deleteLater()
+        if t:
+            t.deleteLater()
+
     def _saved_command_sets_path(self):
         """Path to the JSON file storing user-saved command set names and row indices."""
         return (self.data_dir or Path(self.plugin_info.path) / "data") / "saved_command_sets.json"
@@ -979,6 +874,34 @@ class CommandManagerPlugin(PluginInterface):
     def get_saved_command_sets(self):
         """Return user-saved command set names and their command row indices. Used by the command dialog Saved Sets list."""
         return dict(getattr(self, "saved_command_sets", {}))
+
+    def get_temporary_saved_set_names(self):
+        """Return names of temporary saved sets (e.g. from Template Manager). Shown in Saved Sets dropdown."""
+        return list(getattr(self, "temporary_saved_sets", {}).keys())
+
+    def get_temporary_saved_set_commands(self, name):
+        """Return list of command dicts for a temporary saved set, or None if not found."""
+        sets = getattr(self, "temporary_saved_sets", {})
+        if name not in sets:
+            return None
+        return list(sets[name])
+
+    def add_temporary_saved_set(self, name, commands):
+        """Add a temporary saved set (e.g. from Template Manager). Shown in Saved Sets; not persisted.
+        commands: list of dicts with keys command, alias, description (or Command objects with to_dict())."""
+        if not name or not commands:
+            return
+        normalized = []
+        for c in commands:
+            if hasattr(c, "to_dict"):
+                normalized.append(c.to_dict())
+            elif isinstance(c, dict) and "command" in c:
+                normalized.append({"command": c["command"], "alias": c.get("alias", ""), "description": c.get("description", "")})
+            else:
+                normalized.append({"command": str(c), "alias": "", "description": ""})
+        if not hasattr(self, "temporary_saved_sets"):
+            self.temporary_saved_sets = {}
+        self.temporary_saved_sets[name.strip()] = normalized
     
     def save_command_set(self, name, selected_rows):
         """Save a named command set (list of command row indices). Returns True on success."""
@@ -987,7 +910,20 @@ class CommandManagerPlugin(PluginInterface):
         self.saved_command_sets[name.strip()] = list(selected_rows)
         self._persist_saved_command_sets()
         return True
-    
+
+    def open_dialog(self, device_type=None, firmware_version=None, temporary_saved_set_name=None):
+        """Show the Command Manager dialog, optionally with a command set or temporary saved set selected.
+        If temporary_saved_set_name is set (e.g. from Template Manager), that set is selected in Saved Sets."""
+        from PySide6.QtCore import QTimer
+        from plugins.command_manager.core.plugin_setup import show_command_dialog
+        show_command_dialog(self)
+        if self.command_dialog:
+            dialog = self.command_dialog
+            if temporary_saved_set_name:
+                QTimer.singleShot(0, lambda: dialog.set_temporary_saved_set_selection(temporary_saved_set_name))
+            elif device_type and firmware_version:
+                QTimer.singleShot(0, lambda: dialog.set_command_set_selection(device_type, firmware_version))
+
     def get_command_outputs(self, device_id):
         """Get command outputs for a device
         
@@ -1074,18 +1010,35 @@ class CommandManagerPlugin(PluginInterface):
     
     def _on_run_commands(self):
         """Handle run commands menu item"""
-        # Implement the logic to open the command dialog
-        pass
-    
+        devices = None
+        if hasattr(self.main_window, "device_table") and self.main_window.device_table:
+            devices = self.main_window.device_table.get_selected_devices()
+        if not devices and self.device_manager:
+            devices = self.device_manager.get_selected_devices()
+        if not devices:
+            QMessageBox.warning(
+                self.main_window,
+                "No Devices Selected",
+                "Please select one or more devices to run commands on.",
+            )
+            return
+        dialog = CommandDialog(self, devices, parent=self.main_window)
+        dialog.exec()
+
     def _on_manage_credentials(self):
         """Handle manage credentials menu item"""
-        # Implement the logic to open the credential manager
-        pass
-    
+        devices = None
+        if hasattr(self.main_window, "device_table") and self.main_window.device_table:
+            devices = self.main_window.device_table.get_selected_devices()
+        if not devices and self.device_manager:
+            devices = self.device_manager.get_selected_devices()
+        dialog = CredentialManager(self, devices=devices or [], parent=self.main_window)
+        dialog.exec()
+
     def _on_edit_command_sets(self):
         """Handle edit command sets menu item"""
-        # Implement the logic to open the command set editor
-        pass
+        dialog = CommandSetEditor(self, self.main_window)
+        dialog.exec()
     
     def _on_batch_export(self):
         """Open batch export dialog"""

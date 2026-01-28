@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QComboBox, QGroupBox, QFormLayout, QTabWidget,
     QTextEdit, QMessageBox
 )
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QPalette
 
 from src.ui.plugin_ui_theme import mark_plugin_ui
 
@@ -101,10 +101,15 @@ class SettingsDialog(QDialog):
         preview_button.clicked.connect(self._update_preview)
         preview_layout.addWidget(preview_button)
         
-        # Preview label
+        # Preview label (palette-based border/background for theme consistency)
         self.preview_label = QLabel("Enter values and click 'Generate Preview'")
         self.preview_label.setWordWrap(True)
-        self.preview_label.setStyleSheet("font-family: monospace; padding: 5px; border: 1px solid #ccc; background-color: #f9f9f9;")
+        _pal = self.preview_label.palette()
+        _b = _pal.color(QPalette.Base).name()
+        _m = _pal.color(QPalette.Mid).name()
+        self.preview_label.setStyleSheet(
+            f"font-family: monospace; padding: 5px; border: 1px solid {_m}; background-color: {_b};"
+        )
         self.preview_label.setMinimumHeight(80)
         preview_layout.addWidget(self.preview_label)
         

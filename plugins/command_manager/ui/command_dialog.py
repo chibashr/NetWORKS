@@ -13,209 +13,126 @@ import threading
 
 from PySide6.QtCore import Qt, Signal, Slot, QThread, QObject
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
-    QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, 
+    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QTableWidget, QTableWidgetItem, QHeaderView, QComboBox,
     QSplitter, QTextEdit, QMenu, QFileDialog, QMessageBox,
     QTreeWidget, QTreeWidgetItem, QProgressBar, QWidget,
     QCheckBox, QGroupBox, QFormLayout, QDialogButtonBox, QTabWidget,
-    QLineEdit, QInputDialog
+    QLineEdit, QInputDialog, QPlainTextEdit
 )
-from PySide6.QtGui import QAction, QIcon, QFont, QTextCursor, QShowEvent
+from PySide6.QtGui import QAction, QIcon, QFont, QTextCursor, QShowEvent, QPainter, QTextFormat
 
 from src.ui.plugin_ui_theme import mark_plugin_ui
-import math
+
+from .command_worker import CommandWorker
+from .command_target_tabs import (
+    build_target_tabs,
+    refresh_target_tables,
+    safe_str,
+    get_selected_devices_from_dialog,
+)
+from .command_dialog_saved_sets import load_saved_command_sets_into_dialog
 
 
-def safe_str(value, default=""):
-    """Safely convert a value to string, handling None, NaN, and other edge cases"""
-    if value is None:
-        return default
-    if isinstance(value, float):
-        # Check for NaN or infinity
-        if math.isnan(value) or math.isinf(value):
-            return default
-    try:
-        result = str(value).strip()
-        return result if result else default
-    except (ValueError, OverflowError):
-        return default
+class _LineNumberArea(QWidget):
+    """Auxiliary widget used to draw line numbers for LineNumberedPlainTextEdit."""
+
+    def __init__(self, editor):
+        super().__init__(editor)
+        self._editor = editor
+
+    def sizeHint(self):
+        return self._editor.lineNumberAreaSize()
+
+    def paintEvent(self, event):
+        self._editor.lineNumberAreaPaintEvent(event)
 
 
-class CommandWorker(QObject):
-    """Worker for running commands in the background"""
-    
-    command_started = Signal(object, object)  # device, command
-    command_complete = Signal(object, object, object, object)  # device, command, result, command_set
-    command_progress = Signal(int, int)  # current, total
-    all_commands_complete = Signal()
-    
-    def __init__(self, plugin, devices, commands, command_set=None):
-        """Initialize the worker"""
-        super().__init__()
-        
-        self.plugin = plugin
-        self.devices = devices
-        self.commands = commands
-        self.command_set = command_set
-        self.stop_requested = False
-        
-    def run(self):
-        """Run the commands on the devices"""
-        from loguru import logger
-        logger.debug(f"Starting command execution for {len(self.devices)} devices and {len(self.commands)} commands")
-        
-        # Calculate total number of commands for progress tracking
-        total_commands = len(self.devices) * len(self.commands)
-        completed_commands = 0
-        
-        for device in self.devices:
-            if self.stop_requested:
-                logger.debug("Stop requested - halting command execution")
-                break
-                
-            # Get device properties for better logging
-            device_name = device.get_property("alias", device.get_property("hostname", "Unknown Device"))
-            device_ip = device.get_property("ip_address", "Unknown IP")
-            logger.debug(f"Processing device: {device_name} ({device_ip})")
-            
-            # Get device groups if available
-            device_groups = []
-            try:
-                device_groups = self.plugin.device_manager.get_device_groups_for_device(device.id)
-                
-                # Extract group names for logging
-                group_names = []
-                for group in device_groups:
-                    if isinstance(group, dict) and 'name' in group:
-                        group_names.append(group['name'])
-                    elif hasattr(group, 'name'):
-                        group_names.append(group.name)
-                    elif hasattr(group, 'get_name'):
-                        group_names.append(group.get_name())
-                    else:
-                        group_names.append(str(group))
-                
-                logger.debug(f"Device {device_name} is in groups: {group_names}")
-            except Exception as e:
-                logger.error(f"Error getting device groups for device {device_name}: {e}")
-            
-            # Try to get credentials in this order:
-            # 1. Device-specific credentials
-            # 2. Group credentials (if device is in any groups)
-            # 3. Subnet credentials
-            
-            # Get device-specific credentials
-            credentials = self.plugin.get_device_credentials(device.id, device_ip)
-            
-            # If no device credentials, try group credentials
-            if not credentials and device_groups:
-                for group in device_groups:
-                    try:
-                        # Get group name based on structure
-                        group_name = None
-                        if isinstance(group, dict) and 'name' in group:
-                            group_name = group['name']
-                        elif hasattr(group, 'name'):
-                            group_name = group.name
-                        elif hasattr(group, 'get_name'):
-                            group_name = group.get_name()
-                        else:
-                            group_name = str(group)
-                            
-                        # Get credentials for this group
-                        group_credentials = self.plugin.get_group_credentials(group_name)
-                        if group_credentials:
-                            logger.debug(f"Using group credentials from '{group_name}' for device: {device_name}")
-                            credentials = group_credentials
-                            break
-                    except Exception as e:
-                        logger.error(f"Error getting credentials for group: {e}")
-            
-            # If still no credentials, try subnet credentials
-            if not credentials and device_ip:
-                # Extract subnet
-                parts = device_ip.split('.')
-                if len(parts) == 4:
-                    subnet = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
-                    subnet_credentials = self.plugin.get_subnet_credentials(subnet)
-                    if subnet_credentials:
-                        logger.debug(f"Using subnet credentials from '{subnet}' for device: {device_name}")
-                        credentials = subnet_credentials
-            
-            if not credentials:
-                logger.warning(f"No credentials found for device: {device_name} ({device_ip})")
-                # Emit signal with an error result for each command
-                for command in self.commands:
-                    result = {
-                        "success": False,
-                        "output": f"Command: {command['command']}\n\nNo credentials available for this device."
-                    }
-                    self.command_complete.emit(device, command, result, self.command_set)
-                    
-                    # Update progress
-                    completed_commands += 1
-                    self.command_progress.emit(completed_commands, total_commands)
-                continue
-                
-            logger.debug(f"Using credentials for device: {device_name}, type: {credentials.get('connection_type', 'ssh')}")
-            
-            for command in self.commands:
-                if self.stop_requested:
-                    logger.debug("Stop requested - halting command execution")
-                    break
-                    
-                # Log the command being executed
-                logger.debug(f"Executing command: {command['command']} on device: {device_name}")
-                
-                # Emit signal that we're starting a command
-                self.command_started.emit(device, command)
-                
-                try:
-                    # Run the command
-                    result = self.plugin.run_command(device, command["command"], credentials)
-                    
-                    # Emit signal with result
-                    self.command_complete.emit(device, command, result, self.command_set)
-                    
-                    # Add to history if successful
-                    if result["success"]:
-                        # Create a command ID from the command set and alias
-                        command_set_id = ""
-                        if self.command_set:
-                            command_set_id = f"{self.command_set.device_type}_{self.command_set.firmware_version}"
-                            
-                        command_id = f"{command_set_id}_{command['alias']}".replace(" ", "_")
-                        
-                        # Add output to history
-                        self.plugin.add_command_output(
-                            device.id,
-                            command_id,
-                            result["output"],
-                            command["command"]
-                        )
-                        logger.debug(f"Command execution successful, output saved for: {device_name}, command: {command['alias']}")
-                    else:
-                        logger.warning(f"Command execution failed for: {device_name}, command: {command['alias']}")
-                except Exception as e:
-                    logger.error(f"Error executing command: {command['command']} on device: {device_name}: {e}")
-                    # Create an error result and emit signal
-                    result = {
-                        "success": False,
-                        "output": f"Command: {command['command']}\n\nError: {str(e)}"
-                    }
-                    self.command_complete.emit(device, command, result, self.command_set)
-                
-                # Update progress
-                completed_commands += 1
-                self.command_progress.emit(completed_commands, total_commands)
-                
-        # All commands complete
-        logger.debug("All commands completed")
-        self.all_commands_complete.emit()
-        
-    def stop(self):
-        """Stop the worker"""
-        self.stop_requested = True
+class LineNumberedPlainTextEdit(QPlainTextEdit):
+    """Plain text editor with simple line numbers in the left margin."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._line_number_area = _LineNumberArea(self)
+
+        self.blockCountChanged.connect(self._update_line_number_area_width)
+        self.updateRequest.connect(self._update_line_number_area)
+        self.cursorPositionChanged.connect(self._highlight_current_line)
+
+        self._update_line_number_area_width(0)
+        self._highlight_current_line()
+
+    # --- Line number area sizing/updates ---
+    def lineNumberAreaWidth(self):
+        digits = len(str(max(1, self.blockCount())))
+        # Extra padding around the digits
+        return 3 + self.fontMetrics().horizontalAdvance("9" * digits) + 6
+
+    def _update_line_number_area_width(self, _):
+        self.setViewportMargins(self.lineNumberAreaWidth(), 0, 0, 0)
+
+    def _update_line_number_area(self, rect, dy):
+        if dy:
+            self._line_number_area.scroll(0, dy)
+        else:
+            self._line_number_area.update(0, rect.y(), self._line_number_area.width(), rect.height())
+
+        if rect.contains(self.viewport().rect()):
+            self._update_line_number_area_width(0)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        cr = self.contentsRect()
+        self._line_number_area.setGeometry(
+            cr.left(),
+            cr.top(),
+            self.lineNumberAreaWidth(),
+            cr.height(),
+        )
+
+    def lineNumberAreaSize(self):
+        return self._line_number_area.sizeHint()
+
+    # --- Painting ---
+    def lineNumberAreaPaintEvent(self, event):
+        painter = QPainter(self._line_number_area)
+        painter.fillRect(event.rect(), self.palette().alternateBase())
+
+        block = self.firstVisibleBlock()
+        block_number = block.blockNumber()
+        top = int(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
+        bottom = top + int(self.blockBoundingRect(block).height())
+
+        while block.isValid() and top <= event.rect().bottom():
+            if block.isVisible() and bottom >= event.rect().top():
+                number = str(block_number + 1)
+                painter.setPen(self.palette().color(self.foregroundRole()))
+                painter.drawText(
+                    0,
+                    top,
+                    self._line_number_area.width() - 4,
+                    self.fontMetrics().height(),
+                    Qt.AlignRight | Qt.AlignVCenter,
+                    number,
+                )
+
+            block = block.next()
+            top = bottom
+            bottom = top + int(self.blockBoundingRect(block).height())
+            block_number += 1
+
+    def _highlight_current_line(self):
+        extra_selections = []
+        if not self.isReadOnly():
+            selection = QTextEdit.ExtraSelection()
+            line_color = self.palette().alternateBase().color()
+            selection.format.setBackground(line_color)
+            selection.format.setProperty(QTextFormat.FullWidthSelection, True)
+            selection.cursor = self.textCursor()
+            selection.cursor.clearSelection()
+            extra_selections.append(selection)
+
+        self.setExtraSelections(extra_selections)
 
 
 class CommandDialog(QDialog):
@@ -236,10 +153,13 @@ class CommandDialog(QDialog):
         self.worker_thread = None
         self.worker = None
         self.selected_devices = devices or []
-        
+        self.temporary_saved_set_names = set()
+        self._current_temporary_set_name = None
+
         # Set dialog properties
         self.setWindowTitle("Command Manager")
-        self.resize(900, 600)
+        # Give the three-panel layout enough default width
+        self.resize(1200, 650)
         
         # Create UI components
         self._create_ui()
@@ -262,93 +182,32 @@ class CommandDialog(QDialog):
         super().showEvent(event)
         self.refresh_devices()
         self.refresh_command_sets()
+        self._sync_custom_commands_prefill()
         
     def _create_ui(self):
-        """Create the UI components"""
+        """Create the UI components.
+        Layout: left = devices, middle = commands and options, right = command output.
+        """
         # Main layout
         layout = QVBoxLayout(self)
         
-        # Splitter for device list and command output
-        splitter = QSplitter(Qt.Vertical)
+        # Horizontal splitter: left (devices) | middle (commands) | right (output)
+        splitter = QSplitter(Qt.Horizontal)
         
         # ==================
-        # Top panel (devices and commands)
+        # Left panel: devices
         # ==================
-        top_panel = QWidget()
-        top_layout = QHBoxLayout(top_panel)
-        top_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Device list panel
         device_panel = QWidget()
         device_layout = QVBoxLayout(device_panel)
         device_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Add target selection tabs
-        self.target_tabs = QTabWidget()
+        self.target_tabs, self.device_table, self.group_table, self.subnet_table = build_target_tabs(self)
         
-        # Device tab
-        device_tab = QWidget()
-        device_tab_layout = QVBoxLayout(device_tab)
-        device_tab_layout.setContentsMargins(5, 5, 5, 5)
-        
-        device_label = QLabel("Devices:")
-        self.device_table = QTableWidget()
-        self.device_table.setColumnCount(2)
-        self.device_table.setHorizontalHeaderLabels(["Device", "IP Address"])
-        self.device_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.device_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.device_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.device_table.setSelectionMode(QTableWidget.MultiSelection)
-        
-        device_tab_layout.addWidget(device_label)
-        device_tab_layout.addWidget(self.device_table)
-        
-        # Group tab
-        group_tab = QWidget()
-        group_tab_layout = QVBoxLayout(group_tab)
-        group_tab_layout.setContentsMargins(5, 5, 5, 5)
-        
-        group_label = QLabel("Device Groups:")
-        self.group_table = QTableWidget()
-        self.group_table.setColumnCount(2)
-        self.group_table.setHorizontalHeaderLabels(["Group Name", "Device Count"])
-        self.group_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.group_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.group_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.group_table.setSelectionMode(QTableWidget.MultiSelection)
-        
-        group_tab_layout.addWidget(group_label)
-        group_tab_layout.addWidget(self.group_table)
-        
-        # Subnet tab
-        subnet_tab = QWidget()
-        subnet_tab_layout = QVBoxLayout(subnet_tab)
-        subnet_tab_layout.setContentsMargins(5, 5, 5, 5)
-        
-        subnet_label = QLabel("Subnets:")
-        self.subnet_table = QTableWidget()
-        self.subnet_table.setColumnCount(2)
-        self.subnet_table.setHorizontalHeaderLabels(["Subnet", "Device Count"])
-        self.subnet_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.subnet_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.subnet_table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.subnet_table.setSelectionMode(QTableWidget.MultiSelection)
-        
-        subnet_tab_layout.addWidget(subnet_label)
-        subnet_tab_layout.addWidget(self.subnet_table)
-        
-        # Add tabs to tab widget
-        self.target_tabs.addTab(device_tab, "Devices")
-        self.target_tabs.addTab(group_tab, "Groups")
-        self.target_tabs.addTab(subnet_tab, "Subnets")
-        
-        # Add Credential Manager button below the device list
         device_cred_layout = QHBoxLayout()
         self.manage_credentials_btn = QPushButton("👤 Manage Credentials")
         self.manage_credentials_btn.setToolTip("Configure device credentials")
         self.manage_credentials_btn.clicked.connect(self._on_manage_credentials)
         
-        # Add Batch Export button
         self.batch_export_btn = QPushButton("📊 Batch Export")
         self.batch_export_btn.setToolTip("Export commands from multiple devices")
         self.batch_export_btn.clicked.connect(self._on_batch_export)
@@ -360,12 +219,20 @@ class CommandDialog(QDialog):
         device_layout.addWidget(self.target_tabs)
         device_layout.addLayout(device_cred_layout)
         
-        # Command list panel
+        # ==================
+        # Middle panel: tabbed commands
+        # ==================
         command_panel = QWidget()
         command_layout = QVBoxLayout(command_panel)
         command_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Command set selector
+        self.command_tabs = QTabWidget()
+        
+        # ---- Tab 1: Preloaded commands ----
+        preloaded_tab = QWidget()
+        preloaded_layout = QVBoxLayout(preloaded_tab)
+        preloaded_layout.setContentsMargins(0, 0, 0, 0)
+        
         command_set_widget = QWidget()
         command_set_layout = QHBoxLayout(command_set_widget)
         command_set_layout.setContentsMargins(0, 0, 0, 0)
@@ -378,13 +245,12 @@ class CommandDialog(QDialog):
         self.firmware_combo = QComboBox()
         self.firmware_combo.currentIndexChanged.connect(self._on_firmware_changed)
         
-        # Command set management buttons
         manage_button = QPushButton("Manage Sets")
         manage_button.clicked.connect(self._on_manage_sets)
-        
+
         import_button = QPushButton("Import")
         import_button.clicked.connect(self._on_import_set)
-        
+
         command_set_layout.addWidget(device_type_label)
         command_set_layout.addWidget(self.device_type_combo, 1)
         command_set_layout.addWidget(firmware_label)
@@ -392,26 +258,21 @@ class CommandDialog(QDialog):
         command_set_layout.addWidget(manage_button)
         command_set_layout.addWidget(import_button)
         
-        # Command List Header
         command_header_layout = QHBoxLayout()
         command_label = QLabel("Commands:")
         
-        # Add saved command sets dropdown
         saved_sets_label = QLabel("Saved Sets:")
         self.saved_sets_combo = QComboBox()
         self.saved_sets_combo.setMinimumWidth(150)
         self.saved_sets_combo.currentIndexChanged.connect(self._on_saved_set_selected)
         
-        # Run saved set button
         self.run_saved_set_btn = QPushButton("Run Set")
         self.run_saved_set_btn.clicked.connect(self._on_run_saved_set)
         self.run_saved_set_btn.setEnabled(False)
         
-        # Save current selection as set button
         self.save_selection_btn = QPushButton("Save Selection as Set")
         self.save_selection_btn.clicked.connect(self._on_save_selection)
         
-        # Add to header layout
         command_header_layout.addWidget(command_label)
         command_header_layout.addStretch()
         command_header_layout.addWidget(saved_sets_label)
@@ -419,7 +280,6 @@ class CommandDialog(QDialog):
         command_header_layout.addWidget(self.run_saved_set_btn)
         command_header_layout.addWidget(self.save_selection_btn)
         
-        # Add search box for commands
         search_layout = QHBoxLayout()
         self.command_search = QLineEdit()
         self.command_search.setPlaceholderText("Search commands...")
@@ -427,7 +287,6 @@ class CommandDialog(QDialog):
         search_layout.addWidget(QLabel("Search:"))
         search_layout.addWidget(self.command_search, 1)
         
-        # Command table
         self.command_table = QTableWidget()
         self.command_table.setColumnCount(3)
         self.command_table.setHorizontalHeaderLabels(["Alias", "Command", "Description"])
@@ -437,45 +296,63 @@ class CommandDialog(QDialog):
         self.command_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.command_table.setSelectionMode(QTableWidget.MultiSelection)
         
-        # Custom command section
-        custom_command_group = QGroupBox("Custom Command")
-        custom_command_layout = QVBoxLayout(custom_command_group)
-        
-        self.custom_command = QLineEdit()
-        self.custom_command.setPlaceholderText("Enter a custom command (e.g., 'show version')")
-        
-        custom_btn_layout = QHBoxLayout()
-        self.run_custom_btn = QPushButton("Run Custom Command")
-        self.run_custom_btn.clicked.connect(self._on_run_custom)
-        
-        self.show_only_check = QCheckBox("Allow 'show' commands only")
+        preloaded_layout.addWidget(command_set_widget)
+        preloaded_layout.addLayout(command_header_layout)
+        preloaded_layout.addLayout(search_layout)
+        preloaded_layout.addWidget(self.command_table)
+
+        # ---- Tab 2: Custom commands (inline with line numbers) ----
+        custom_tab = QWidget()
+        custom_layout = QVBoxLayout(custom_tab)
+        # Light padding so content breathes but stays visually in-line with the tab surface
+        custom_layout.setContentsMargins(4, 4, 4, 4)
+
+        custom_header = QWidget()
+        custom_header_layout = QHBoxLayout(custom_header)
+        custom_header_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Custom commands are treated as a single pasted block per device.
+        custom_label = QLabel("Commands executed as a pasted block per device (top to bottom):")
+        custom_header_layout.addWidget(custom_label)
+        custom_header_layout.addStretch()
+
+        self.custom_clear_btn = QPushButton("Clear")
+        self.custom_clear_btn.clicked.connect(self._on_clear_custom_commands)
+        custom_header_layout.addWidget(self.custom_clear_btn)
+
+        self.custom_commands_text = LineNumberedPlainTextEdit()
+        self.custom_commands_text.setPlaceholderText("show version\nshow interfaces\n...")
+        self.custom_commands_text.setFont(QFont("Courier New", 9))
+
+        custom_options = QWidget()
+        custom_options_layout = QHBoxLayout(custom_options)
+        custom_options_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.show_only_check = QCheckBox("Allow 'show' only")
         self.show_only_check.setChecked(True)
         self.show_only_check.setToolTip("When checked, only commands starting with 'show' will be allowed")
-        
-        custom_btn_layout.addWidget(self.run_custom_btn)
-        custom_btn_layout.addWidget(self.show_only_check)
-        
-        custom_command_layout.addWidget(self.custom_command)
-        custom_command_layout.addLayout(custom_btn_layout)
-        
-        command_layout.addWidget(command_set_widget)
-        command_layout.addLayout(command_header_layout)
-        command_layout.addLayout(search_layout)
-        command_layout.addWidget(self.command_table)
-        command_layout.addWidget(custom_command_group)
-        
-        # Add panels to splitter
-        top_layout.addWidget(device_panel, 1)
-        top_layout.addWidget(command_panel, 1)
+        custom_options_layout.addWidget(self.show_only_check)
+        custom_options_layout.addStretch()
+
+        # Native tab content: header, editor, and options live directly on the tab surface
+        custom_layout.addWidget(custom_header)
+        custom_layout.addWidget(self.custom_commands_text, 1)
+        custom_layout.addWidget(custom_options)
+
+        # Tabs
+        self.command_tabs.addTab(preloaded_tab, "Preloaded Commands")
+        self.command_tabs.addTab(custom_tab, "Custom Commands")
+        self.command_tabs.currentChanged.connect(self._on_command_tab_changed)
+
+        command_layout.addWidget(self.command_tabs)
         
         # ==================
-        # Bottom panel (output)
+        # Right panel: command output
         # ==================
-        bottom_panel = QWidget()
-        bottom_layout = QVBoxLayout(bottom_panel)
-        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        output_panel = QWidget()
+        output_layout = QVBoxLayout(output_panel)
+        output_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Output label and progress
         output_header = QWidget()
         output_header_layout = QHBoxLayout(output_header)
         output_header_layout.setContentsMargins(0, 0, 0, 0)
@@ -487,22 +364,24 @@ class CommandDialog(QDialog):
         output_header_layout.addWidget(self.output_label, 1)
         output_header_layout.addWidget(self.progress_bar)
         
-        # Output text view
         self.output_text = QTextEdit()
         self.output_text.setReadOnly(True)
         font = QFont("Courier New", 9)
         self.output_text.setFont(font)
         
-        bottom_layout.addWidget(output_header)
-        bottom_layout.addWidget(self.output_text)
+        output_layout.addWidget(output_header)
+        output_layout.addWidget(self.output_text)
         
-        # Add panels to splitter
-        splitter.addWidget(top_panel)
-        splitter.addWidget(bottom_panel)
-        splitter.setStretchFactor(0, 1)
-        splitter.setStretchFactor(1, 1)
+        # Add three panels to horizontal splitter (left | middle | right)
+        splitter.addWidget(device_panel)
+        splitter.addWidget(command_panel)
+        splitter.addWidget(output_panel)
+        splitter.setStretchFactor(0, 1)   # devices
+        splitter.setStretchFactor(1, 3)   # commands (widest)
+        splitter.setStretchFactor(2, 2)   # output
+        # Initial sizes to keep each panel functional on first open
+        splitter.setSizes([280, 640, 480])
         
-        # Add splitter to layout
         layout.addWidget(splitter)
         
         # Buttons
@@ -517,7 +396,7 @@ class CommandDialog(QDialog):
         self.stop_button = QPushButton("Stop")
         self.stop_button.setEnabled(False)
         self.stop_button.clicked.connect(self._on_stop)
-        
+
         self.clear_button = QPushButton("Clear Output")
         self.clear_button.clicked.connect(self._on_clear_output)
         
@@ -536,138 +415,41 @@ class CommandDialog(QDialog):
         button_layout.addWidget(self.close_button)
         
         layout.addLayout(button_layout)
+        self._on_command_tab_changed(self.command_tabs.currentIndex())
+        self._sync_custom_commands_prefill()
+
+    def _sync_custom_commands_prefill(self):
+        """If the plugin has pending custom commands, prefill the inline editor and switch tabs."""
+        pending = ""
+        if hasattr(self.plugin, "pending_custom_commands_text") and self.plugin.pending_custom_commands_text:
+            pending = (self.plugin.pending_custom_commands_text or "").strip()
+        if pending and hasattr(self, "custom_commands_text"):
+            # Only prefill if the editor is empty to avoid clobbering user edits
+            if not self.custom_commands_text.toPlainText().strip():
+                self.custom_commands_text.setPlainText(pending)
+            # Bring the user to the custom tab when something was preloaded
+            if hasattr(self, "command_tabs"):
+                self.command_tabs.setCurrentIndex(1)
+
+    def _on_command_tab_changed(self, index):
+        """Update button labels based on active commands tab."""
+        is_custom = (index == 1)
+        if is_custom:
+            self.run_selected_button.setText("Run Custom Commands")
+            self.run_all_button.setEnabled(False)
+            self.run_all_button.setToolTip("Not applicable for Custom Commands")
+        else:
+            self.run_selected_button.setText("Run Selected Commands")
+            self.run_all_button.setEnabled(True)
+            self.run_all_button.setToolTip("")
+
+    def _on_clear_custom_commands(self):
+        if hasattr(self, "custom_commands_text"):
+            self.custom_commands_text.clear()
         
     def refresh_devices(self):
-        """Refresh the device list"""
-        from loguru import logger
-        logger.debug("Refreshing device list")
-        
-        # Clear existing items
-        self.device_table.setRowCount(0)
-        self.group_table.setRowCount(0)
-        self.subnet_table.setRowCount(0)
-        
-        if not self.plugin.device_manager:
-            logger.error("Device manager not available")
-            return
-        
-        # Add devices
-        devices = self.plugin.device_manager.get_devices()
-        self.device_table.setRowCount(len(devices))
-        
-        for i, device in enumerate(devices):
-            # Device name (use alias if available, otherwise hostname, otherwise "Unknown Device")
-            alias = device.get_property("alias", "")
-            hostname = device.get_property("hostname", "")
-            
-            # Safely convert to string, handling None, NaN, and other non-string types
-            name = safe_str(alias) or safe_str(hostname) or "Unknown Device"
-            
-            name_item = QTableWidgetItem(name)
-            name_item.setData(Qt.UserRole, device)  # Store device object in the item
-            self.device_table.setItem(i, 0, name_item)
-            
-            # IP address - safely convert to string
-            ip = device.get_property("ip_address", "")
-            ip_str = safe_str(ip)
-            ip_item = QTableWidgetItem(ip_str)
-            self.device_table.setItem(i, 1, ip_item)
-        
-        # Add device groups
-        try:
-            # Always use the get_groups method directly now that we know it exists
-            device_groups = self.plugin.device_manager.get_groups()
-            logger.debug(f"Retrieved {len(device_groups)} device groups")
-            
-            if device_groups:
-                self.group_table.setRowCount(len(device_groups))
-                
-                for i, group in enumerate(device_groups):
-                    try:
-                        # Handle different possible group structures
-                        group_name = None
-                        device_count = 0
-                        
-                        # Try to get group name
-                        if isinstance(group, dict) and 'name' in group:
-                            group_name = group['name']
-                        elif hasattr(group, 'name'):
-                            group_name = group.name
-                        elif hasattr(group, 'get_name'):
-                            group_name = group.get_name()
-                        else:
-                            # Use string representation as fallback
-                            group_name = safe_str(group, "Unknown Group")
-                            logger.warning(f"Group missing name attribute, using {group_name}")
-                        
-                        # Try to get device count
-                        if isinstance(group, dict) and 'devices' in group:
-                            device_count = len(group['devices'])
-                        elif hasattr(group, 'devices'):
-                            device_count = len(group.devices)
-                        elif hasattr(group, 'get_devices'):
-                            device_count = len(group.get_devices())
-                        elif hasattr(group, 'device_count'):
-                            device_count = group.device_count
-                        elif hasattr(group, 'get_device_count'):
-                            device_count = group.get_device_count()
-                        else:
-                            logger.warning(f"Could not determine device count for group {group_name}")
-                        
-                        # Create table items - safely convert group_name to string
-                        name_item = QTableWidgetItem(safe_str(group_name, "Unknown Group"))
-                        name_item.setData(Qt.UserRole, group)  # Store group object in the item
-                        self.group_table.setItem(i, 0, name_item)
-                        
-                        count_item = QTableWidgetItem(str(device_count))
-                        self.group_table.setItem(i, 1, count_item)
-                        
-                    except Exception as e:
-                        logger.error(f"Error processing group at index {i}: {e}")
-            else:
-                logger.debug("No device groups found")
-        except Exception as e:
-            logger.error(f"Error getting device groups: {e}")
-            logger.exception("Exception details:")
-        
-        # Add subnets (group devices by subnet)
-        try:
-            subnets = {}
-            for device in devices:
-                ip = device.get_property("ip_address", "")
-                ip_str = safe_str(ip)
-                if ip_str:
-                    # Extract subnet (first three octets)
-                    parts = ip_str.split('.')
-                    if len(parts) == 4:
-                        try:
-                            # Validate that parts are numeric
-                            int(parts[0])
-                            int(parts[1])
-                            int(parts[2])
-                            subnet = f"{parts[0]}.{parts[1]}.{parts[2]}.0/24"
-                            if subnet not in subnets:
-                                subnets[subnet] = []
-                            subnets[subnet].append(device)
-                        except (ValueError, IndexError):
-                            # Skip invalid IP addresses
-                            continue
-            
-            self.subnet_table.setRowCount(len(subnets))
-            
-            for i, (subnet, subnet_devices) in enumerate(subnets.items()):
-                # Subnet
-                subnet_item = QTableWidgetItem(subnet)
-                subnet_info = {'subnet': subnet, 'devices': subnet_devices}
-                subnet_item.setData(Qt.UserRole, subnet_info)
-                self.subnet_table.setItem(i, 0, subnet_item)
-                
-                # Device count
-                count_item = QTableWidgetItem(str(len(subnet_devices)))
-                self.subnet_table.setItem(i, 1, count_item)
-        except Exception as e:
-            logger.error(f"Error grouping devices by subnet: {e}")
-        
+        refresh_target_tables(self)
+
     def refresh_command_sets(self):
         """Refresh the command set selectors"""
         # Block signals
@@ -709,126 +491,103 @@ class CommandDialog(QDialog):
             
         # Load saved command sets
         self._load_saved_command_sets()
-            
+
+    def set_command_set_selection(self, device_type, firmware_version):
+        """Select a command set by device type and firmware. Call after refresh_command_sets()."""
+        if not device_type or not firmware_version:
+            return
+        idx = self.device_type_combo.findText(device_type)
+        if idx >= 0:
+            self.device_type_combo.setCurrentIndex(idx)
+            self._on_device_type_changed()
+            fw_idx = self.firmware_combo.findText(firmware_version)
+            if fw_idx >= 0:
+                self.firmware_combo.setCurrentIndex(fw_idx)
+
+    def set_temporary_saved_set_selection(self, name):
+        """Select a temporary saved set (e.g. from Template Manager) in the Saved Sets combo. Call after refresh_command_sets()."""
+        if not name:
+            return
+        idx = self.saved_sets_combo.findText(name)
+        if idx >= 0:
+            self.saved_sets_combo.setCurrentIndex(idx)
+            self._on_saved_set_selected(idx)
+
     def _load_saved_command_sets(self):
-        """Load saved command sets into the combo box"""
-        # Block signals
-        self.saved_sets_combo.blockSignals(True)
-        
-        # Store current selection
-        current_set = self.saved_sets_combo.currentText()
-        
-        # Clear existing items
-        self.saved_sets_combo.clear()
-        
-        # Add empty item
-        self.saved_sets_combo.addItem("-- Select Command Set --")
-        
-        # Get saved command sets
-        if hasattr(self.plugin, 'get_saved_command_sets'):
-            command_sets = self.plugin.get_saved_command_sets()
-            if command_sets:
-                for set_name in sorted(command_sets.keys()):
-                    self.saved_sets_combo.addItem(set_name)
-        
-        # Restore selection or select first item
-        index = self.saved_sets_combo.findText(current_set)
-        if index >= 0:
-            self.saved_sets_combo.setCurrentIndex(index)
-        else:
-            self.saved_sets_combo.setCurrentIndex(0)
-            
-        # Update button state
-        self.run_saved_set_btn.setEnabled(self.saved_sets_combo.currentIndex() > 0)
-        
-        # Unblock signals
-        self.saved_sets_combo.blockSignals(False)
-        
+        load_saved_command_sets_into_dialog(self)
+
     def _on_saved_set_selected(self, index):
-        """Handle selection of a saved command set"""
-        # Enable/disable run button
+        """Handle selection of a saved command set (persistent = row indices; temporary = full command list)."""
         self.run_saved_set_btn.setEnabled(index > 0)
-        
-        # If no set selected, do nothing
+        self._current_temporary_set_name = None
         if index <= 0:
             return
-            
-        # Get set name
         set_name = self.saved_sets_combo.currentText()
-        
-        # Get saved command sets
-        if hasattr(self.plugin, 'get_saved_command_sets'):
+        temporary_names = getattr(self, "temporary_saved_set_names", set())
+        if set_name in temporary_names and hasattr(self.plugin, "get_temporary_saved_set_commands"):
+            commands_list = self.plugin.get_temporary_saved_set_commands(set_name)
+            if commands_list is not None:
+                self._fill_command_table_from_list(commands_list)
+                self._current_temporary_set_name = set_name
+            return
+        if hasattr(self.plugin, "get_saved_command_sets"):
             command_sets = self.plugin.get_saved_command_sets()
             if command_sets and set_name in command_sets:
-                # Get command indices
                 command_indices = command_sets[set_name]
-                
-                # Clear current selection
                 self.command_table.clearSelection()
-                
-                # Select commands in the set
-                for index in command_indices:
-                    if 0 <= index < self.command_table.rowCount():
-                        self.command_table.selectRow(index)
+                for idx in command_indices:
+                    if 0 <= idx < self.command_table.rowCount():
+                        self.command_table.selectRow(idx)
         
     def _on_run_saved_set(self):
-        """Handle running a saved command set"""
-        # Get the selected set name
+        """Handle running a saved command set (persistent = row indices; temporary = all rows in table)."""
         index = self.saved_sets_combo.currentIndex()
         if index <= 0:
             return
-            
         set_name = self.saved_sets_combo.currentText()
-        
-        # Get saved command sets
-        if hasattr(self.plugin, 'get_saved_command_sets'):
+        temporary_names = getattr(self, "temporary_saved_set_names", set())
+        selected_commands = []
+        if set_name in temporary_names:
+            for row in range(self.command_table.rowCount()):
+                command_item = self.command_table.item(row, 0)
+                if command_item:
+                    command_data = command_item.data(Qt.UserRole)
+                    if command_data:
+                        command_data = dict(command_data)
+                        command_data["row"] = row
+                        selected_commands.append(command_data)
+        elif hasattr(self.plugin, "get_saved_command_sets"):
             command_sets = self.plugin.get_saved_command_sets()
             if command_sets and set_name in command_sets:
-                # Get command indices
-                command_indices = command_sets[set_name]
-                
-                # Get commands for the selected indices
-                selected_commands = []
-                for index in command_indices:
-                    if 0 <= index < self.command_table.rowCount():
-                        command_item = self.command_table.item(index, 0)
+                for idx in command_sets[set_name]:
+                    if 0 <= idx < self.command_table.rowCount():
+                        command_item = self.command_table.item(idx, 0)
                         if command_item:
                             command_data = command_item.data(Qt.UserRole)
                             if command_data:
-                                command_data["row"] = index
+                                command_data = dict(command_data)
+                                command_data["row"] = idx
                                 selected_commands.append(command_data)
-                
-                if not selected_commands:
-                    QMessageBox.warning(
-                        self,
-                        "No Commands Found",
-                        f"No valid commands found in set '{set_name}'."
-                    )
-                    return
-                
-                # Get selected target type
-                current_tab = self.target_tabs.currentWidget()
-                
-                # Get selected devices based on the active tab
-                selected_devices = self._get_selected_devices()
-                
-                if not selected_devices:
-                    QMessageBox.warning(
-                        self,
-                        "No Devices Selected",
-                        "Please select at least one device to run commands on."
-                    )
-                    return
-                
-                # Get current command set
-                device_type = self.device_type_combo.currentText()
-                firmware = self.firmware_combo.currentText()
-                command_set = None
-                if device_type and firmware:
-                    command_set = self.plugin.get_command_set(device_type, firmware)
-                
-                # Run the commands
-                self._run_commands(selected_devices, selected_commands, command_set)
+        if not selected_commands:
+            QMessageBox.warning(
+                self, "No Commands Found",
+                f"No valid commands found in set '{set_name}'."
+            )
+            return
+        selected_devices = self._get_selected_devices()
+        if not selected_devices:
+            QMessageBox.warning(
+                self, "No Devices Selected",
+                "Please select at least one device to run commands on."
+            )
+            return
+        command_set = None
+        if not getattr(self, "_current_temporary_set_name", None):
+            device_type = self.device_type_combo.currentText()
+            firmware = self.firmware_combo.currentText()
+            if device_type and firmware:
+                command_set = self.plugin.get_command_set(device_type, firmware)
+        self._run_commands(selected_devices, selected_commands, command_set)
         
     def _on_save_selection(self):
         """Handle saving the current command selection as a set"""
@@ -885,58 +644,17 @@ class CommandDialog(QDialog):
                 )
                 
     def _get_selected_devices(self):
-        """Get selected devices based on the active tab"""
-        # Get selected target type
-        current_tab = self.target_tabs.currentWidget()
-        
-        # Get selected devices based on the active tab
-        selected_devices = []
-        if current_tab == self.target_tabs.widget(0):  # Devices tab
-            # Get selected devices
-            for item in self.device_table.selectedItems():
-                row = item.row()
-                device_item = self.device_table.item(row, 0)
-                if device_item and device_item.data(Qt.UserRole) not in selected_devices:
-                    selected_devices.append(device_item.data(Qt.UserRole))
-        elif current_tab == self.target_tabs.widget(1):  # Groups tab
-            # Get devices from selected groups
-            for item in self.group_table.selectedItems():
-                row = item.row()
-                group_item = self.group_table.item(row, 0)
-                if group_item:
-                    group = group_item.data(Qt.UserRole)
-                    if group:
-                        try:
-                            group_devices = []
-                            
-                            if hasattr(group, 'get_all_devices'):
-                                group_devices = group.get_all_devices()
-                            elif hasattr(group, 'devices'):
-                                group_devices = group.devices
-                            
-                            for device in group_devices:
-                                if device not in selected_devices:
-                                    selected_devices.append(device)
-                        except Exception as e:
-                            from loguru import logger
-                            logger.error(f"Error extracting devices from group: {e}")
-        elif current_tab == self.target_tabs.widget(2):  # Subnets tab
-            # Get devices from selected subnets
-            for item in self.subnet_table.selectedItems():
-                row = item.row()
-                subnet_item = self.subnet_table.item(row, 0)
-                if subnet_item:
-                    subnet_info = subnet_item.data(Qt.UserRole)
-                    if subnet_info and 'devices' in subnet_info:
-                        for device in subnet_info['devices']:
-                            if device not in selected_devices:
-                                selected_devices.append(device)
-                                
-        return selected_devices
+        """Get selected devices based on the active tab (delegates to command_target_tabs)."""
+        return get_selected_devices_from_dialog(self)
                                 
     def _on_run_selected(self):
         """Run selected commands on selected devices"""
         from loguru import logger
+
+        # If the user is on the Custom Commands tab, run the inline custom editor instead
+        if hasattr(self, "command_tabs") and self.command_tabs.currentIndex() == 1:
+            self._run_inline_custom_commands()
+            return
         
         # Get selected commands
         selected_commands = []
@@ -962,19 +680,27 @@ class CommandDialog(QDialog):
             QMessageBox.warning(self, "No Devices Selected", "Please select at least one device to run commands on.")
             return
         
-        # Get current command set
-        device_type = self.device_type_combo.currentText()
-        firmware = self.firmware_combo.currentText()
+        # Get current command set (None when running a temporary saved set)
         command_set = None
-        if device_type and firmware:
-            command_set = self.plugin.get_command_set(device_type, firmware)
-        
-        # Run the commands
+        if not getattr(self, "_current_temporary_set_name", None):
+            device_type = self.device_type_combo.currentText()
+            firmware = self.firmware_combo.currentText()
+            if device_type and firmware:
+                command_set = self.plugin.get_command_set(device_type, firmware)
         self._run_commands(selected_devices, selected_commands, command_set)
 
     def _on_run_all(self):
         """Run all commands on selected devices"""
         from loguru import logger
+
+        # Not applicable for Custom Commands tab (button disabled, but keep safe)
+        if hasattr(self, "command_tabs") and self.command_tabs.currentIndex() == 1:
+            QMessageBox.information(
+                self,
+                "Not Available",
+                "Run All is not applicable for Custom Commands. Use 'Run Custom Commands' instead.",
+            )
+            return
         
         # Get all commands
         all_commands = []
@@ -997,18 +723,18 @@ class CommandDialog(QDialog):
             QMessageBox.warning(self, "No Devices Selected", "Please select at least one device to run commands on.")
             return
         
-        # Get current command set
-        device_type = self.device_type_combo.currentText()
-        firmware = self.firmware_combo.currentText()
+        # Get current command set (None when running a temporary saved set)
         command_set = None
-        if device_type and firmware:
-            command_set = self.plugin.get_command_set(device_type, firmware)
-        
-        # Run the commands
+        if not getattr(self, "_current_temporary_set_name", None):
+            device_type = self.device_type_combo.currentText()
+            firmware = self.firmware_combo.currentText()
+            if device_type and firmware:
+                command_set = self.plugin.get_command_set(device_type, firmware)
         self._run_commands(selected_devices, all_commands, command_set)
 
     def _on_device_type_changed(self):
         """Handle device type selection change"""
+        self._current_temporary_set_name = None
         # Block signals
         self.firmware_combo.blockSignals(True)
         
@@ -1033,44 +759,51 @@ class CommandDialog(QDialog):
         
     def _on_firmware_changed(self):
         """Handle firmware selection change"""
-        # Clear command table
+        self._current_temporary_set_name = None
         self.command_table.setRowCount(0)
-        
-        # Get selected device type and firmware
         device_type = self.device_type_combo.currentText()
         firmware = self.firmware_combo.currentText()
-        
         if not device_type or not firmware:
             return
-            
-        # Get command set
         command_set = self.plugin.get_command_set(device_type, firmware)
-        
         if not command_set:
             return
-            
-        # Add commands to table
         for command in command_set.commands:
+            if hasattr(command, "alias"):
+                cmd, al, desc = command.command, command.alias, command.description
+            elif isinstance(command, dict):
+                cmd = command.get("command", "")
+                al = command.get("alias", "")
+                desc = command.get("description", "")
+            else:
+                continue
             row = self.command_table.rowCount()
             self.command_table.insertRow(row)
-            
-            # Command info - safely convert to strings
-            alias = QTableWidgetItem(safe_str(command.alias, ""))
-            command_text = QTableWidgetItem(safe_str(command.command, ""))
-            description = QTableWidgetItem(safe_str(command.description, ""))
-            
-            # Store command data
-            alias.setData(Qt.UserRole, {
-                "command": command.command,
-                "alias": command.alias,
-                "description": command.description
-            })
-            
-            # Add to table
+            alias = QTableWidgetItem(safe_str(al, ""))
+            command_text = QTableWidgetItem(safe_str(cmd, ""))
+            description = QTableWidgetItem(safe_str(desc, ""))
+            alias.setData(Qt.UserRole, {"command": cmd, "alias": al, "description": desc})
             self.command_table.setItem(row, 0, alias)
             self.command_table.setItem(row, 1, command_text)
             self.command_table.setItem(row, 2, description)
-            
+
+    def _fill_command_table_from_list(self, commands_list):
+        """Clear the command table and fill from a list of dicts {command, alias, description} (e.g. temporary saved set)."""
+        self.command_table.setRowCount(0)
+        for c in commands_list or []:
+            cmd = c.get("command", "") if isinstance(c, dict) else ""
+            al = c.get("alias", "") if isinstance(c, dict) else ""
+            desc = c.get("description", "") if isinstance(c, dict) else ""
+            row = self.command_table.rowCount()
+            self.command_table.insertRow(row)
+            alias = QTableWidgetItem(safe_str(al, ""))
+            command_text = QTableWidgetItem(safe_str(cmd, ""))
+            description = QTableWidgetItem(safe_str(desc, ""))
+            alias.setData(Qt.UserRole, {"command": cmd, "alias": al, "description": desc})
+            self.command_table.setItem(row, 0, alias)
+            self.command_table.setItem(row, 1, command_text)
+            self.command_table.setItem(row, 2, description)
+
     def _on_manage_sets(self):
         """Handle manage command sets button"""
         # Open command set editor
@@ -1174,7 +907,7 @@ class CommandDialog(QDialog):
         self.worker.command_started.connect(self._on_command_started, Qt.QueuedConnection)
         self.worker.command_complete.connect(self._on_command_complete, Qt.QueuedConnection)
         self.worker.command_progress.connect(self._on_command_progress, Qt.QueuedConnection)
-        self.worker.all_commands_complete.connect(self._on_all_commands_complete, Qt.QueuedConnection)
+        self.worker.all_commands_complete.connect(self._on_all_commands_complete, Qt.QueuedConnection)  # passes command_set
         self.worker_thread.finished.connect(self._on_worker_finished)
         
         # Update UI
@@ -1194,10 +927,21 @@ class CommandDialog(QDialog):
         """Handle command started signal"""
         device_name = device.get_property("alias", device.get_property("hostname", "Unknown Device"))
         device_ip = device.get_property("ip_address", "Unknown IP")
+        hostname = device.get_property("hostname", "")
+        device_id = getattr(device, "id", "Unknown ID")
         command_alias = command.get("alias", command.get("command", "Unknown Command"))
         
         self.output_text.append(f"\n{'='*80}")
-        self.output_text.append(f"Device: {device_name} ({device_ip})")
+        self.output_text.append(f"Device: {device_name}")
+        details_parts = []
+        if hostname:
+            details_parts.append(f"Hostname: {hostname}")
+        if device_ip:
+            details_parts.append(f"IP: {device_ip}")
+        if device_id:
+            details_parts.append(f"ID: {device_id}")
+        if details_parts:
+            self.output_text.append(" | ".join(details_parts))
         self.output_text.append(f"Command: {command_alias}")
         self.output_text.append(f"{'='*80}\n")
         
@@ -1228,10 +972,15 @@ class CommandDialog(QDialog):
         self.progress_bar.setMaximum(total)
         self.output_label.setText(f"Command Output: {current}/{total} commands completed")
     
-    def _on_all_commands_complete(self):
-        """Handle all commands complete signal"""
+    def _on_all_commands_complete(self, command_set=None):
+        """Handle all commands complete signal. Unload temporary (template) command set if one was run."""
         from loguru import logger
         logger.debug("All commands completed")
+        
+        # Unload temporary command set (from Template Manager) when it was just applied
+        if command_set and hasattr(self.plugin, "is_temporary_command_set") and self.plugin.is_temporary_command_set(command_set.device_type, command_set.firmware_version):
+            self.plugin.delete_command_set(command_set.device_type, command_set.firmware_version)
+            self.refresh_command_sets()
         
         # Update UI
         self.run_selected_button.setEnabled(True)
@@ -1410,97 +1159,53 @@ class CommandDialog(QDialog):
             # Show or hide the row
             self.command_table.setRowHidden(row, not match_found)
             
-    def _on_run_custom(self):
-        """Handle running a custom command"""
-        # Get the custom command
-        command_text = self.custom_command.text().strip()
-        
-        # Validate command
-        if not command_text:
-            QMessageBox.warning(
-                self,
-                "Empty Command",
-                "Please enter a command to run."
-            )
-            return
-        
-        # Check if it's a show command if the checkbox is checked
-        if self.show_only_check.isChecked() and not command_text.lower().startswith("show "):
-            # Ask for confirmation
-            result = QMessageBox.warning(
-                self,
-                "Non-Show Command",
-                f"The command '{command_text}' does not start with 'show'. "
-                f"Non-show commands may modify device configuration.\n\n"
-                f"Are you sure you want to run this command?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
-            )
-            
-            if result != QMessageBox.Yes:
-                return
-        
-        # Get selected target type
-        current_tab = self.target_tabs.currentWidget()
-        
-        # Get selected devices based on the active tab
-        selected_devices = []
-        if current_tab == self.target_tabs.widget(0):  # Devices tab
-            # Get selected devices
-            for item in self.device_table.selectedItems():
-                row = item.row()
-                device_item = self.device_table.item(row, 0)
-                if device_item and device_item.data(Qt.UserRole) not in selected_devices:
-                    selected_devices.append(device_item.data(Qt.UserRole))
-        elif current_tab == self.target_tabs.widget(1):  # Groups tab
-            # Get devices from selected groups
-            for item in self.group_table.selectedItems():
-                row = item.row()
-                group_item = self.group_table.item(row, 0)
-                if group_item:
-                    group = group_item.data(Qt.UserRole)
-                    if group:
-                        try:
-                            group_devices = []
-                            
-                            if hasattr(group, 'get_all_devices'):
-                                group_devices = group.get_all_devices()
-                            elif hasattr(group, 'devices'):
-                                group_devices = group.devices
-                            
-                            for device in group_devices:
-                                if device not in selected_devices:
-                                    selected_devices.append(device)
-                        except Exception as e:
-                            from loguru import logger
-                            logger.error(f"Error extracting devices from group: {e}")
-        elif current_tab == self.target_tabs.widget(2):  # Subnets tab
-            # Get devices from selected subnets
-            for item in self.subnet_table.selectedItems():
-                row = item.row()
-                subnet_item = self.subnet_table.item(row, 0)
-                if subnet_item:
-                    subnet_info = subnet_item.data(Qt.UserRole)
-                    if subnet_info and 'devices' in subnet_info:
-                        for device in subnet_info['devices']:
-                            if device not in selected_devices:
-                                selected_devices.append(device)
-        
+    def _run_inline_custom_commands(self):
+        """Run inline custom commands as a single pasted block per device."""
+        selected_devices = self._get_selected_devices()
         if not selected_devices:
             QMessageBox.warning(
-                self, 
-                "No Devices Selected", 
-                "Please select at least one device to run the command on."
+                self,
+                "No Devices Selected",
+                "Please select at least one device to run commands on.",
             )
             return
-        
-        # Create a command object
-        custom_command = {
-            "command": command_text,
-            "alias": "Custom: " + command_text[:20] + ("..." if len(command_text) > 20 else ""),
-            "description": "Custom command entered manually",
-            "row": -1  # Custom commands don't have a row in the table
-        }
-        
-        # Run the command
-        self._run_commands(selected_devices, [custom_command], None) 
+
+        text = ""
+        if hasattr(self, "custom_commands_text"):
+            text = self.custom_commands_text.toPlainText()
+        lines = [ln.rstrip() for ln in (text or "").splitlines() if ln.strip()]
+        if not lines:
+            QMessageBox.warning(self, "Empty Commands", "Please enter one or more commands.")
+            return
+
+        if self.show_only_check.isChecked():
+            offenders = [ln for ln in lines if not ln.lower().startswith("show ")]
+            if offenders:
+                result = QMessageBox.warning(
+                    self,
+                    "Non-Show Commands",
+                    "One or more commands do not start with 'show'. Non-show commands may modify device configuration.\n\n"
+                    "Are you sure you want to run these commands?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No,
+                )
+                if result != QMessageBox.Yes:
+                    return
+
+        # Treat the entire editor contents as a single pasted block per device.
+        block_text = "\n".join(lines)
+        commands = [
+            {
+                "command": block_text,
+                "alias": "Custom block",
+                "description": "Custom commands (pasted block)",
+                "row": -1,
+            }
+        ]
+
+        # Runs block per device, then next device (like pasting config).
+        self._run_commands(selected_devices, commands, None)
+
+        # Clear pending prefill once successfully started.
+        if hasattr(self.plugin, "pending_custom_commands_text"):
+            self.plugin.pending_custom_commands_text = ""

@@ -15,7 +15,7 @@ from loguru import logger
 class SSHClient:
     """Client for connecting to network devices via SSH"""
     
-    def __init__(self, host, username, password, enable_password="", port=22, timeout=10):
+    def __init__(self, host, username, password, enable_password="", port=22, timeout=10, use_shell=False):
         """Initialize the SSH client"""
         self.host = host
         self.username = username
@@ -23,6 +23,7 @@ class SSHClient:
         self.enable_password = enable_password
         self.port = port
         self.timeout = timeout
+        self.use_shell = use_shell
         
         self.client = None
         self.shell = None
@@ -47,18 +48,39 @@ class SSHClient:
                 look_for_keys=False
             )
             
-            # If we need to use enable mode, open shell for interactive commands
-            if self.enable_password:
+            # Use an interactive shell when requested (faster for many commands) or when enable mode is needed.
+            if self.use_shell or self.enable_password:
                 # Open shell
                 self.shell = self.client.invoke_shell()
                 self.shell.settimeout(self.timeout)
                 
                 # Clear initial buffer
-                time.sleep(1)
+                time.sleep(0.2)
                 output = self._read_output()
                 
                 # Try to detect prompt
                 self.prompt = self._detect_prompt(output)
+                # If prompt wasn't detected, try nudging the device to print it.
+                if not self.prompt:
+                    try:
+                        self.shell.send("\n")
+                        time.sleep(0.2)
+                        output += self._read_output()
+                        self.prompt = self._detect_prompt(output)
+                    except Exception:
+                        pass
+                # Retry a couple times (some devices are slow to present prompt/banner).
+                if not self.prompt:
+                    for _ in range(2):
+                        try:
+                            self.shell.send("\n")
+                            time.sleep(0.35)
+                            output += self._read_output()
+                            self.prompt = self._detect_prompt(output)
+                            if self.prompt:
+                                break
+                        except Exception:
+                            break
             
             self.connected = True
             return True
@@ -112,8 +134,8 @@ class SSHClient:
         if not self.connected:
             raise Exception("Not connected")
         
-        # If enable mode is required, use the shell to execute commands
-        if self.enable_password and self.shell:
+        # Use interactive shell when available (faster for sequential command runs).
+        if self.shell:
             return self._execute_shell(command)
         else:
             return self._execute_paramiko(command)
@@ -142,26 +164,33 @@ class SSHClient:
             return f"Error executing command: {str(e)}"
     
     def _execute_shell(self, command):
-        """Execute command via interactive shell (for enable mode)"""
+        """Execute command via interactive shell (persistent session)."""
         # Clear buffer
         self._read_output()
         
         # Send command
         self.shell.send(f"{command}\n")
         
-        # Wait for command to complete
-        time.sleep(1)
+        # Brief wait before collecting output (keep small; prompt loop below handles completion)
+        time.sleep(0.15)
         
         # Collect output until prompt is seen or timeout
         output = ""
         start_time = time.time()
         max_pagination_iterations = 1000  # Prevent infinite loops
         pagination_count = 0
+        idle_reads = 0
+        saw_any_output = False
         
         while time.time() - start_time < self.timeout:
             # Read available output
             new_output = self._read_output()
             output += new_output
+            if new_output:
+                saw_any_output = True
+                idle_reads = 0
+            else:
+                idle_reads += 1
             
             # Check for pagination prompts (--More--, --more--, etc.) in the most recent output
             # Pagination typically appears at the end of output chunks
@@ -187,9 +216,14 @@ class SSHClient:
                 prompt_match = re.search(re.escape(self.prompt) + r"\s*$", output, re.MULTILINE)
                 if prompt_match:
                     break
+
+            # Fallback: if we don't have a prompt, or prompt isn't detected, break after a short idle period
+            # once we have received some output.
+            if not self.prompt and saw_any_output and idle_reads >= 4:
+                break
                 
             # Short pause
-            time.sleep(0.5)
+            time.sleep(0.15)
             
         # Remove command echo and prompt from output
         output = self._clean_output(output, command)

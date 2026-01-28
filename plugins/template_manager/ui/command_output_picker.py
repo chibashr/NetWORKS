@@ -20,13 +20,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.ui.plugin_ui_theme import mark_plugin_ui
-
-
-def _device_label(device):
-    alias = device.get_property("alias") or ""
-    hostname = device.get_property("hostname") or ""
-    ip = device.get_property("ip_address") or ""
-    return (alias or hostname or ip or "Unknown").strip() or "Unknown"
+from plugins.template_manager.core.device_utils import device_display_name
 
 
 class CommandOutputPickerDialog(QDialog):
@@ -89,7 +83,7 @@ class CommandOutputPickerDialog(QDialog):
                     out_text = (rec.get("output") or "").strip() if isinstance(rec, dict) else ""
                     if not out_text:
                         continue
-                    label = f"{_device_label(device)} — {cmd_id}"
+                    label = f"{device_display_name(device)} — {cmd_id}"
                     self._all_items.append((label, out_text))
         for label, out_text in self._all_items:
             item = QListWidgetItem(label)

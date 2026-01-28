@@ -27,6 +27,6 @@ python-docx==0.8.11 # Word document support
 
 # ==== Additional Optional Dependencies ====
 # Development and testing (not required for runtime)
-# pytest==7.4.0      # Testing framework (commented out, uncomment if needed)
+pytest==7.4.0      # Testing framework
 # flake8==6.1.0      # Code linting (commented out, uncomment if needed)
 # black==23.7.0      # Code formatting (commented out, uncomment if needed) 

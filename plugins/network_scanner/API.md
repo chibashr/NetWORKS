@@ -112,11 +112,11 @@ print(f"Available profiles: {list(profiles.keys())}")
 
 #### `create_scan_profile(name, config)`
 
-Create a new scan profile.
+Create a new scan profile. Scan behavior (including OS detection and port scanning) is defined only by the profile’s `arguments` and `timeout`; there are no separate "os_detection" or "port_scan" flags.
 
 **Parameters:**
-- `name` (str): The name of the profile to create
-- `config` (dict): Configuration settings for the profile
+- `name` (str): The profile ID (e.g. used in scan_type choices)
+- `config` (dict): Profile data with keys: `name` (display name), `description` (optional), `arguments` (nmap arguments, e.g. `-sn -F` or `-sV -p 22,80,443`), `timeout` (seconds, 30–600)
 
 **Returns:**
 - `bool`: True if the profile was created successfully, False otherwise
@@ -126,12 +126,12 @@ Create a new scan profile.
 # Get the network scanner plugin
 scanner_plugin = app.plugin_manager.get_plugin("network_scanner")
 
-# Create a new scan profile
+# Create a new scan profile (real schema)
 profile_config = {
-    "os_detection": True,
-    "port_scan": True,
-    "scan_timeout": 120,
-    "custom_args": "-sV -p 22,80,443"
+    "name": "Web server scan",
+    "description": "Ports 22, 80, 443 with version detection",
+    "arguments": "-sV -p 22,80,443",
+    "timeout": 120
 }
 success = scanner_plugin.create_scan_profile("web_server_scan", profile_config)
 ```
@@ -216,15 +216,16 @@ The plugin adds a dock widget to the main window with the following features:
 
 ### Settings
 
-The plugin provides the following settings that can be configured:
+The plugin provides the following settings (configuration keys):
 
-- **Default Scan Type**: The default scan type to use
-- **Preferred Interface**: The preferred network interface to use for scanning
-- **Scan Timeout**: Timeout in seconds for scan operations
-- **Use Elevated Permissions**: Run scans with elevated permissions
-- **Custom Scan Arguments**: Advanced nmap arguments
-- **Auto Tag**: Automatically tag discovered devices
-- **Scan Profiles**: Create and manage custom scan profiles
+- **scan_type**: Default scan type (e.g. quick, standard, comprehensive, or a custom profile ID)
+- **preferred_interface**: Preferred network interface for scanning
+- **scan_timeout**: Timeout in seconds for scan operations
+- **use_sudo**: Use elevated permissions (sudo/administrator) for scans
+- **custom_scan_args**: Additional nmap arguments applied when set
+- **auto_tag**: Automatically tag discovered devices
+- **batch_scan_threads**: Number of devices to scan in parallel during batch scans (1–8)
+- **scan_profiles**: Dict of profile IDs to profile data (`name`, `description`, `arguments`, `timeout`)
 
 ## Example Usage
 
@@ -244,10 +245,10 @@ scanner_plugin.scan_network("192.168.1.0/24", "quick")
 # Get the network scanner plugin
 scanner_plugin = app.plugin_manager.get_plugin("network_scanner")
 
-# Update settings for a more comprehensive scan
+# Configure an advanced scan using profiles and custom arguments.
+# The selected profile's arguments define the base behavior (including
+# OS detection and port scanning); custom arguments further refine it.
 scanner_plugin.update_setting("scan_type", "comprehensive")
-scanner_plugin.update_setting("os_detection", True)
-scanner_plugin.update_setting("port_scan", True)
 scanner_plugin.update_setting("custom_scan_args", "-p 22,80,443,3389 -sV")
 
 # Scan a specific IP range
@@ -260,12 +261,12 @@ scanner_plugin.scan_network("10.0.0.1-10.0.0.100")
 # Get the network scanner plugin
 scanner_plugin = app.plugin_manager.get_plugin("network_scanner")
 
-# Create a custom profile
+# Create a custom profile (schema: name, description, arguments, timeout)
 profile_config = {
-    "os_detection": True,
-    "port_scan": True,
-    "scan_timeout": 60,
-    "custom_args": "-sV -p 80,443,8080"
+    "name": "Web servers",
+    "description": "Ports 80, 443, 8080 with version detection",
+    "arguments": "-sV -p 80,443,8080",
+    "timeout": 60
 }
 scanner_plugin.create_scan_profile("web_servers", profile_config)
 
@@ -295,6 +296,9 @@ scanner_plugin.scan_network("192.168.1.0/24")
 ```
 
 ## Changelog
+
+### Version 10.6 (2026-01-27)
+- File structure split into core/ui/utils; design compliance (CollapsibleSection, PluginDialogBase, theme-aware styling); documentation updates for profile-only scan behavior and current settings.
 
 ### Version 10.4 (2026-01-26)
 - Major improvements to nmap detection and integration

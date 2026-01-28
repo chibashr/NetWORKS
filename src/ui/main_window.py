@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QTreeView, QFrame, QLabel, QToolButton, QPushButton, QTableView,
     QHeaderView, QAbstractItemView, QSizePolicy, QInputDialog, QLineEdit, QMessageBox, QDialog, QListWidget, QTableWidget, QTableWidgetItem, QTextBrowser,
-    QApplication, QFileDialog, QPlainTextEdit
+    QApplication, QFileDialog, QPlainTextEdit, QTabBar, QToolBar
 )
 from PySide6.QtGui import QIcon, QAction, QFont, QKeySequence, QBrush, QColor
 from PySide6.QtCore import Qt, QSize, Signal, Slot, QModelIndex, QSettings, QTimer, QByteArray, QPoint
@@ -42,6 +42,9 @@ class MainWindow(QMainWindow):
         self.device_manager = app.device_manager
         self.plugin_manager = app.plugin_manager
         self.config = app.config
+        # Store properties currently shown in the properties panel
+        # Used by filtering and export helpers; always keep as a dict.
+        self.current_properties = {}
         
         # Track plugin loading for layout restoration
         self._pending_plugin_layout_restore = False
@@ -53,6 +56,9 @@ class MainWindow(QMainWindow):
         self._layout_save_timer = QTimer(self)
         self._layout_save_timer.setSingleShot(True)
         self._layout_save_timer.timeout.connect(self._save_workspace_layout)
+
+        # Ribbon/tab state (core "Home" plus plugin ribbons)
+        self._home_ribbon_index = 0
         
         # Set window properties
         self.updateWindowTitle()
@@ -153,6 +159,8 @@ class MainWindow(QMainWindow):
         self.menu_file.addAction(self.action_recycle_bin)
         
         self.menu_file.addAction(self.action_save)
+        # Application-wide settings belong under File instead of Tools
+        self.menu_file.addAction(self.action_settings)
         self.menu_file.addSeparator()
         self.menu_file.addAction(self.action_exit)
         
@@ -170,7 +178,6 @@ class MainWindow(QMainWindow):
         # Tools menu
         self.menu_tools = self.menu_bar.addMenu("Tools")
         self.menu_tools.addAction(self.action_plugin_manager)
-        self.menu_tools.addAction(self.action_settings)
         
         # Help menu
         self.menu_help = self.menu_bar.addMenu("Help")
@@ -183,26 +190,62 @@ class MainWindow(QMainWindow):
         self.plugin_menus = {}
         
     def _create_toolbar(self):
-        """Create toolbar"""
-        self.toolbar = ScalableToolbar("Main Toolbar")
+        """Create ribbon-style toolbar and plugin ribbons"""
+        # Ribbon tab strip (Office-style "Home" + plugin tabs)
+        self.ribbon_tabbar = QTabBar(self)
+        self.ribbon_tabbar.setObjectName("RibbonTabBar")
+        self.ribbon_tabbar.setExpanding(False)
+        self.ribbon_tabbar.setDrawBase(False)
+        self.ribbon_tabbar.setShape(QTabBar.RoundedNorth)
+        self.ribbon_tabbar.setUsesScrollButtons(True)
+        # Core application ribbon
+        self._home_ribbon_index = self.ribbon_tabbar.addTab("Home")
+        self.ribbon_tabbar.setTabData(self._home_ribbon_index, "home")
+        self.ribbon_tabbar.currentChanged.connect(self._on_ribbon_tab_changed)
+
+        # Core "Home" ribbon toolbar (actions row, text-only to save vertical space)
+        self.toolbar = ScalableToolbar("Main Toolbar", parent=self)
         self.toolbar.setObjectName("MainToolbar")
         self.toolbar.setMovable(False)
         self.toolbar.setIconSize(QSize(24, 24))
+        # Ribbon buttons: text only (no icons) for compactness
         self.toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
-        
-        self.addToolBar(self.toolbar)
 
-        self.addToolBarBreak(Qt.TopToolBarArea)
-        self.plugin_toolbar = ScalableToolbar("Plugin Toolbar")
+        # Plugin ribbon toolbar (shows actions for selected plugin tab)
+        self.plugin_toolbar = ScalableToolbar("Plugin Toolbar", parent=self)
         self.plugin_toolbar.setObjectName("PluginToolbar")
         self.plugin_toolbar.setMovable(False)
         self.plugin_toolbar.setIconSize(QSize(24, 24))
+        # Plugin ribbon buttons: text only as well
         self.plugin_toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
         self.plugin_toolbar.setVisible(False)
 
-        self.addToolBar(Qt.TopToolBarArea, self.plugin_toolbar)
-        
-        # Add actions to toolbar
+        # Ribbon content row that hosts both Home and plugin toolbars
+        ribbon_content = QWidget(self)
+        ribbon_content.setObjectName("RibbonContent")
+        ribbon_content_layout = QHBoxLayout(ribbon_content)
+        ribbon_content_layout.setContentsMargins(0, 0, 0, 0)
+        ribbon_content_layout.setSpacing(4)
+        ribbon_content_layout.addWidget(self.toolbar)
+        ribbon_content_layout.addWidget(self.plugin_toolbar)
+
+        # Vertical ribbon container: tabs on top, actions underneath
+        ribbon_container = QWidget(self)
+        ribbon_container.setObjectName("RibbonContainer")
+        ribbon_layout = QVBoxLayout(ribbon_container)
+        ribbon_layout.setContentsMargins(0, 0, 0, 0)
+        ribbon_layout.setSpacing(0)
+        ribbon_layout.addWidget(self.ribbon_tabbar)
+        ribbon_layout.addWidget(ribbon_content)
+
+        # Single QToolBar that hosts the whole ribbon container
+        self.ribbon_toolbar = QToolBar("Ribbon", self)
+        self.ribbon_toolbar.setObjectName("RibbonToolbar")
+        self.ribbon_toolbar.setMovable(False)
+        self.ribbon_toolbar.addWidget(ribbon_container)
+        self.addToolBar(Qt.TopToolBarArea, self.ribbon_toolbar)
+
+        # Add actions to Home ribbon
         self.toolbar.add_toolbar_action(self.action_new_device, priority=100)
         self.toolbar.add_toolbar_action(self.action_new_group, priority=95)
         self.toolbar.add_toolbar_action(self.action_import_devices, priority=90)
@@ -210,6 +253,11 @@ class MainWindow(QMainWindow):
         self.toolbar.add_toolbar_action(self.action_save, priority=85)
         self.toolbar.add_toolbar_separator()
         self.toolbar.add_toolbar_action(self.action_refresh, priority=80)
+
+        # Ensure Home ribbon is initially active
+        self.ribbon_tabbar.setCurrentIndex(self._home_ribbon_index)
+        self.toolbar.setVisible(True)
+        self.plugin_toolbar.setVisible(False)
         
     def _create_statusbar(self):
         """Create status bar"""
@@ -383,26 +431,34 @@ class MainWindow(QMainWindow):
             
         plugin = plugin_info.instance
         
-        # Add toolbar actions
+        # Add toolbar actions (plugin ribbon)
         toolbar_actions = plugin.get_toolbar_actions()
         if toolbar_actions:
             if not hasattr(plugin_info, 'ui_components'):
                 plugin_info.ui_components = {}
             if 'toolbar_actions' not in plugin_info.ui_components:
                 plugin_info.ui_components['toolbar_actions'] = []
-            existing_actions = [
-                action for action in self.plugin_toolbar.actions()
-                if action is not self.plugin_toolbar._overflow_action
-            ]
-            if existing_actions:
-                separator = self.plugin_toolbar.add_toolbar_separator()
-                plugin_info.ui_components['toolbar_actions'].append(separator)
             for action in toolbar_actions:
                 if action.property("toolbar_priority") is None:
                     action.setProperty("toolbar_priority", 10)
-                self.plugin_toolbar.add_toolbar_action(action)
                 plugin_info.ui_components['toolbar_actions'].append(action)
-            self.plugin_toolbar.setVisible(True)
+            # Ensure a ribbon tab exists for this plugin
+            if hasattr(plugin_info, "id") and hasattr(plugin_info, "name"):
+                plugin_id = plugin_info.id
+                plugin_name = plugin_info.name or plugin_id
+                # Avoid duplicate tabs if re-registering UI for same plugin
+                existing_index = None
+                for index in range(self.ribbon_tabbar.count()):
+                    if self.ribbon_tabbar.tabData(index) == plugin_id:
+                        existing_index = index
+                        break
+                if existing_index is None:
+                    index = self.ribbon_tabbar.addTab(plugin_name)
+                    self.ribbon_tabbar.setTabData(index, plugin_id)
+            # If this plugin's ribbon tab is currently selected, populate its toolbar now
+            current_data = self.ribbon_tabbar.tabData(self.ribbon_tabbar.currentIndex())
+            if current_data == getattr(plugin_info, "id", None):
+                self._show_plugin_ribbon(plugin_info)
                 
         # Add menu actions
         menu_actions = plugin.get_menu_actions()
@@ -515,16 +571,35 @@ class MainWindow(QMainWindow):
                 if index >= 0:
                     self.properties_widget.removeTab(index)
 
-        # Remove toolbar actions
+        # Remove toolbar actions and ribbon tab
         if 'toolbar_actions' in plugin_info.ui_components:
-            for action in plugin_info.ui_components['toolbar_actions']:
-                self.plugin_toolbar.removeAction(action)
-            remaining_actions = [
-                action for action in self.plugin_toolbar.actions()
-                if action is not self.plugin_toolbar._overflow_action
-            ]
-            if not remaining_actions:
-                self.plugin_toolbar.setVisible(False)
+            # Remove actions from the plugin ribbon toolbar if they are currently visible
+            if hasattr(self, "plugin_toolbar"):
+                for action in plugin_info.ui_components['toolbar_actions']:
+                    if action in self.plugin_toolbar.actions():
+                        self.plugin_toolbar.removeAction(action)
+                remaining_actions = [
+                    action for action in self.plugin_toolbar.actions()
+                    if action is not getattr(self.plugin_toolbar, "_overflow_action", None)
+                ]
+                if not remaining_actions:
+                    self.plugin_toolbar.setVisible(False)
+
+            # Remove the plugin's ribbon tab
+            if hasattr(self, "ribbon_tabbar") and hasattr(plugin_info, "id"):
+                plugin_id = plugin_info.id
+                removed_index = None
+                for index in range(self.ribbon_tabbar.count()):
+                    if self.ribbon_tabbar.tabData(index) == plugin_id:
+                        removed_index = index
+                        self.ribbon_tabbar.removeTab(index)
+                        break
+                # If the active tab was removed, fall back to Home
+                if removed_index is not None:
+                    if self.ribbon_tabbar.count() and self._home_ribbon_index < self.ribbon_tabbar.count():
+                        self.ribbon_tabbar.setCurrentIndex(self._home_ribbon_index)
+                    elif self.ribbon_tabbar.count():
+                        self.ribbon_tabbar.setCurrentIndex(0)
                     
         # Remove dock widgets
         if 'dock_widgets' in plugin_info.ui_components:
@@ -534,6 +609,71 @@ class MainWindow(QMainWindow):
                 
         # Clear the components
         plugin_info.ui_components = {}
+
+    def _clear_toolbar_actions(self, toolbar):
+        """Helper to remove all non-overflow actions from a ScalableToolbar."""
+        if toolbar is None:
+            return
+        overflow = getattr(toolbar, "_overflow_action", None)
+        for action in list(toolbar.actions()):
+            if action is overflow:
+                continue
+            toolbar.removeAction(action)
+
+    def _show_plugin_ribbon(self, plugin_info):
+        """Populate the plugin ribbon toolbar for the given plugin."""
+        if not hasattr(plugin_info, "ui_components"):
+            return
+        actions = plugin_info.ui_components.get("toolbar_actions", [])
+
+        # Hide Home ribbon and show plugin ribbon
+        if hasattr(self, "toolbar"):
+            self.toolbar.setVisible(False)
+        if not hasattr(self, "plugin_toolbar"):
+            return
+
+        self._clear_toolbar_actions(self.plugin_toolbar)
+
+        for action in actions:
+            priority = action.property("toolbar_priority")
+            self.plugin_toolbar.add_toolbar_action(action, priority=priority)
+
+        has_actions = bool(actions)
+        self.plugin_toolbar.setVisible(has_actions)
+
+    def _on_ribbon_tab_changed(self, index):
+        """Switch between Home ribbon and plugin ribbons when the tab changes."""
+        if not hasattr(self, "ribbon_tabbar"):
+            return
+
+        tab_data = self.ribbon_tabbar.tabData(index)
+
+        # Home ribbon or unknown data: fall back to core toolbar
+        if not tab_data or tab_data == "home":
+            if hasattr(self, "plugin_toolbar"):
+                self.plugin_toolbar.setVisible(False)
+            if hasattr(self, "toolbar"):
+                self.toolbar.setVisible(True)
+            return
+
+        # Plugin ribbon: find the plugin by ID and show its actions
+        plugin_id = tab_data
+        plugin_info = None
+        if hasattr(self, "plugin_manager") and self.plugin_manager:
+            try:
+                plugin_info = self.plugin_manager.get_plugin(plugin_id)
+            except Exception:
+                plugin_info = None
+
+        if not plugin_info or not hasattr(plugin_info, "ui_components"):
+            # Fallback to Home ribbon if plugin is not available
+            if hasattr(self, "plugin_toolbar"):
+                self.plugin_toolbar.setVisible(False)
+            if hasattr(self, "toolbar"):
+                self.toolbar.setVisible(True)
+            return
+
+        self._show_plugin_ribbon(plugin_info)
         
     def update_property_panel(self, devices=None):
         """Update property panel with device info
@@ -713,6 +853,8 @@ class MainWindow(QMainWindow):
     def update_group_panel(self, groups=None):
         """Update property panel with group info"""
         self.properties_table.setRowCount(0)
+        # Reset stored properties so filtering/export work with group data
+        self.current_properties = {}
         
         if groups and not isinstance(groups, list):
             groups = [groups]
@@ -1836,7 +1978,9 @@ class MainWindow(QMainWindow):
                     
                     self.restoreState(state_value)
                     logger.debug("Workspace-specific window state restored")
-                    
+                
+                # Ensure the window ends up on the startup screen (same as splash)
+                self._ensure_on_startup_screen()
                 return  # Successfully restored workspace-specific layout
             
             # Fall back to application-wide settings if workspace-specific not available
@@ -1871,6 +2015,34 @@ class MainWindow(QMainWindow):
             logger.error(f"Failed to restore window state: {e}")
             # If restoration fails, use default size and position
             self.resize(1200, 800)
+        
+        # After any restoration path (or fallback), make sure the window is
+        # located on the same screen as the splash/startup screen.
+        self._ensure_on_startup_screen()
+
+    def _ensure_on_startup_screen(self):
+        """Ensure the main window is on the startup screen (same as splash).
+        
+        This keeps the splash screen, workspace manager, and main window
+        together instead of spread across multiple monitors.
+        """
+        try:
+            startup_screen = getattr(self.app, "startup_screen", None)
+            if not startup_screen:
+                return
+            
+            screen_geom = startup_screen.availableGeometry()
+            frame_geom = self.frameGeometry()
+            
+            # If we're already on that screen, nothing to do.
+            if frame_geom.intersects(screen_geom):
+                return
+            
+            # Center the window on the startup screen.
+            frame_geom.moveCenter(screen_geom.center())
+            self.move(frame_geom.topLeft())
+        except Exception as e:
+            logger.debug(f"Failed to enforce startup screen position: {e}")
         
     def findMenu(self, menu_name):
         """Find a menu by name

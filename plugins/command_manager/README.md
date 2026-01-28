@@ -38,6 +38,8 @@ Each command in a command set can include:
 
 ## Usage
 
+The **Tools** menu items (Run Commands, Manage Credentials, Edit Command Sets) mirror the toolbar and context menu; Run Commands and Manage Credentials may require a device selection when invoked from the menu. For plugin-to-plugin integration (e.g. Template Manager), see [API.md](API.md).
+
 ### Running Commands
 
 1. Select one or more devices in the main application
@@ -86,6 +88,31 @@ The Command Manager now uses the DeviceManager's `get_device_groups_for_device()
 1. Select a device in the device table
 2. Open the "Command Output" panel
 3. View past command outputs for the selected device
+
+## Running tests
+
+From the project root (NetWORKS), install dev dependencies and run tests:
+
+```bash
+pip install -r plugins/command_manager/requirements-dev.txt
+pytest plugins/command_manager/tests/ -v
+```
+
+With coverage:
+
+```bash
+pytest plugins/command_manager/tests/ --cov=plugins.command_manager --cov-report=term-missing -v
+```
+
+Or from the plugin directory:
+
+```bash
+cd plugins/command_manager
+pip install -r requirements-dev.txt
+pytest tests/ -v
+```
+
+See [docs/plugins/unit_test_requirements.md](../../docs/plugins/unit_test_requirements.md) for the full testing specification.
 
 ## Integration
 

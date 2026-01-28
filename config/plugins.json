@@ -15,7 +15,7 @@
     "state": "ENABLED",
     "last_loaded": "",
     "path": "plugins\\report_generator",
-    "version": "1.0.0"
+    "version": "1.0.1"
   },
   "sample": {
     "state": "DISABLED",
