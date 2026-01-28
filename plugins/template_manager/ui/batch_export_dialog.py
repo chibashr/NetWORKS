@@ -44,13 +44,7 @@ from plugins.template_manager.core.device_resolver import (
     resolve_devices,
 )
 from plugins.template_manager.core.template_engine import render_template_text
-
-
-def _device_display_name(device):
-    alias = device.get_property("alias") or ""
-    hostname = device.get_property("hostname") or ""
-    ip = device.get_property("ip_address") or ""
-    return (alias or hostname or ip or "Unknown").strip() or "Unknown"
+from plugins.template_manager.core.device_utils import device_display_name, group_names_for_combo
 
 
 def _placeholders_in_body(body):
@@ -113,15 +107,7 @@ class BatchExportDialog(QDialog):
             self.source_combo.setCurrentText("Selected Devices")
             self.source_combo.setEnabled(False)
         self.group_combo = QComboBox()
-        groups = []
-        try:
-            for g in (self.plugin.device_manager.get_groups() or []):
-                n = getattr(g, "name", None) or str(g)
-                if n:
-                    groups.append(n)
-        except Exception:
-            pass
-        self.group_combo.addItems(sorted(set(groups)))
+        self.group_combo.addItems(group_names_for_combo(self.plugin.device_manager))
         self.group_combo.currentTextChanged.connect(self._refresh_preview)
         self.subnet_edit = QLineEdit()
         self.subnet_edit.setPlaceholderText("e.g. 192.168.1.0/24")
@@ -207,7 +193,7 @@ class BatchExportDialog(QDialog):
         preview_inner.addWidget(QLabel("Missing data (empty placeholders):"))
         self.missing_label = QLabel("")
         self.missing_label.setWordWrap(True)
-        self.missing_label.setStyleSheet("color: var(--text-warning, #b8860b);")
+        self.missing_label.setProperty("plugin_ui_warning", "true")
         preview_inner.addWidget(self.missing_label)
         preview_inner.addWidget(QLabel("Preview for selected device (first template):"))
         self.sample_text = QTextEdit()
@@ -311,7 +297,7 @@ class BatchExportDialog(QDialog):
             return
 
         for d in self._devices:
-            self.devices_list.addItem(QListWidgetItem(_device_display_name(d)))
+            self.devices_list.addItem(QListWidgetItem(device_display_name(d)))
 
         # Missing data: for each placeholder in templates, which devices have empty?
         missing_parts = []
@@ -320,7 +306,7 @@ class BatchExportDialog(QDialog):
             placeholders = _placeholders_in_body(body)
             for prop in placeholders:
                 empty_devices = [
-                    _device_display_name(d)
+                    device_display_name(d)
                     for d in self._devices
                     if not (d.get_property(prop, "") if hasattr(d, "get_property") else (d.get_properties() or {}).get(prop, ""))
                 ]
@@ -388,7 +374,7 @@ class BatchExportDialog(QDialog):
                         ctx = dict(device.get_properties() or {})
                         ctx["index"] = idx
                         ctx["total"] = len(devices)
-                        lines.append(f"--- {_device_display_name(device)} ---")
+                        lines.append(f"--- {device_display_name(device)} ---")
                         lines.append(render_template_text(body, ctx))
                     if lines:
                         if os.path.isdir(path) or (len(self.templates) > 1):
@@ -407,7 +393,7 @@ class BatchExportDialog(QDialog):
                         ctx["index"] = 1
                         ctx["total"] = 1
                         out = render_template_text(body, ctx)
-                        safe = _device_display_name(device).replace("/", "-").replace("\\", "-")
+                        safe = device_display_name(device).replace("/", "-").replace("\\", "-")
                         filepath = os.path.join(dirpath, f"{name}_{safe}.txt")
                         with open(filepath, "w", encoding="utf-8") as f:
                             f.write(out)

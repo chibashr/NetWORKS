@@ -3,7 +3,8 @@
 
 """
 Export dialog for Template Manager: scope (all/selected/group/subnet/tag), filters,
-and actions: Load into Command Manager or Export for Command Manager (file).
+and Export for Command Manager (file). Load into Command Manager is done directly
+from the panel (no dialog).
 """
 
 from PySide6.QtCore import Qt
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.ui.plugin_ui_theme import mark_plugin_ui
+from src.ui.plugin_widgets import CollapsibleSection
 from plugins.template_manager.core.device_resolver import (
     DATA_SOURCE_LABELS,
     DATA_SOURCE_MAP,
@@ -33,39 +35,29 @@ from plugins.template_manager.core.device_resolver import (
     resolve_devices,
 )
 from plugins.template_manager.core.template_engine import render_template_text
+from plugins.template_manager.core.device_utils import group_names_for_combo
 
 
 class ExportDialog(QDialog):
-    """Scope, filters, and Send to Command Manager or Export file."""
+    """Scope, filters, and Export for Command Manager (file)."""
 
     def __init__(self, plugin, templates, parent=None):
         super().__init__(parent or plugin.main_window)
         mark_plugin_ui(self)
-        self.setWindowTitle("Load into Command Manager")
+        self.setWindowTitle("Export for Command Manager (file)")
         self.plugin = plugin
         self.templates = templates or []
         self._build_ui()
         self._on_source_changed(self.source_combo.currentText())
 
-    def _build_ui(self):
-        layout = QVBoxLayout(self)
-
-        # Data source
+    def _build_source_group(self):
         source_group = QGroupBox("Data Source")
         source_layout = QFormLayout(source_group)
         self.source_combo = QComboBox()
         self.source_combo.addItems(DATA_SOURCE_LABELS)
         self.source_combo.currentTextChanged.connect(self._on_source_changed)
         self.group_combo = QComboBox()
-        groups = []
-        try:
-            for g in (self.plugin.device_manager.get_groups() or []):
-                n = getattr(g, "name", None) or str(g)
-                if n:
-                    groups.append(n)
-        except Exception:
-            pass
-        self.group_combo.addItems(sorted(set(groups)))
+        self.group_combo.addItems(group_names_for_combo(self.plugin.device_manager))
         self.subnet_edit = QLineEdit()
         self.subnet_edit.setPlaceholderText("e.g. 192.168.1.0/24")
         self.tag_edit = QLineEdit()
@@ -74,9 +66,9 @@ class ExportDialog(QDialog):
         source_layout.addRow("Group:", self.group_combo)
         source_layout.addRow("Subnet:", self.subnet_edit)
         source_layout.addRow("Tag:", self.tag_edit)
-        layout.addWidget(source_group)
+        return source_group
 
-        # Filters
+    def _build_filters_group(self):
         filters_group = QGroupBox("Filters")
         filters_layout = QVBoxLayout(filters_group)
         logic_row = QHBoxLayout()
@@ -99,21 +91,27 @@ class ExportDialog(QDialog):
         f_btn.addWidget(self.remove_filter_btn)
         f_btn.addStretch()
         filters_layout.addLayout(f_btn)
-        layout.addWidget(filters_group)
+        return filters_group
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+
+        # Scope & filters in a collapsible section (like batch export)
+        scope_section = CollapsibleSection("Scope & filters", expanded=False)
+        scope_section.content_layout.addWidget(self._build_source_group())
+        scope_section.content_layout.addWidget(self._build_filters_group())
+        layout.addWidget(scope_section)
 
         # Actions
         actions_layout = QHBoxLayout()
-        self.send_cm_btn = QPushButton("Load into Command Manager")
-        self.send_cm_btn.clicked.connect(self._load_into_command_manager)
-        self.export_file_btn = QPushButton("Export for Command Manager (file)…")
+        self.export_file_btn = QPushButton("Export for Command Manager (file)")
         self.export_file_btn.clicked.connect(self._export_for_command_manager)
-        actions_layout.addWidget(self.send_cm_btn)
         actions_layout.addWidget(self.export_file_btn)
         actions_layout.addStretch()
         layout.addLayout(actions_layout)
 
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: var(--text-muted, #666);")
+        self.status_label.setProperty("plugin_ui_muted", "true")
         layout.addWidget(self.status_label)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
@@ -193,37 +191,6 @@ class ExportDialog(QDialog):
                 cs = CommandSet(device_type, firmware_version, commands)
                 sets.append(cs)
         return sets
-
-    def _load_into_command_manager(self):
-        if not self.templates:
-            QMessageBox.warning(self, "Load into Command Manager", "No templates selected.")
-            return
-        devices = self._resolve_devices()
-        if not devices:
-            QMessageBox.warning(
-                self,
-                "Load into Command Manager",
-                "No devices matched the selected source and filters.",
-            )
-            return
-        info = self.plugin.app.plugin_manager.get_plugin("command_manager")
-        if not info or not getattr(info, "instance", None):
-            QMessageBox.warning(
-                self,
-                "Load into Command Manager",
-                "Command Manager plugin is not loaded. Use \"Export for Command Manager (file)\" and import that file in Command Manager.",
-            )
-            return
-        cmd_mgr = info.instance
-        sets = self._build_command_sets(devices, self.templates)
-        for cs in sets:
-            cmd_mgr.add_command_set(cs)
-        QMessageBox.information(
-            self,
-            "Load into Command Manager",
-            f"Added {len(sets)} template set(s) for {len(devices)} device(s). Open Command Manager to run them.",
-        )
-        self.status_label.setText(f"Sent {len(sets)} set(s) to Command Manager.")
 
     def _export_for_command_manager(self):
         """Write Command Manager–style JSON (device_type, firmware_version, commands) to file."""

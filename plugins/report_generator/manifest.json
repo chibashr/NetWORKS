@@ -1,7 +1,7 @@
 {
   "id": "report_generator",
   "name": "Report Generator",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Build tabular and template-based reports from devices and export to common formats",
   "icon": "resources/icons/report_generator.svg",
   "author": "chibashr",
@@ -13,6 +13,17 @@
     "system": []
   },
   "changelog": [
+    {
+      "version": "1.0.1",
+      "date": "2026-01-27",
+      "changes": [
+        "Refactored into core/ and ui/ modules; entry point thinned to plugin class only",
+        "Added tooltips for Report Generator menu and toolbar actions",
+        "Extracted Manage Reports dialog to ui/manage_reports_dialog.py",
+        "Added hint 'Applied to first selected column' in column options",
+        "Removed no-op device/group signal handlers"
+      ]
+    },
     {
       "version": "1.0.0",
       "date": "2026-01-21",

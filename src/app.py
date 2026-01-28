@@ -70,6 +70,12 @@ class Application(QApplication):
         # Initialize splash screen
         self.splash = SplashScreen()
         self.splash.show()
+        # Remember which screen we started on so other windows
+        # (workspace manager, main window) can be positioned there.
+        try:
+            self.startup_screen = self.splash.screen()
+        except Exception:
+            self.startup_screen = None
         
         # Use a timer to give the splash screen time to display
         QTimer.singleShot(100, self.init_application)
@@ -476,6 +482,19 @@ class Application(QApplication):
         else:
             clear_details()
         
+        # Position the dialog on the same screen we started on (splash/main window)
+        try:
+            target_screen = getattr(self, "startup_screen", None)
+            if target_screen is None and hasattr(self, "main_window") and self.main_window is not None:
+                target_screen = self.main_window.screen()
+            if target_screen is not None:
+                screen_geom = target_screen.availableGeometry()
+                dlg_geom = dialog.frameGeometry()
+                dlg_geom.moveCenter(screen_geom.center())
+                dialog.move(dlg_geom.topLeft())
+        except Exception as e:
+            self.logger.debug(f"Failed to position workspace dialog on startup screen: {e}")
+
         dialog.setModal(True)
         dialog.exec()
         return

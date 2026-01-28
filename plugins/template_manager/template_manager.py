@@ -50,8 +50,10 @@ class TemplateManagerPlugin(PluginInterface):
 
     def _register_actions(self):
         self.menu_action = QAction("Template Manager", self.main_window)
+        self.menu_action.setToolTip("Open Template Manager")
         self.menu_action.triggered.connect(self._show_dialog)
         self.toolbar_action = QAction("Template Manager", self.main_window)
+        self.toolbar_action.setToolTip("Open Template Manager")
         self.toolbar_action.triggered.connect(self._show_dialog)
         if self.main_window:
             self.toolbar_action.setIcon(

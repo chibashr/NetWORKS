@@ -23,6 +23,8 @@ from PySide6.QtGui import QFont, QColor
 
 from src.ui.plugin_ui_theme import mark_plugin_ui
 
+from .output_storage import load_command_outputs as storage_load, save_command_outputs as storage_save
+
 class OutputHandler:
     """Handler for command outputs and device command panels"""
     
@@ -36,148 +38,14 @@ class OutputHandler:
         self.outputs = {}  # {device_id: {command_id: {timestamp: output}}}
         
     def load_command_outputs(self):
-        """Load command outputs from disk"""
-        logger.debug("Loading command outputs from disk")
-        
-        # Check if the outputs directory exists
-        if not self.plugin.output_dir.exists():
-            logger.debug(f"Output directory does not exist: {self.plugin.output_dir}")
-            # Create it if not exists
-            self.plugin.output_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Initialize outputs
-        self.outputs = {}
-        
-        # First, try to load device-specific output files from plugin data directory
-        device_dirs = [d for d in self.plugin.output_dir.iterdir() if d.is_dir()]
-        for device_dir in device_dirs:
-            device_id = device_dir.name
-            output_file = device_dir / "command_outputs.json"
-            
-            if output_file.exists():
-                try:
-                    with open(output_file, "r") as f:
-                        device_outputs = json.load(f)
-                        self.outputs[device_id] = device_outputs
-                        
-                    logger.debug(f"Loaded command outputs for device {device_id} from {output_file}")
-                except Exception as e:
-                    logger.error(f"Error loading command outputs for device {device_id}: {e}")
-                    logger.exception("Exception details:")
-        
-        # Next, try to load from workspace device folders
-        workspace_device_dir = Path("config/workspaces/default/devices")
-        if workspace_device_dir.exists():
-            for device_dir in workspace_device_dir.iterdir():
-                if device_dir.is_dir():
-                    device_id = device_dir.name
-                    commands_dir = device_dir / "commands"
-                    if commands_dir.exists():
-                        output_file = commands_dir / "command_outputs.json"
-                        if output_file.exists():
-                            try:
-                                with open(output_file, "r") as f:
-                                    device_outputs = json.load(f)
-                                    # Only load if we don't already have outputs for this device
-                                    if device_id not in self.outputs:
-                                        self.outputs[device_id] = device_outputs
-                                        logger.debug(f"Loaded command outputs for device {device_id} from workspace: {output_file}")
-                            except Exception as e:
-                                logger.error(f"Error loading command outputs for device {device_id} from workspace: {e}")
-                                logger.exception("Exception details:")
-            
-        # If no device-specific outputs found, try to load from the legacy file
-        if not self.outputs:
-            legacy_file = self.plugin.output_dir / "command_outputs.json"
-            if legacy_file.exists():
-                try:
-                    with open(legacy_file, "r") as f:
-                        self.outputs = json.load(f)
-                    
-                    logger.debug(f"Loaded command outputs from legacy file {legacy_file}")
-                    
-                    # Migrate to new format
-                    self.save_command_outputs()
-                except Exception as e:
-                    logger.error(f"Error loading legacy command outputs: {e}")
-                    logger.exception("Exception details:")
-        
-        # Log some statistics
-        device_count = len(self.outputs)
-        command_count = 0
-        output_count = 0
-        
-        for device_id, commands in self.outputs.items():
-            command_count += len(commands)
-            for cmd_id, timestamps in commands.items():
-                output_count += len(timestamps)
-                
-        logger.info(f"Loaded {output_count} command outputs for {command_count} commands across {device_count} devices")
-        
-        # Update plugin's outputs reference
+        """Load command outputs from disk (delegates to output_storage)."""
+        self.outputs = storage_load(self.plugin)
         self.plugin.outputs = self.outputs
-    
+
     def save_command_outputs(self):
-        """Save command outputs to disk"""
-        logger.debug("Saving command outputs to disk")
-        # Check if the outputs directory exists
-        if not self.plugin.output_dir.exists():
-            self.plugin.output_dir.mkdir(parents=True, exist_ok=True)
-            
-        # No outputs to save
-        if not self.outputs:
-            logger.debug("No command outputs to save")
-            return
-            
-        # Save outputs for each device in its own folder in the plugin directory
-        for device_id, commands in self.outputs.items():
-            try:
-                # Create device output directory in plugin folder
-                device_dir = self.plugin.output_dir / device_id
-                device_dir.mkdir(exist_ok=True)
-                
-                # Save the outputs to disk
-                output_file = device_dir / "command_outputs.json"
-                with open(output_file, "w") as f:
-                    json.dump(commands, f, indent=2)
-                    
-                logger.debug(f"Saved command outputs for device {device_id} to {output_file}")
-                
-                # Also save to workspace device folder
-                try:
-                    # Get workspace device directory
-                    workspace_device_dir = Path("config/workspaces/default/devices") / device_id
-                    if workspace_device_dir.exists():
-                        # Create commands directory if it doesn't exist
-                        commands_dir = workspace_device_dir / "commands"
-                        commands_dir.mkdir(exist_ok=True)
-                        
-                        # Save command outputs to workspace
-                        workspace_output_file = commands_dir / "command_outputs.json"
-                        with open(workspace_output_file, "w") as f:
-                            json.dump(commands, f, indent=2)
-                            
-                        logger.debug(f"Saved command outputs to workspace: {workspace_output_file}")
-                except Exception as e:
-                    logger.error(f"Error saving command outputs to workspace for device {device_id}: {e}")
-                    logger.exception("Exception details:")
-                
-            except Exception as e:
-                logger.error(f"Error saving command outputs for device {device_id}: {e}")
-                logger.exception("Exception details:")
-        
-        # Also save the full outputs file for backward compatibility
-        try:
-            # Save the outputs to disk
-            output_file = self.plugin.output_dir / "command_outputs.json"
-            with open(output_file, "w") as f:
-                json.dump(self.outputs, f, indent=2)
-                
-            logger.debug(f"Saved command outputs to {output_file}")
-        except Exception as e:
-            logger.error(f"Error saving command outputs: {e}")
-            logger.exception("Exception details:")
-    
+        """Save command outputs to disk (delegates to output_storage)."""
+        storage_save(self.plugin, self.outputs)
+
     def get_command_outputs(self, device_id, command_id=None):
         """Get command outputs for a device
         

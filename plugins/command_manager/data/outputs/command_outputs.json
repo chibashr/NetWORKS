@@ -101,6 +101,183 @@
         "success": true,
         "command": "show running-config"
       }
+    },
+    "Template:_Test_int_rename_1.0_int_t1/0/7": {
+      "2026-01-28T11:02:01.246486": {
+        "output": "^\r\n% Invalid input detected at '^' marker.",
+        "success": true,
+        "command": "int t1/0/7"
+      }
+    },
+    "Template:_Test_int_rename_1.0_desc_{{ip_address}}": {
+      "2026-01-28T11:02:04.412060": {
+        "output": "^\r\n% Invalid input detected at '^' marker.",
+        "success": true,
+        "command": "desc {{ip_address}}"
+      }
+    },
+    "_conf_t": {
+      "2026-01-28T11:44:27.556298": {
+        "output": "Enter configuration commands, one per line. End with CNTL/Z.\r\nDM-CORE-3850-1(config)#",
+        "success": true,
+        "command": "conf t"
+      },
+      "2026-01-28T11:49:39.070132": {
+        "output": "Enter configuration commands, one per line. End with CNTL/Z.\r\nDM-CORE-3850-1(config)#",
+        "success": true,
+        "command": "conf t"
+      },
+      "2026-01-28T11:54:42.872076": {
+        "output": "Enter configuration commands, one per line. End with CNTL/Z.\r\nDM-CORE-3850-1(config)#",
+        "success": true,
+        "command": "conf t"
+      },
+      "2026-01-28T11:58:24.679372": {
+        "output": "Enter configuration commands, one per line. End with CNTL/Z.\r\nDM-CORE-3850-1(config)#",
+        "success": true,
+        "command": "conf t"
+      },
+      "2026-01-28T11:59:11.657625": {
+        "output": "Enter configuration commands, one per line. End with CNTL/Z.\r\nDM-CORE-3850-1(config)#",
+        "success": true,
+        "command": "conf t"
+      },
+      "2026-01-28T12:01:04.406989": {
+        "output": "Enter configuration commands, one per line. End with CNTL/Z.\r\nDM-CORE-3850-1(config)#",
+        "success": true,
+        "command": "conf t"
+      },
+      "2026-01-28T12:04:14.170168": {
+        "output": "Enter configuration commands, one per line. End with CNTL/Z.\r\nDM-CORE-3850-1(config)#",
+        "success": true,
+        "command": "conf t"
+      }
+    },
+    "_int_t1/0/7": {
+      "2026-01-28T11:44:30.730450": {
+        "output": "^\r\n% Invalid input detected at '^' marker.",
+        "success": true,
+        "command": "int t1/0/7"
+      },
+      "2026-01-28T11:49:42.239283": {
+        "output": "^\r\n% Invalid input detected at '^' marker.",
+        "success": true,
+        "command": "int t1/0/7"
+      },
+      "2026-01-28T11:54:53.889517": {
+        "output": "DM-CORE-3850-1(config-if)#",
+        "success": true,
+        "command": "int t1/0/7"
+      },
+      "2026-01-28T11:58:34.909367": {
+        "output": "DM-CORE-3850-1(config-if)#",
+        "success": true,
+        "command": "int t1/0/7"
+      },
+      "2026-01-28T11:59:21.905969": {
+        "output": "DM-CORE-3850-1(config-if)#",
+        "success": true,
+        "command": "int t1/0/7"
+      },
+      "2026-01-28T12:01:14.638585": {
+        "output": "DM-CORE-3850-1(config-if)#",
+        "success": true,
+        "command": "int t1/0/7"
+      },
+      "2026-01-28T12:04:24.405210": {
+        "output": "DM-CORE-3850-1(config-if)#",
+        "success": true,
+        "command": "int t1/0/7"
+      }
+    },
+    "_desc_{{ip_address}}": {
+      "2026-01-28T11:44:33.907206": {
+        "output": "^\r\n% Invalid input detected at '^' marker.",
+        "success": true,
+        "command": "desc {{ip_address}}"
+      },
+      "2026-01-28T11:49:45.407240": {
+        "output": "^\r\n% Invalid input detected at '^' marker.",
+        "success": true,
+        "command": "desc 10.1.8.2"
+      },
+      "2026-01-28T11:55:04.905062": {
+        "output": "DM-CORE-3850-1(config-if)#",
+        "success": true,
+        "command": "desc 10.1.8.2"
+      },
+      "2026-01-28T11:58:45.141220": {
+        "output": "DM-CORE-3850-1(config-if)#",
+        "success": true,
+        "command": "desc 10.1.8.2"
+      },
+      "2026-01-28T11:59:32.139801": {
+        "output": "DM-CORE-3850-1(config-if)#",
+        "success": true,
+        "command": "desc 10.1.8.2"
+      },
+      "2026-01-28T12:01:24.872810": {
+        "output": "DM-CORE-3850-1(config-if)#",
+        "success": true,
+        "command": "desc 10.1.8.2"
+      },
+      "2026-01-28T12:04:34.638185": {
+        "output": "DM-CORE-3850-1(config-if)#",
+        "success": true,
+        "command": "desc 10.1.8.2"
+      }
+    },
+    "_Custom_1:_int_t1/0/7": {
+      "2026-01-28T12:28:24.318516": {
+        "output": "^\r\n% Invalid input detected at '^' marker.",
+        "success": true,
+        "command": "int t1/0/7"
+      }
+    },
+    "_Custom_2:_desc_{{ip_address}}": {
+      "2026-01-28T12:28:24.476680": {
+        "output": "^\r\n% Invalid input detected at '^' marker.",
+        "success": true,
+        "command": "desc 10.1.8.2"
+      }
+    },
+    "_Custom_1:_conf_t": {
+      "2026-01-28T13:19:53.706024": {
+        "output": "Enter configuration commands, one per line. End with CNTL/Z.\r\nDM-CORE-3850-1(config)#",
+        "success": true,
+        "command": "conf t"
+      }
+    },
+    "_Custom_2:_int_t1/0/7": {
+      "2026-01-28T13:20:03.943472": {
+        "output": "DM-CORE-3850-1(config-if)#",
+        "success": true,
+        "command": "int t1/0/7"
+      }
+    },
+    "_Custom_3:_desc_{{ip_address}}": {
+      "2026-01-28T13:20:14.183072": {
+        "output": "DM-CORE-3850-1(config-if)#",
+        "success": true,
+        "command": "desc 10.1.8.2"
+      }
+    },
+    "_Custom_block": {
+      "2026-01-28T13:23:58.959649": {
+        "output": "conf t\r\nEnter configuration commands, one per line. End with CNTL/Z.\r\nDM-CORE-3850-1(config)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#",
+        "success": true,
+        "command": "conf t\nint t1/0/7\ndesc 10.1.8.2"
+      },
+      "2026-01-28T13:32:05.019126": {
+        "output": "conf t\r\nEnter configuration commands, one per line. End with CNTL/Z.\r\nDM-CORE-3850-1(config)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#",
+        "success": true,
+        "command": "conf t\nint t1/0/7\ndesc 10.1.8.2"
+      },
+      "2026-01-28T13:51:18.918310": {
+        "output": "conf t\r\nEnter configuration commands, one per line. End with CNTL/Z.\r\nDM-CORE-3850-1(config)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#conf t\r\n^\r\n% Invalid input detected at '^' marker.\r\n\r\nDM-CORE-3850-1(config-if)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#conf t\r\n^\r\n% Invalid input detected at '^' marker.\r\n\r\nDM-CORE-3850-1(config-if)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#conf t\r\n^\r\n% Invalid input detected at '^' marker.\r\n\r\nDM-CORE-3850-1(config-if)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#conf t\r\n^\r\n% Invalid input detected at '^' marker.\r\n\r\nDM-CORE-3850-1(config-if)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#conf t\r\n^\r\n% Invalid input detected at '^' marker.\r\n\r\nDM-CORE-3850-1(config-if)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#conf t\r\n^\r\n% Invalid input detected at '^' marker.\r\n\r\nDM-CORE-3850-1(config-if)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#conf t\r\n^\r\n% Invalid input detected at '^' marker.\r\n\r\nDM-CORE-3850-1(config-if)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#conf t\r\n^\r\n% Invalid input detected at '^' marker.\r\n\r\nDM-CORE-3850-1(config-if)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#",
+        "success": true,
+        "command": "conf t\nint t1/0/7\ndesc 10.1.8.2\nconf t\nint t1/0/7\ndesc 10.1.8.2\nconf t\nint t1/0/7\ndesc 10.1.8.2\nconf t\nint t1/0/7\ndesc 10.1.8.2\nconf t\nint t1/0/7\ndesc 10.1.8.2\nconf t\nint t1/0/7\ndesc 10.1.8.2\nconf t\nint t1/0/7\ndesc 10.1.8.2\nconf t\nint t1/0/7\ndesc 10.1.8.2\nconf t\nint t1/0/7\ndesc 10.1.8.2"
+      }
     }
   }
 }

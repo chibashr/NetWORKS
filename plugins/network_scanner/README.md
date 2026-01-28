@@ -15,8 +15,6 @@ The Network Scanner plugin allows NetWORKS to discover devices on your network u
 - **Custom Arguments**: Advanced users can provide custom nmap arguments
 - **Elevated Permissions**: Optionally use sudo/administrator privileges for more accurate scans
 - **Device Discovery**: Automatically add discovered devices to the inventory
-- **OS Detection**: Identify operating systems of discovered devices
-- **Port Scanning**: Detect open ports and services on network devices
 - **Scan Profiles**: Create and manage custom scan profiles through the scan dialog
 - **Selected Device Batches**: Scan selected devices sequentially with per-device progress
 - **Group Scans**: Run scans against devices in a selected group from the control panel
@@ -79,18 +77,16 @@ or custom range) as a scan target and runs the appropriate scan mode for each.
 - **Quick**: Fast ping-only scan to discover hosts (minimal network impact)
 - **Standard**: Balanced scan with some port scanning and OS detection
 - **Comprehensive**: In-depth scan with extensive port scanning and OS fingerprinting
-- **Custom**: Create your own scan profiles with specific settings
+- **Custom**: User-defined profiles with specific nmap arguments and timeouts
 
-Scan profiles can be edited directly in the scan dialog on the "Scan Profiles" tab.
+Scan types and profiles are chosen from the Target/Scan Type dropdowns in the panel and in the scan dialog. Use "Scan Profiles" in the scan dialog or "Manage" next to Scan Type in the panel to create and edit profiles. Use "Advanced..." to open the full scan dialog with Basic, Advanced, and Scan Profiles tabs.
 
 ### Advanced Options
 
-Access advanced scan options from the "Advanced" tab in the scan dialog (click "Advanced..." button):
+Access advanced scan options from the "Advanced" tab in the scan dialog (click "Advanced..." button). Scan behavior (including OS detection and port scanning) is controlled only by the chosen scan profile and its nmap arguments, plus any optional custom arguments you provide. Available options include:
 
-- **OS Detection**: Enable/disable OS detection
-- **Port Scanning**: Enable/disable port scanning
 - **Elevated Permissions**: Use sudo/admin privileges for more accurate results
-- **Custom Arguments**: Provide custom nmap arguments for advanced scanning
+- **Custom Arguments**: Provide additional nmap arguments for advanced scanning
 
 ## Scan Results
 
@@ -131,6 +127,9 @@ The Network Scanner plugin primarily writes results into device properties and t
 See the [API.md](API.md) file for information on programmatically integrating with the Network Scanner plugin.
 
 ## Changelog
+
+### Version 10.6 (2026-01-27)
+- File structure split into core/ui/utils; design compliance (CollapsibleSection, PluginDialogBase, theme-aware styling); results footer and empty state; documentation updates for profile-only scan behavior.
 
 ### Version 10.5 (2026-01-27)
 - Fixed subnet determination from interface when Start Scan uses the interface combo display text

@@ -7,10 +7,39 @@ Command handler for managing command sets and executing commands
 
 import os
 import json
+import re
 from pathlib import Path
 from loguru import logger
 
 from plugins.command_manager.utils.command_set import CommandSet, Command
+
+
+def expand_command_for_device(command_text, device):
+    """Expand {{property}} placeholders in command_text using the device's properties.
+    Matches Template Manager / Report Generator syntax so variables translate when
+    running template-loaded commands."""
+    if not command_text or "{{" not in command_text:
+        return command_text
+    context = {}
+    if hasattr(device, "get_properties"):
+        try:
+            context = dict(device.get_properties() or {})
+        except Exception:
+            context = {}
+    if hasattr(device, "get_property"):
+        for key in ("id", "alias", "hostname", "ip_address", "mac_address", "status", "notes", "tags"):
+            if key not in context:
+                context[key] = device.get_property(key, "")
+
+    def repl(m):
+        key = m.group(1).strip()
+        val = context.get(key, "")
+        if isinstance(val, list):
+            return ", ".join(str(v) for v in val)
+        return "" if val is None else str(val)
+
+    pattern = re.compile(r"\{\{\s*([^}]+)\s*\}\}")
+    return pattern.sub(repl, command_text)
 from plugins.command_manager.utils.ssh_client import SSHClient
 from plugins.command_manager.utils.telnet_client import TelnetClient
 
@@ -338,53 +367,76 @@ class CommandHandler:
                             # CommandSet object
                             json.dump(command_set.to_dict(), f, indent=2)
                         else:
-                            # If it's a list, wrap it in the proper format
-                            data_to_save = command_set
+                            # List of Command objects (from add_command_set storing .commands)
                             if isinstance(command_set, list):
                                 data_to_save = {
                                     "device_type": device_type,
                                     "firmware_version": firmware,
-                                    "commands": command_set
+                                    "commands": [
+                                        c.to_dict() if hasattr(c, "to_dict") else c
+                                        for c in command_set
+                                    ],
                                 }
+                            else:
+                                data_to_save = command_set
                             json.dump(data_to_save, f, indent=2)
                 
                 except Exception as e:
                     logger.error(f"Error saving command set {device_type}_{firmware}: {e}")
                     logger.exception("Exception details:")
                     
-    def add_command_set(self, command_set):
-        """Add or update a command set
+    def add_command_set(self, command_set, temporary=False):
+        """Add or update a command set.
         
         Args:
             command_set: CommandSet object to add or update
+            temporary: If True, do not persist to disk (e.g. template-loaded set; unload when applied).
         """
-        logger.debug(f"Adding command set: {command_set.device_type} ({command_set.firmware_version})")
+        logger.debug(f"Adding command set: {command_set.device_type} ({command_set.firmware_version}) temporary={temporary}")
         
-        # Create device type entry if it doesn't exist
         if command_set.device_type not in self.command_sets:
             self.command_sets[command_set.device_type] = {}
             
-        # Add or update command set
         self.command_sets[command_set.device_type][command_set.firmware_version] = command_set.commands
         
-        # Save command sets
-        self.save_command_sets()
+        if not temporary:
+            self.save_command_sets()
         
         logger.info(f"Added command set: {command_set.device_type} ({command_set.firmware_version})")
+    
+    def delete_command_set(self, device_type, firmware_version):
+        """Remove a command set from memory and delete its file if present."""
+        if device_type not in self.command_sets:
+            return
+        if firmware_version in self.command_sets[device_type]:
+            del self.command_sets[device_type][firmware_version]
+        if not self.command_sets[device_type]:
+            del self.command_sets[device_type]
+        device_type_safe = device_type.lower().replace(" ", "_")
+        firmware_safe = firmware_version.replace(".", "_")
+        file_path = self.plugin.commands_dir / f"{device_type_safe}_{firmware_safe}.json"
+        if file_path.exists():
+            try:
+                file_path.unlink()
+                logger.info(f"Deleted command set file: {file_path.name}")
+            except Exception as e:
+                logger.warning(f"Could not delete command set file {file_path}: {e}")
+        self.save_command_sets()
         
     def run_command(self, device, command, credentials=None):
         """Run a command on a device
         
         Args:
             device: Device to run command on
-            command (str): Command to run
+            command (str): Command to run (may contain {{property}} placeholders; expanded per device)
             credentials (dict, optional): Credentials to use
             
         Returns:
             dict: Command result
         """
         logger.debug(f"Running command on device: {device.id}")
-        
+        command = expand_command_for_device(command, device)
+
         # Get device properties
         device_type = device.get_property("device_type", "")
         ip_address = device.get_property("ip_address", "")

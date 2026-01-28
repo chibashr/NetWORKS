@@ -176,7 +176,7 @@ def get_theme_tokens(theme_name, font_size=10, row_height=22, accent_override=No
 def build_stylesheet(tokens):
     return f"""
     QWidget {{
-        background-color: {tokens.background};
+        background-color: transparent;
         color: {tokens.text};
         font-size: {tokens.font_size}px;
     }}
@@ -226,6 +226,36 @@ def build_stylesheet(tokens):
         background-color: {tokens.separator};
         width: 1px;
         margin: 0 4px;
+    }}
+    QWidget#RibbonContainer,
+    QWidget#RibbonContent {{
+        background-color: {tokens.toolbar_bg};
+    }}
+    QToolBar#RibbonToolbar {{
+        background-color: {tokens.toolbar_bg};
+        border-bottom: 1px solid {tokens.separator};
+        padding: 0 4px;
+    }}
+    QTabBar#RibbonTabBar {{
+        background-color: {tokens.toolbar_bg};
+        border: none;
+    }}
+    QTabBar#RibbonTabBar::tab {{
+        min-height: 24px;
+        padding: 0 8px;
+        background-color: {tokens.surface_alt};
+        border: 1px solid {tokens.border};
+        border-bottom: none;
+        border-radius: 0px;
+        margin-right: 2px;
+        font-weight: 500;
+    }}
+    QTabBar#RibbonTabBar::tab:selected {{
+        background-color: {tokens.surface};
+        border-bottom: 3px solid {tokens.accent};
+    }}
+    QTabBar#RibbonTabBar::tab:hover {{
+        background-color: {tokens.surface_raised};
     }}
     QToolButton {{
         background-color: {tokens.surface_raised};
@@ -392,6 +422,13 @@ def build_stylesheet(tokens):
         padding: 4px 6px;
         border: 1px solid {tokens.border};
         min-height: {tokens.header_height}px;
+    }}
+    QListWidget, QListView {{
+        background-color: {tokens.surface_raised};
+        color: {tokens.text};
+        border: 1px solid {tokens.border};
+        selection-background-color: {tokens.accent};
+        selection-color: {tokens.selection_text};
     }}
     QDockWidget {{
         border: 1px solid {tokens.border};

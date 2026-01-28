@@ -41,7 +41,7 @@ The Table Editor is a single wizard with three tabs:
 #### 1. Columns
 
 - **Available Fields** (left): searchable list of device properties, grouped as *Standard* (id, alias, hostname, ip_address, mac_address, status, notes, tags) or *Custom*. Fields not yet selected are listed.
-- **Selected Columns** (right): drag to reorder. Per column you can toggle **Visible**, set a **Custom header**, or remove. **Add All** / **Remove All** and **Add Column…** (existing/computed/transformed) are available.
+- **Selected Columns** (right): drag to reorder. Per column you can toggle **Visible**, set a **Custom header**, or remove; Visible/Header apply to the first selected column. **Add All** / **Remove All** and **Add Column…** (existing/computed/transformed) are available.
 
 #### 2. Filters
 
@@ -88,6 +88,22 @@ Transformations are configured when adding a transformed column and target a pro
 - `prefix`, `suffix`
 - `date_format` (uses Python `strftime` format strings)
 - `concat` (builds a string from parts)
+
+## Running tests
+
+Unit tests follow `docs/plugins/unit_test_requirements.md`. From the project root, with project dependencies and plugin dev deps installed:
+
+```bash
+pip install -r requirements.txt
+pip install -r plugins/report_generator/requirements-dev.txt
+python -m pytest plugins/report_generator/tests/ -v --tb=short
+```
+
+With coverage:
+
+```bash
+python -m pytest plugins/report_generator/tests/ --cov=plugins/report_generator --cov-report=term-missing --cov-report=html -q
+```
 
 ## Storage
 
