@@ -7,6 +7,7 @@ Main window for NetWORKS
 
 import os
 from loguru import logger
+import shiboken6
 from PySide6.QtWidgets import (
     QMainWindow, QDockWidget, QStatusBar, QMenuBar, QMenu,
     QTabWidget, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
@@ -198,10 +199,14 @@ class MainWindow(QMainWindow):
         self.ribbon_tabbar.setDrawBase(False)
         self.ribbon_tabbar.setShape(QTabBar.RoundedNorth)
         self.ribbon_tabbar.setUsesScrollButtons(True)
+        # Allow users to reorder ribbon tabs via drag & drop.
+        # We keep the special "Home" tab pinned in `_on_ribbon_tab_moved`.
+        self.ribbon_tabbar.setMovable(True)
         # Core application ribbon
         self._home_ribbon_index = self.ribbon_tabbar.addTab("Home")
         self.ribbon_tabbar.setTabData(self._home_ribbon_index, "home")
         self.ribbon_tabbar.currentChanged.connect(self._on_ribbon_tab_changed)
+        self.ribbon_tabbar.tabMoved.connect(self._on_ribbon_tab_moved)
 
         # Core "Home" ribbon toolbar (actions row, text-only to save vertical space)
         self.toolbar = ScalableToolbar("Main Toolbar", parent=self)
@@ -258,6 +263,28 @@ class MainWindow(QMainWindow):
         self.ribbon_tabbar.setCurrentIndex(self._home_ribbon_index)
         self.toolbar.setVisible(True)
         self.plugin_toolbar.setVisible(False)
+
+    @Slot(int, int)
+    def _on_ribbon_tab_moved(self, from_index: int, to_index: int):
+        """Keep ribbon state consistent when tabs are dragged."""
+        if not hasattr(self, "ribbon_tabbar"):
+            return
+        try:
+            # Pin the Home tab to the far left so `_home_ribbon_index` logic remains valid.
+            home_index = None
+            for idx in range(self.ribbon_tabbar.count()):
+                if self.ribbon_tabbar.tabData(idx) == "home":
+                    home_index = idx
+                    break
+            if home_index is None:
+                return
+            if home_index != 0:
+                self.ribbon_tabbar.moveTab(home_index, 0)
+                home_index = 0
+            self._home_ribbon_index = home_index
+        except RuntimeError:
+            # Tab bar may be tearing down during shutdown.
+            return
         
     def _create_statusbar(self):
         """Create status bar"""
@@ -436,12 +463,22 @@ class MainWindow(QMainWindow):
         if toolbar_actions:
             if not hasattr(plugin_info, 'ui_components'):
                 plugin_info.ui_components = {}
-            if 'toolbar_actions' not in plugin_info.ui_components:
-                plugin_info.ui_components['toolbar_actions'] = []
+            # Always reset so reload doesn't retain stale/deleted QActions.
+            plugin_info.ui_components['toolbar_actions'] = []
             for action in toolbar_actions:
-                if action.property("toolbar_priority") is None:
-                    action.setProperty("toolbar_priority", 10)
-                plugin_info.ui_components['toolbar_actions'].append(action)
+                try:
+                    if not action or not shiboken6.isValid(action):
+                        continue
+                    # Ensure plugin actions survive beyond plugin object lifetime; the main window
+                    # owns the QAction while it is registered in the UI.
+                    if action.parent() is None or action.parent() is plugin:
+                        action.setParent(self)
+                    if action.property("toolbar_priority") is None:
+                        action.setProperty("toolbar_priority", 10)
+                    plugin_info.ui_components['toolbar_actions'].append(action)
+                except RuntimeError:
+                    # QAction can already be deleted if created with a short-lived parent.
+                    continue
             # Ensure a ribbon tab exists for this plugin
             if hasattr(plugin_info, "id") and hasattr(plugin_info, "name"):
                 plugin_id = plugin_info.id
@@ -634,11 +671,23 @@ class MainWindow(QMainWindow):
 
         self._clear_toolbar_actions(self.plugin_toolbar)
 
+        safe_actions = []
         for action in actions:
-            priority = action.property("toolbar_priority")
-            self.plugin_toolbar.add_toolbar_action(action, priority=priority)
+            try:
+                if not action or not shiboken6.isValid(action):
+                    continue
+                priority = action.property("toolbar_priority")
+                self.plugin_toolbar.add_toolbar_action(action, priority=priority)
+                safe_actions.append(action)
+            except RuntimeError:
+                # If the underlying C++ QAction was deleted, skip it.
+                continue
 
-        has_actions = bool(actions)
+        # Drop dead references so future tab switches stay safe.
+        if safe_actions != actions:
+            plugin_info.ui_components["toolbar_actions"] = safe_actions
+
+        has_actions = bool(safe_actions)
         self.plugin_toolbar.setVisible(has_actions)
 
     def _on_ribbon_tab_changed(self, index):

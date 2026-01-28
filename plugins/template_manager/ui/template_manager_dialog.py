@@ -33,7 +33,6 @@ class TemplateManagerDialog(QDialog):
         bottom = QHBoxLayout()
         bottom.addWidget(self.panel.export_file_btn)
         bottom.addWidget(self.panel.send_cm_btn)
-        bottom.addWidget(self.panel.export_cm_file_btn)
         bottom.addWidget(self.panel.batch_export_btn)
         bottom.addStretch()
         bottom.addWidget(self.panel.status_label)

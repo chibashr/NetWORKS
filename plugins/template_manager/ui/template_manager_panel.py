@@ -6,7 +6,7 @@ Template Manager panel: Templates + Details on one row, Source (with Load from C
 searchable Variables, Export; right side = device preview.
 """
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSize
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QTextEdit,
     QPushButton,
+    QToolButton,
     QLabel,
     QFormLayout,
     QAbstractItemView,
@@ -25,9 +26,13 @@ from PySide6.QtWidgets import (
     QSplitter,
     QComboBox,
     QMenu,
+    QDialog,
+    QDialogButtonBox,
+    QStyle,
 )
 from PySide6.QtGui import QTextCursor, QAction
 from src.ui.plugin_ui_theme import mark_plugin_ui
+from src.ui.material_icons import material_icon
 from plugins.template_manager.core.template_engine import STANDARD_DEVICE_PROPERTIES
 from plugins.template_manager.core.template_storage import default_template
 from plugins.template_manager.ui.template_preview_widget import TemplatePreviewWidget
@@ -57,10 +62,8 @@ class TemplateManagerPanel(QWidget):
         self.storage = plugin.storage
         self._templates = []
         self._current_id = None
-        self._vars_full_list = []  # list of (prop_name, display_text) for filtering
         self._build_ui()
         self._refresh_templates_list()
-        self._refresh_variables()
         self._refresh_preview_devices()
         self.preview_widget.selection_in_preview_triggered.connect(
             self._on_preview_selection_from_widget
@@ -74,10 +77,20 @@ class TemplateManagerPanel(QWidget):
         splitter = QSplitter(Qt.Horizontal)
         splitter.setChildrenCollapsible(False)
 
-        # —— Left: templates + details (stacked) ——
+        # —— Left: details (top) + templates (bottom) ——
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
+        details_group = QGroupBox("Template Details")
+        details_layout = QFormLayout(details_group)
+        self.name_edit = QLineEdit()
+        self.name_edit.setPlaceholderText("Template name")
+        self.desc_edit = QLineEdit()
+        self.desc_edit.setPlaceholderText("Description (optional)")
+        details_layout.addRow("Name:", self.name_edit)
+        details_layout.addRow("Description:", self.desc_edit)
+        left_layout.addWidget(details_group)
+
         templates_group = QGroupBox("Templates")
         templates_layout = QVBoxLayout(templates_group)
         self.templates_list = QListWidget()
@@ -86,8 +99,7 @@ class TemplateManagerPanel(QWidget):
         self.templates_list.setSelectionMode(QAbstractItemView.SingleSelection)
         self.templates_list.currentItemChanged.connect(self._on_template_selected)
         self.templates_list.setMinimumWidth(160)
-        self.templates_list.setMaximumHeight(140)
-        templates_layout.addWidget(self.templates_list)
+        templates_layout.addWidget(self.templates_list, 1)
         btn_row = QHBoxLayout()
         for label, slot in [
             ("New", self._new_template),
@@ -99,18 +111,7 @@ class TemplateManagerPanel(QWidget):
             btn_row.addWidget(b)
         btn_row.addStretch()
         templates_layout.addLayout(btn_row)
-        left_layout.addWidget(templates_group)
-
-        details_group = QGroupBox("Template Details")
-        details_layout = QFormLayout(details_group)
-        self.name_edit = QLineEdit()
-        self.name_edit.setPlaceholderText("Template name")
-        self.desc_edit = QLineEdit()
-        self.desc_edit.setPlaceholderText("Description (optional)")
-        details_layout.addRow("Name:", self.name_edit)
-        details_layout.addRow("Description:", self.desc_edit)
-        left_layout.addWidget(details_group)
-        left_layout.addStretch()
+        left_layout.addWidget(templates_group, 1)
         splitter.addWidget(left_widget)
 
         # —— Middle: Source / Body + Variables ——
@@ -122,9 +123,41 @@ class TemplateManagerPanel(QWidget):
         source_group = QGroupBox("Source / Body")
         source_layout = QVBoxLayout(source_group)
         load_row = QHBoxLayout()
-        self.load_cm_btn = QPushButton("Load from Command Manager…")
+
+        # Icon-only Save button (square, will be sized to match standard button height)
+        self.save_btn = QToolButton()
+        self.save_btn.setToolTip("Save template (name/description/source)")
+        self.save_btn.setIcon(material_icon("save", self, QStyle.SP_DialogSaveButton))
+        self.save_btn.setAutoRaise(True)
+        self.save_btn.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        self.save_btn.setIconSize(QSize(16, 16))
+        # Match theme.py inline icon-only tool button styling
+        self.save_btn.setProperty("iconOnlyInline", True)
+        self.save_btn.clicked.connect(self._save_current_template)
+
+        # Icon-only Insert Variable button (square, same height as other buttons)
+        self.insert_var_btn = QToolButton()
+        self.insert_var_btn.setToolTip("Insert variable…")
+        self.insert_var_btn.setIcon(material_icon("code", self, QStyle.SP_CommandLink))
+        self.insert_var_btn.setAutoRaise(True)
+        self.insert_var_btn.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        self.insert_var_btn.setIconSize(QSize(16, 16))
+        # Match theme.py inline icon-only tool button styling
+        self.insert_var_btn.setProperty("iconOnlyInline", True)
+        self.insert_var_btn.clicked.connect(self._open_variable_picker_dialog)
+        # Add icon buttons on the far left
+        load_row.addWidget(self.save_btn)
+        load_row.addWidget(self.insert_var_btn)
+        # Main text button to the right of icons
+        self.load_cm_btn = QPushButton("Load Source from Command Manager")
         self.load_cm_btn.clicked.connect(self._load_from_command_manager)
         load_row.addWidget(self.load_cm_btn)
+
+        # Let theme stylesheet control exact sizing based on iconOnlyInline property
+        self.find_btn = QPushButton("Find/Replace…")
+        self.find_btn.setToolTip("Find and replace text in the source/body editor.")
+        self.find_btn.clicked.connect(self._open_find_replace_dialog)
+        load_row.addWidget(self.find_btn)
         load_row.addStretch()
         source_layout.addLayout(load_row)
         self.body_edit = QTextEdit()
@@ -134,27 +167,7 @@ class TemplateManagerPanel(QWidget):
         self.body_edit.setContextMenuPolicy(Qt.CustomContextMenu)
         self.body_edit.customContextMenuRequested.connect(self._on_body_context_menu)
         source_layout.addWidget(self.body_edit)
-        middle_layout.addWidget(source_group)
-
-        # Variables (searchable)
-        vars_group = QGroupBox("Variables")
-        vars_layout = QVBoxLayout(vars_group)
-        self.vars_help = QLabel("Available fields (use {{property_name}} in body):")
-        self.vars_help.setWordWrap(True)
-        vars_layout.addWidget(self.vars_help)
-        self.vars_search = QLineEdit()
-        self.vars_search.setPlaceholderText("Search variables…")
-        self.vars_search.textChanged.connect(self._filter_variables)
-        vars_layout.addWidget(self.vars_search)
-        self.vars_list = QListWidget()
-        self.vars_list.setMaximumHeight(100)
-        self.vars_list.itemDoubleClicked.connect(self._insert_placeholder)
-        vars_layout.addWidget(self.vars_list)
-        insert_btn = QPushButton("Insert placeholder at cursor")
-        insert_btn.clicked.connect(self._insert_placeholder_from_selection)
-        vars_layout.addWidget(insert_btn)
-        middle_layout.addWidget(vars_group)
-        middle_layout.addStretch()
+        middle_layout.addWidget(source_group, 1)
         splitter.addWidget(middle_widget)
 
         # —— Right: Preview ——
@@ -171,8 +184,6 @@ class TemplateManagerPanel(QWidget):
         self.export_file_btn.clicked.connect(self._export_template_file)
         self.send_cm_btn = QPushButton("Load into Command Manager")
         self.send_cm_btn.clicked.connect(self._load_into_command_manager_direct)
-        self.export_cm_file_btn = QPushButton("Export for Command Manager (file)…")
-        self.export_cm_file_btn.clicked.connect(self._open_export_dialog)
         self.batch_export_btn = QPushButton("Batch export…")
         self.batch_export_btn.clicked.connect(self._open_batch_export_dialog)
         self.status_label = QLabel("")
@@ -199,16 +210,13 @@ class TemplateManagerPanel(QWidget):
     def _on_body_context_menu(self, pos):
         """Right-click on body: show Insert variable submenu."""
         menu = QMenu(self.body_edit)
-        insert_menu = menu.addMenu("Insert variable")
-        dm = getattr(self.plugin, "device_manager", None)
-        standard, custom = ([], []) if not dm else _collect_device_properties(dm)
-        names = standard + custom if (standard or custom) else list(STANDARD_DEVICE_PROPERTIES)
-        std_set = set(standard) if (standard or custom) else set(STANDARD_DEVICE_PROPERTIES)
-        for name in names:
-            label = f"{name} (standard)" if name in std_set else name
-            action = QAction(label, self.body_edit)
-            action.triggered.connect(lambda checked, n=name: self._insert_at_cursor(f"{{{{{n}}}}}"))
-            insert_menu.addAction(action)
+        insert_action = QAction("Insert variable…", self.body_edit)
+        insert_action.triggered.connect(self._open_variable_picker_dialog)
+        menu.addAction(insert_action)
+        menu.addSeparator()
+        find_action = QAction("Find/Replace…", self.body_edit)
+        find_action.triggered.connect(self._open_find_replace_dialog)
+        menu.addAction(find_action)
         menu.exec(self.body_edit.mapToGlobal(pos))
 
     def _load_from_command_manager(self):
@@ -216,14 +224,6 @@ class TemplateManagerPanel(QWidget):
         d = CommandOutputPickerDialog(self.plugin, self)
         if d.exec() and d.chosen_output() is not None:
             self.body_edit.setPlainText(d.chosen_output())
-
-    def _filter_variables(self):
-        q = (self.vars_search.text() or "").strip().lower()
-        for i in range(self.vars_list.count()):
-            item = self.vars_list.item(i)
-            prop = (item.data(Qt.UserRole) or "").lower()
-            text = (item.text() or "").lower()
-            item.setHidden(bool(q) and q not in prop and q not in text)
 
     def _refresh_templates_list(self):
         self._templates = self.storage.ensure_loaded()
@@ -273,6 +273,23 @@ class TemplateManagerPanel(QWidget):
         self.storage.save(self._templates)
         self._refresh_templates_list()
         self._update_status()
+
+    def _save_current_template(self):
+        """Save the currently edited template (name, description, source/body)."""
+        # Ensure there is a "current" template to save.
+        if not self._current_id or not self._current_template():
+            t = default_template()
+            self._templates.append(t)
+            self._current_id = t.get("id")
+        current_id = self._current_id
+        self._save_current_to_model()
+        # Restore selection after refresh (refresh clears list and _current_id)
+        if current_id:
+            self._current_id = current_id
+            for i in range(self.templates_list.count()):
+                if self.templates_list.item(i).data(Qt.UserRole) == current_id:
+                    self.templates_list.setCurrentRow(i)
+                    break
 
     def _new_template(self):
         t = default_template()
@@ -325,42 +342,21 @@ class TemplateManagerPanel(QWidget):
         self.desc_edit.clear()
         self.body_edit.clear()
 
-    def _refresh_variables(self):
-        dm = getattr(self.plugin, "device_manager", None)
-        self._vars_full_list = []
-        self.vars_list.clear()
-        if not dm:
-            self.vars_help.setText("Available fields: (no device manager)")
-            return
-        standard, custom = _collect_device_properties(dm)
-        for p in standard:
-            self._vars_full_list.append((p, f"{p} (standard)"))
-        for p in custom:
-            self._vars_full_list.append((p, p))
-        for prop, disp in self._vars_full_list:
-            item = QListWidgetItem(disp)
-            item.setData(Qt.UserRole, prop)
-            self.vars_list.addItem(item)
-        if self._vars_full_list:
-            self.vars_help.setText("Search and double-click or use Insert. Use {{property_name}} in body.")
-        else:
-            self.vars_help.setText("No device properties. Add devices or use: id, alias, hostname, ip_address, …")
-        self._filter_variables()
-
-    def _insert_placeholder(self, item):
-        name = item.data(Qt.UserRole) or (item.text() or "").split(" ")[0]
-        self._insert_at_cursor(f"{{{{{name}}}}}")
-
-    def _insert_placeholder_from_selection(self):
-        item = self.vars_list.currentItem()
-        if not item:
-            return
-        name = (item.data(Qt.UserRole) or "").strip() or (item.text() or "").strip().split("(")[0].strip()
-        if name:
-            self._insert_at_cursor(f"{{{{{name}}}}}")
-
     def _insert_at_cursor(self, text):
         self.body_edit.insertPlainText(text)
+
+    def _open_variable_picker_dialog(self):
+        d = VariablePickerDialog(self.plugin, parent=self)
+        if d.exec() and d.chosen_variable():
+            self._insert_at_cursor(f"{{{{{d.chosen_variable()}}}}}")
+
+    def _open_find_replace_dialog(self):
+        # Prefill find with current selection if present.
+        sel = self.body_edit.textCursor().selectedText()
+        sel = (sel or "").replace("\u2029", "\n").strip()
+        d = FindReplaceDialog(self.body_edit, initial_find=sel, parent=self)
+        d.exec()
+
 
     def _update_status(self):
         n = len(self._templates)
@@ -425,17 +421,6 @@ class TemplateManagerPanel(QWidget):
         if top and top.isWindow():
             top.close()
 
-    def _open_export_dialog(self):
-        """Open Export dialog for scope/filters and Export for Command Manager (file)."""
-        from plugins.template_manager.ui.export_dialog import ExportDialog
-        self._save_current_to_model()
-        to_export = self.get_selected_templates_for_export()
-        if not to_export:
-            QMessageBox.information(self, "Export", "No templates selected.")
-            return
-        d = ExportDialog(self.plugin, to_export, self)
-        d.exec()
-
     def _open_batch_export_dialog(self, initial_devices=None):
         """Open batch export (expanded output for devices/group/subnet). initial_devices = list from context menu."""
         from plugins.template_manager.ui.batch_export_dialog import BatchExportDialog
@@ -452,3 +437,146 @@ class TemplateManagerPanel(QWidget):
         if cur:
             return [cur]
         return self._templates
+
+
+class VariablePickerDialog(QDialog):
+    """Searchable variable list for inserting placeholders into the body editor."""
+
+    def __init__(self, plugin, parent=None):
+        super().__init__(parent or plugin.main_window)
+        mark_plugin_ui(self)
+        self.setWindowTitle("Insert variable")
+        self._chosen = None
+        self._items = []  # list of (key, label)
+        self.setMinimumSize(420, 440)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Search and select a variable to insert as a placeholder:"))
+        self.search_edit = QLineEdit()
+        self.search_edit.setPlaceholderText("Search variables…")
+        self.search_edit.textChanged.connect(self._filter)
+        layout.addWidget(self.search_edit)
+        self.list_widget = QListWidget()
+        self.list_widget.itemDoubleClicked.connect(self._use_current)
+        layout.addWidget(self.list_widget, 1)
+
+        btn_row = QHBoxLayout()
+        use_btn = QPushButton("Insert")
+        use_btn.clicked.connect(self._use_current)
+        btn_row.addWidget(use_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Cancel)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        dm = getattr(plugin, "device_manager", None)
+        standard, custom = ([], []) if not dm else _collect_device_properties(dm)
+        names = standard + custom if (standard or custom) else list(STANDARD_DEVICE_PROPERTIES)
+        std_set = set(standard) if (standard or custom) else set(STANDARD_DEVICE_PROPERTIES)
+        self._items = [(n, f"{n} (standard)" if n in std_set else n) for n in names]
+
+        for key, label in self._items:
+            item = QListWidgetItem(label)
+            item.setData(Qt.UserRole, key)
+            self.list_widget.addItem(item)
+        self._filter()
+
+    def _filter(self):
+        q = (self.search_edit.text() or "").strip().lower()
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            key = (item.data(Qt.UserRole) or "").lower()
+            text = (item.text() or "").lower()
+            item.setHidden(bool(q) and q not in key and q not in text)
+
+    def _use_current(self):
+        item = self.list_widget.currentItem()
+        if not item:
+            return
+        self._chosen = item.data(Qt.UserRole)
+        self.accept()
+
+    def chosen_variable(self):
+        return self._chosen
+
+
+class FindReplaceDialog(QDialog):
+    """Lightweight find/replace for the template body editor (supports placeholders)."""
+
+    def __init__(self, text_edit: QTextEdit, initial_find: str = "", parent=None):
+        super().__init__(parent)
+        mark_plugin_ui(self)
+        self.setWindowTitle("Find / Replace")
+        self._edit = text_edit
+        self.setMinimumSize(520, 160)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self.find_edit = QLineEdit()
+        self.find_edit.setPlaceholderText("Find… (e.g. {{ip_address}})")
+        self.find_edit.setText(initial_find or "")
+        self.replace_edit = QLineEdit()
+        self.replace_edit.setPlaceholderText("Replace with… (e.g. {{ip}})")
+        form.addRow("Find:", self.find_edit)
+        form.addRow("Replace:", self.replace_edit)
+        layout.addLayout(form)
+
+        row = QHBoxLayout()
+        find_next = QPushButton("Find next")
+        find_next.clicked.connect(self._find_next)
+        replace_one = QPushButton("Replace")
+        replace_one.clicked.connect(self._replace_one)
+        replace_all = QPushButton("Replace all")
+        replace_all.clicked.connect(self._replace_all)
+        row.addWidget(find_next)
+        row.addWidget(replace_one)
+        row.addWidget(replace_all)
+        row.addStretch()
+        close_btns = QDialogButtonBox(QDialogButtonBox.Close)
+        close_btns.rejected.connect(self.reject)
+        row.addWidget(close_btns)
+        layout.addLayout(row)
+
+    def _needle(self):
+        return (self.find_edit.text() or "")
+
+    def _find_next(self):
+        needle = self._needle()
+        if not needle:
+            return
+        if not self._edit.find(needle):
+            # Wrap to start and try again
+            cur = self._edit.textCursor()
+            cur.movePosition(QTextCursor.Start)
+            self._edit.setTextCursor(cur)
+            self._edit.find(needle)
+
+    def _replace_one(self):
+        needle = self._needle()
+        if not needle:
+            return
+        cur = self._edit.textCursor()
+        if cur.hasSelection() and cur.selectedText().replace("\u2029", "\n") == needle:
+            cur.insertText(self.replace_edit.text() or "")
+            self._edit.setTextCursor(cur)
+            return
+        self._find_next()
+
+    def _replace_all(self):
+        needle = self._needle()
+        if not needle:
+            return
+        replacement = self.replace_edit.text() or ""
+        doc = self._edit.document()
+        cur = QTextCursor(doc)
+        cur.beginEditBlock()
+        # Start from top
+        cur.movePosition(QTextCursor.Start)
+        self._edit.setTextCursor(cur)
+        while self._edit.find(needle):
+            c = self._edit.textCursor()
+            c.insertText(replacement)
+            self._edit.setTextCursor(c)
+        cur.endEditBlock()

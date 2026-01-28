@@ -960,12 +960,17 @@ class DeviceManager(QObject):
         workspace_dir = os.path.join(self.workspaces_dir, name)
         os.makedirs(workspace_dir, exist_ok=True)
         
-        # Get current enabled plugins
+        # Get current plugin states (enabled + loaded) for workspace persistence
         enabled_plugins = []
+        loaded_plugins = []
         if hasattr(self.app, 'plugin_manager'):
             enabled_plugins = [
-                p.id for p in self.app.plugin_manager.get_plugins() 
+                p.id for p in self.app.plugin_manager.get_plugins()
                 if p.enabled
+            ]
+            loaded_plugins = [
+                p.id for p in self.app.plugin_manager.get_plugins()
+                if p.loaded
             ]
         
         # Create workspace info
@@ -976,6 +981,7 @@ class DeviceManager(QObject):
             "devices": list(self.devices.keys()),
             "groups": list(self.groups.keys()),
             "enabled_plugins": enabled_plugins,
+            "loaded_plugins": loaded_plugins,
             "recycle_bin": list(self.recycle_bin.keys())
         }
         
@@ -1073,6 +1079,8 @@ class DeviceManager(QObject):
                 plugin_manager = self.app.plugin_manager
                 # Get the plugin IDs listed as enabled in the workspace
                 enabled_plugins = workspace_info.get('enabled_plugins', [])
+                # Loaded is optional (older workspaces may not have it); default to enabled.
+                loaded_plugins = workspace_info.get('loaded_plugins', enabled_plugins)
                 logger.debug(f"Workspace {name} has {len(enabled_plugins)} enabled plugins: {', '.join(enabled_plugins)}")
                 
                 try:
@@ -1084,6 +1092,16 @@ class DeviceManager(QObject):
                     else:
                         logger.debug("Plugin discovery already in progress, skipping duplicate call")
                     
+                    # Disable any plugins that are enabled but not part of this workspace.
+                    # (Workspace should be source-of-truth for which plugins are active.)
+                    try:
+                        for p in plugin_manager.get_plugins():
+                            if p.enabled and p.id not in enabled_plugins:
+                                logger.debug(f"Disabling plugin {p.id} (not enabled in workspace)")
+                                plugin_manager.disable_plugin(p.id)
+                    except Exception as e:
+                        logger.error(f"Error disabling non-workspace plugins: {e}", exc_info=True)
+
                     # Enable all plugins first, then load them to avoid dependency order issues
                     for plugin_id in enabled_plugins:
                         try:
@@ -1097,7 +1115,8 @@ class DeviceManager(QObject):
                             logger.error(f"Error enabling plugin {plugin_id}: {e}", exc_info=True)
                             # Continue with other plugins even if one fails
                     
-                    for plugin_id in enabled_plugins:
+                    # Load only the plugins that were loaded in this workspace last session.
+                    for plugin_id in loaded_plugins:
                         try:
                             if plugin_id in plugin_manager.plugins:
                                 # Ensure the plugin is loaded if enabled

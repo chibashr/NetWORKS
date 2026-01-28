@@ -192,6 +192,14 @@ class PluginManager(QObject):
         # Sync with registry
         self._sync_registry()
         
+        # Persist plugin state into the active workspace so that
+        # enabled/disabled and loaded flags remain workspace-specific.
+        try:
+            if hasattr(self.app, "device_manager") and getattr(self.app.device_manager, "current_workspace", None):
+                self.app.device_manager.save_workspace(self.app.device_manager.current_workspace)
+        except Exception as e:
+            logger.error(f"Failed to save workspace after plugin state change: {e}", exc_info=True)
+        
         logger.info(f"Successfully transitioned plugin {plugin_id} from {previous_state} to {target_state}")
         return True, plugin_info
     

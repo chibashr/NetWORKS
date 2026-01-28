@@ -24,6 +24,23 @@ def sanitize_value(value):
         return ""
     return str(value)
 
+def _missing_marker(key: str) -> str:
+    """Marker shown when a variable is missing for a device."""
+    return f"<<missing:{key}>>"
+
+
+def _get_context_value(context, key: str):
+    """
+    Get a value from context, distinguishing between missing and present-but-empty.
+    Treat None as missing (common when property exists but isn't populated).
+    """
+    if key not in context:
+        return None, True
+    value = context.get(key)
+    if value is None:
+        return None, True
+    return value, False
+
 
 def is_expression_line(line):
     """True if line looks like {{x}} + {{y}} expression. Matches Report Generator."""
@@ -45,7 +62,8 @@ def render_expression_line(line, context):
             continue
         if token.startswith("{{"):
             key = token[2:-2].strip()
-            parts.append(sanitize_value(context.get(key, "")))
+            value, missing = _get_context_value(context, key)
+            parts.append(_missing_marker(key) if missing else sanitize_value(value))
         elif token.startswith('"') or token.startswith("'"):
             parts.append(token[1:-1])
         else:
@@ -69,7 +87,12 @@ def render_template_text(template_text, context):
             continue
         rendered_lines.append(
             placeholder_pattern.sub(
-                lambda m: sanitize_value(context.get(m.group(1), "")), line
+                lambda m: (
+                    _missing_marker(m.group(1).strip())
+                    if _get_context_value(context, m.group(1).strip())[1]
+                    else sanitize_value(_get_context_value(context, m.group(1).strip())[0])
+                ),
+                line,
             )
         )
     return "\n".join(rendered_lines)
@@ -94,8 +117,15 @@ def render_template_text_to_html(template_text, context):
         parts = []
         for m in placeholder_pattern.finditer(line):
             parts.append(html.escape(line[last : m.start()]))
-            val = sanitize_value(context.get(m.group(1), ""))
-            parts.append(f"<b>{html.escape(val)}</b>")
+            key = (m.group(1) or "").strip()
+            value, missing = _get_context_value(context, key)
+            if missing:
+                parts.append(
+                    f"<span style=\"color:#b00020;font-weight:600;\">{html.escape(_missing_marker(key))}</span>"
+                )
+            else:
+                val = sanitize_value(value)
+                parts.append(f"<b>{html.escape(val)}</b>")
             last = m.end()
         parts.append(html.escape(line[last:]))
         lines_out.append("".join(parts))
