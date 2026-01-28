@@ -331,9 +331,14 @@ class IssueReporter(QObject):
             issue_data: Issue data dictionary
             screenshot_path: Path to screenshot file (optional)
         """
-        # Create a unique ID for the issue
+        # Create a unique, filesystem-safe ID for the issue
         timestamp = int(time.time())
-        issue_id = f"{timestamp}_{title.replace(' ', '_')[:30]}"
+        # Restrict to characters that are safe on all supported filesystems
+        safe_title = "".join(
+            c if c.isalnum() or c in ("-", "_") else "_"
+            for c in title.strip()
+        ) or "issue"
+        issue_id = f"{timestamp}_{safe_title[:30]}"
         
         # Create queue entry
         queue_entry = {

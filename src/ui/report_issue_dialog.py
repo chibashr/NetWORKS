@@ -571,15 +571,24 @@ class ReportIssueDialog(QDialog):
     def _check_online_status(self):
         """Check if we're online and update UI"""
         is_online = self.issue_reporter._is_online()
+        queue_files = self.issue_reporter._get_queue_files()
         
         # Update report status
         online_status = "Online" if is_online else "Offline"
         token_status = "Authenticated" if self.has_token else "Anonymous"
         self.report_status.showMessage(f"Status: {online_status} | {token_status}")
         
-        # Update process button if needed
-        if not is_online and self.process_queue_btn.isEnabled():
-            self.process_queue_btn.setEnabled(False)
+        # Update process button state based on connectivity and queue contents
+        if not is_online:
+            if self.process_queue_btn.isEnabled():
+                self.process_queue_btn.setEnabled(False)
             self.process_status.setText("Queue status: offline")
+        else:
+            if queue_files:
+                self.process_queue_btn.setEnabled(True)
+                self.process_status.setText(f"Queue status: {len(queue_files)} issue(s) pending")
+            else:
+                self.process_queue_btn.setEnabled(False)
+                self.process_status.setText("Queue status: empty")
 
 import json 
