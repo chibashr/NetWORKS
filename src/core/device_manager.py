@@ -57,6 +57,10 @@ class DeviceManager(QObject):
 
         # Bulk operation nesting: when > 0, per-item saves are deferred until end_bulk_operation()
         self._bulk_operation_count = 0
+        # When True, workspace save is deferred until plugin restore in load_workspace finishes
+        self._restoring_plugins = False
+        # When True, only the explicit save with loaded_plugins_override is allowed; avoids overwriting with empty list during shutdown
+        self._closing_app = False
 
     def begin_bulk_operation(self):
         """Start a bulk operation. Per-item workspace saves are deferred until end_bulk_operation()."""
@@ -883,14 +887,14 @@ class DeviceManager(QObject):
             
         os.makedirs(workspace_dir, exist_ok=True)
         
-        # Create workspace info file
+        # Create workspace info file (only loaded_plugins persisted; no separate enable)
         workspace_info = {
             "name": name,
             "description": description,
             "created": str(datetime.datetime.now()),
             "devices": [],
             "groups": [],
-            "enabled_plugins": []
+            "loaded_plugins": []
         }
         
         try:
@@ -937,6 +941,12 @@ class DeviceManager(QObject):
                     try:
                         with open(info_file, 'r') as f:
                             info = json.load(f)
+                            # Ensure keys expected by Workspace Manager exist (backward compat)
+                            info.setdefault("devices", [])
+                            info.setdefault("groups", [])
+                            info.setdefault("created", "")
+                            info.setdefault("last_saved", "")
+                            info.setdefault("description", "")
                             workspaces.append(info)
                     except Exception:
                         # If can't read info, just add the name
@@ -955,39 +965,60 @@ class DeviceManager(QObject):
         
         return self._save_workspace(name)
     
-    def _save_workspace(self, name):
-        """Save current state to a workspace"""
+    def _save_workspace(self, name, loaded_plugins_override=None):
+        """Save current state to a workspace.
+        loaded_plugins_override: if set, use this list for loaded_plugins instead of
+        querying the plugin manager (used after plugin restore to avoid races).
+        """
+        if self._restoring_plugins:
+            logger.debug("Deferring workspace save until plugin restore completes")
+            return True
+        # During app close, only allow the explicit save with override so we don't overwrite with empty loaded_plugins
+        if getattr(self, "_closing_app", False) and loaded_plugins_override is None:
+            logger.debug("Skipping workspace save during app close (already saved with plugin list)")
+            return True
         workspace_dir = os.path.join(self.workspaces_dir, name)
         os.makedirs(workspace_dir, exist_ok=True)
         
-        # Get current plugin states (enabled + loaded) for workspace persistence
-        enabled_plugins = []
-        loaded_plugins = []
-        if hasattr(self.app, 'plugin_manager'):
-            enabled_plugins = [
-                p.id for p in self.app.plugin_manager.get_plugins()
-                if p.enabled
-            ]
-            loaded_plugins = [
-                p.id for p in self.app.plugin_manager.get_plugins()
-                if p.loaded
-            ]
+        # Preserve created/description from existing workspace.json so Workspace Manager displays them
+        existing_created = None
+        existing_description = None
+        info_path = os.path.join(workspace_dir, "workspace.json")
+        if os.path.exists(info_path):
+            try:
+                with open(info_path, 'r') as f:
+                    existing = json.load(f)
+                    existing_created = existing.get("created")
+                    existing_description = existing.get("description")
+            except Exception:
+                pass
         
-        # Create workspace info
+        # Persist only loaded plugin IDs (no separate enable; load = active)
+        if loaded_plugins_override is not None:
+            loaded_plugins = loaded_plugins_override
+        else:
+            loaded_plugins = []
+            if hasattr(self.app, 'plugin_manager'):
+                loaded_plugins = [
+                    p.id for p in self.app.plugin_manager.get_plugins()
+                    if p.loaded
+                ]
+        
+        # Create workspace info (preserve created and description for display in Workspace Manager)
         workspace_info = {
             "name": name,
-            "description": f"Workspace {name}",
+            "description": existing_description if existing_description not in (None, "") else f"Workspace {name}",
+            "created": existing_created or str(datetime.datetime.now()),
             "last_saved": str(datetime.datetime.now()),
             "devices": list(self.devices.keys()),
             "groups": list(self.groups.keys()),
-            "enabled_plugins": enabled_plugins,
             "loaded_plugins": loaded_plugins,
             "recycle_bin": list(self.recycle_bin.keys())
         }
         
         try:
             # Save workspace info
-            with open(os.path.join(workspace_dir, "workspace.json"), 'w') as f:
+            with open(info_path, 'w') as f:
                 json.dump(workspace_info, f, indent=2)
                 
             # Save groups to workspace directly
@@ -1073,65 +1104,66 @@ class DeviceManager(QObject):
                 
             # Clear current state
             self.clear_current_state()
-            
-            # Restore plugin states if plugin_manager is available
-            if hasattr(self.app, 'plugin_manager') and 'enabled_plugins' in workspace_info:
-                plugin_manager = self.app.plugin_manager
-                # Get the plugin IDs listed as enabled in the workspace
-                enabled_plugins = workspace_info.get('enabled_plugins', [])
-                # Loaded is optional (older workspaces may not have it); default to enabled.
-                loaded_plugins = workspace_info.get('loaded_plugins', enabled_plugins)
-                logger.debug(f"Workspace {name} has {len(enabled_plugins)} enabled plugins: {', '.join(enabled_plugins)}")
-                
-                try:
-                    # First, discover all available plugins to ensure we have a complete list
-                    # Only discover if not already discovering (to avoid duplicate calls during init)
-                    if not plugin_manager._discovering:
-                        logger.debug("Discovering plugins for workspace...")
-                        plugin_manager.discover_plugins()
-                    else:
-                        logger.debug("Plugin discovery already in progress, skipping duplicate call")
-                    
-                    # Disable any plugins that are enabled but not part of this workspace.
-                    # (Workspace should be source-of-truth for which plugins are active.)
-                    try:
-                        for p in plugin_manager.get_plugins():
-                            if p.enabled and p.id not in enabled_plugins:
-                                logger.debug(f"Disabling plugin {p.id} (not enabled in workspace)")
-                                plugin_manager.disable_plugin(p.id)
-                    except Exception as e:
-                        logger.error(f"Error disabling non-workspace plugins: {e}", exc_info=True)
+            self.current_workspace = name
 
-                    # Enable all plugins first, then load them to avoid dependency order issues
-                    for plugin_id in enabled_plugins:
+            # Restore plugin states if plugin_manager is available (load-only; no separate enable)
+            if hasattr(self.app, 'plugin_manager') and 'loaded_plugins' in workspace_info:
+                self._restoring_plugins = True
+                plugin_restore_ok = True
+                try:
+                    plugin_manager = self.app.plugin_manager
+                    # Backward compat: old workspaces had enabled_plugins; we only persist loaded_plugins now
+                    loaded_plugins = workspace_info.get('loaded_plugins', workspace_info.get('enabled_plugins', []))
+                    logger.debug(f"Workspace {name} has {len(loaded_plugins)} loaded plugins: {', '.join(loaded_plugins)}")
+
+                    try:
+                        # First, discover all available plugins to ensure we have a complete list
+                        if not plugin_manager._discovering:
+                            logger.debug("Discovering plugins for workspace...")
+                            plugin_manager.discover_plugins()
+                        else:
+                            logger.debug("Plugin discovery already in progress, skipping duplicate call")
+
+                        # Disable any plugins that are loaded but not in this workspace's list
                         try:
-                            if plugin_id in plugin_manager.plugins:
-                                if not plugin_manager.plugins[plugin_id].state.is_enabled:
-                                    logger.debug(f"Enabling plugin {plugin_id} from workspace configuration")
-                                    plugin_manager.enable_plugin(plugin_id)
-                            else:
-                                logger.warning(f"Plugin {plugin_id} specified in workspace configuration not found")
+                            for p in plugin_manager.get_plugins():
+                                if p.loaded and p.id not in loaded_plugins:
+                                    logger.debug(f"Disabling plugin {p.id} (not in workspace loaded list)")
+                                    plugin_manager.disable_plugin(p.id)
                         except Exception as e:
-                            logger.error(f"Error enabling plugin {plugin_id}: {e}", exc_info=True)
-                            # Continue with other plugins even if one fails
-                    
-                    # Load only the plugins that were loaded in this workspace last session.
-                    for plugin_id in loaded_plugins:
-                        try:
-                            if plugin_id in plugin_manager.plugins:
-                                # Ensure the plugin is loaded if enabled
-                                if (not plugin_manager.plugins[plugin_id].state.is_loaded and 
-                                    plugin_manager.plugins[plugin_id].state.is_enabled):
-                                    logger.debug(f"Loading plugin {plugin_id} from workspace configuration")
-                                    plugin_manager.load_plugin(plugin_id)
-                            else:
-                                logger.warning(f"Plugin {plugin_id} specified in workspace configuration not found")
-                        except Exception as e:
-                            logger.error(f"Error loading plugin {plugin_id}: {e}", exc_info=True)
-                            # Continue with other plugins even if one fails
-                except Exception as e:
-                    logger.error(f"Error during plugin discovery/loading: {e}", exc_info=True)
-                    # Continue with workspace loading even if plugins fail
+                            logger.error(f"Error disabling non-workspace plugins: {e}", exc_info=True)
+
+                        # Load each plugin that was loaded in this workspace last session
+                        for plugin_id in loaded_plugins:
+                            try:
+                                if plugin_id in plugin_manager.plugins:
+                                    if not plugin_manager.plugins[plugin_id].state.is_loaded:
+                                        logger.debug(f"Loading plugin {plugin_id} from workspace configuration")
+                                        plugin_manager.load_plugin(plugin_id)
+                                    else:
+                                        logger.debug(f"Plugin {plugin_id} already loaded, skipping")
+                                else:
+                                    logger.warning(f"Plugin {plugin_id} specified in workspace configuration not found")
+                            except Exception as e:
+                                logger.error(f"Error loading plugin {plugin_id}: {e}", exc_info=True)
+                    except Exception as e:
+                        logger.error(f"Error during plugin discovery/loading: {e}", exc_info=True)
+                        plugin_restore_ok = False
+                finally:
+                    # Capture loaded plugin list while still restoring so no other save can overwrite it
+                    saved_loaded_plugins = None
+                    if plugin_restore_ok and hasattr(self.app, "plugin_manager"):
+                        saved_loaded_plugins = [
+                            p.id for p in self.app.plugin_manager.get_plugins()
+                            if p.loaded
+                        ]
+                    self._restoring_plugins = False
+                    # Only persist workspace state when plugin restore completed without exception,
+                    # so we do not overwrite with partial state and cause "only some plugins restore" next time.
+                    if plugin_restore_ok:
+                        self._save_workspace(name, loaded_plugins_override=saved_loaded_plugins)
+                    else:
+                        logger.debug("Skipping workspace save after plugin restore failure to avoid persisting partial state")
             
             # Load devices from workspace directory
             workspace_devices_dir = os.path.join(workspace_dir, "devices")

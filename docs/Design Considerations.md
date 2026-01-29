@@ -95,6 +95,12 @@
 - Panel padding: 8-12px all sides
 - Dialog padding: 16-24px all sides
 
+### Density & Scaling
+
+- Numeric sizes in this document are **reference values at 100% display scaling and default system font size**.
+- In code, prefer Qt's **layout system and font metrics** (for example, font height + multiples of the 4px grid) instead of hardcoded pixel values.
+- When an explicit size is required, treat the numbers below as **compact visual targets**, not strict constants, so the UI adapts to DPI and accessibility settings while staying dense.
+
 ---
 
 ## 4. Plugin Dock Panels
@@ -119,7 +125,7 @@
 ### Header Design
 
 **Structure:**
-- Height: 28px fixed
+- Compact header, targeting a visual height of ~28px at default scaling
 - Background: Surface color
 - Bottom border: 1px solid border color
 - Padding: 6px horizontal, 12px bottom
@@ -164,7 +170,7 @@ Use collapsible sections for organization:
 ```
 
 **Section Headers:**
-- Height: 24px
+- Height: compact (~24px at default scaling)
 - Font: Semi-bold, normal size
 - Background: Slightly darker than surface
 - Border: 1px solid border color
@@ -244,19 +250,19 @@ Ready | 24 devices | Last scan: 2m ago
 **Dialog Specifications:**
 
 **Window:**
-- Minimum size: 500×400px
-- Default size: 600×500px
+- Practical minimum around 500×400px at 100% scaling (let layouts and content drive the actual minimum)
+- Typical initial size around 600×500px; dialogs should resize gracefully with content and DPI
 - Resizable: Yes
 - Modal: Yes
 - Remember position: Yes
 
 **Title Bar:**
-- Height: 32px
+- Compact system title bar (approximately 32px high at default scaling)
 - System standard controls (minimize, maximize, close)
 - Title: Bold, normal size
 
 **Tab Bar:**
-- Height: 32px
+- Height: compact tab row (~32px at default scaling)
 - Tab padding: 12px horizontal, 6px vertical
 - Active tab: Border bottom 2px solid orange, bold text
 - Inactive tab: No border, regular text
@@ -271,7 +277,7 @@ Ready | 24 devices | Last scan: 2m ago
    does not sit flush against the border.
 
 **Button Bar:**
-- Height: 40px minimum
+- Compact bottom bar (~40px at default scaling; use layout instead of hardcoded height)
 - Background: Slightly darker than content
 - Top border: 1px solid border color
 - Padding: 8px horizontal
@@ -304,7 +310,7 @@ Ready | 24 devices | Last scan: 2m ago
 ```
 
 **Specifications:**
-- Minimum size: 600×400px
+- Practical minimum around 600×400px at 100% scaling (content and layout may require more)
 - Padding: 16px
 - Status text: Small size, secondary color
 - Tables: Full cell borders (see table section)
@@ -329,7 +335,7 @@ Ready | 24 devices | Last scan: 2m ago
 ```
 
 **Specifications:**
-- Size: 400×250px (not resizable)
+- Size: compact (~400×250px at default scaling, not resizable)
 - Center on parent
 - Content centered vertically
 - Progress bar: Height 8px, rounded ends
@@ -349,11 +355,28 @@ Ready | 24 devices | Last scan: 2m ago
 ```
 - Background: `#E87722`
 - Text: White
-- Height: 28px
+- Compact single-line height (~28px at default scaling; prefer size hints over hardcoded values)
 - Padding: 12px horizontal, 6px vertical
 - Border: 1px solid border color (visible outline)
 - Corner radius: 0px (sharp)
 - Font: Semi-bold
+
+All button variants (primary, secondary, danger, icon-only, text-only, text+icon) share this **28px visual height** so that mixed button rows align cleanly.
+
+#### Content variants (icons vs text)
+
+- **Text-only buttons**:
+  - Label is centered horizontally within the button.
+  - Horizontal padding may increase as needed, but **height always stays 28px**.
+  - No leading/trailing icon; alignment should not visually suggest missing space for an icon.
+- **Icon-only buttons**:
+  - Use a **square button** with side length equal to the standard button height (28px). The icon itself is typically 24×24px and centered.
+  - Icon is centered in the click area; there is no visible text label in the button, but a tooltip and accessible name are required.
+  - When a text label would not fit (e.g. in narrow toolbars), treat the control as icon-only and rely on the tooltip for the label.
+- **Text + icon buttons**:
+  - Icon appears to the left of the text with a 4–6px gap.
+  - Padding is adjusted so the combined icon+text block stays visually centered while **keeping the 28px height**.
+  - If space constraints would truncate the text heavily, fall back to the icon-only behavior for that context (icon + tooltip) rather than showing partially cut-off text.
 
 **Secondary Button:**
 ```
@@ -364,7 +387,7 @@ Ready | 24 devices | Last scan: 2m ago
 - Background: Transparent
 - Border: 1px solid border color
 - Text: Primary text color
-- Same dimensions as primary
+- Same height as primary (28px); width expands to fit the label.
 
 **Danger Button:**
 ```
@@ -374,8 +397,8 @@ Ready | 24 devices | Last scan: 2m ago
 ```
 - Background: `#EF4444`
 - Text: White
-- Same dimensions as primary
- - Border: 1px solid border color (visible outline)
+- Same height as primary (28px); width expands to fit the label.
+- Border: 1px solid border color (visible outline)
 
 **Icon Button (Toolbar):**
 ```
@@ -385,11 +408,11 @@ Ready | 24 devices | Last scan: 2m ago
 └────┘
 ```
 - Size: 24×24px icon
-- **Aspect ratio:** The button (or icon container) uses the same aspect ratio as the icon; icons are almost always square, so icon buttons are square (e.g. 24×24, 32×32).
+- **Aspect ratio:** The visible button is **square**, with its side length matching the standard button height (28px). The 24×24px icon is centered inside that 28×28px chrome.
 - Label: Small font, centered below
 - Responsive: If label would truncate, hide it and show icon-only with tooltip
 - Padding: 4px
-- Total click area: 32×32px minimum
+- Total click area: 28×28px minimum; layouts may add extra padding around the button, but the visible chrome stays 28×28px.
 - Border: 1px solid border color (visible outline)
 - Hover: Light background highlight
 
@@ -406,7 +429,7 @@ Ready | 24 devices | Last scan: 2m ago
 Server: [192.168.1.1                    ]
         ↑ 8px spacing
 ```
-- Height: 24px
+- Compact control height (~24px at default scaling)
 - Padding: 4px horizontal, 2px vertical
 - Border: 1px solid border color
 - Corner radius: 0px
@@ -861,7 +884,7 @@ Before submitting a plugin, verify all items:
 - [ ] Monospace font used for IPs, MACs, IDs
 
 ### Dock Panel
-- [ ] Header is 28px with title and actions
+- [ ] Header uses a compact height (around 28px at default scaling) with title and actions
 - [ ] Content padding is 8-12px
 - [ ] Uses collapsible sections for organization
 - [ ] Footer shows relevant status information
@@ -871,7 +894,7 @@ Before submitting a plugin, verify all items:
 - [ ] Blends with main window (no card look)
 
 ### Popup Windows
-- [ ] Minimum size 500×400px for settings
+- [ ] Uses a compact but readable minimum size for settings dialogs (around 500×400px at default scaling)
 - [ ] Uses tabs for complex settings (4+ sections)
 - [ ] Standard title bar with system controls
 - [ ] Content padding is 16px

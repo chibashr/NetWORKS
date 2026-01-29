@@ -62,7 +62,13 @@ The Table Editor is a single wizard with three tabs:
 
 ### Dialog
 
-- The Report Generator dialog opens at a size that shows the left-side content without horizontal scrolling. Minimum size is enforced.
+The Report Generator uses a **3-panel layout**:
+
+- **Left panel**: Quick Start, Report Details (name, mode), Data Source (source, group/subnet/tag). Scrollable.
+- **Middle panel** (largest): **Table Info** group containing Columns / Filters / Sorting (table mode) or Template Settings (template mode). Scrollable.
+- **Right panel**: Output (format, filename template, path, Save / Generate Preview / Export), Preview of the report output.
+
+The dialog opens at a size that shows all three panels; minimum size is enforced and splitters are adjustable.
 
 ### Template Mode
 

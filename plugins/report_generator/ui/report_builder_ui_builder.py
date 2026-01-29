@@ -1,6 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-Builds the Report Builder widget UI (menu, form, preview). Called from ReportBuilderWidget._build_ui.
+Builds the Report Builder widget UI with a 3-panel layout. Called from ReportBuilderWidget._build_ui.
+
+Layout:
+  - Left panel: Quick Start, Report Details, Data Source (scrollable).
+  - Middle panel (largest): Table Info group — Columns / Filters / Sorting, Template Settings (scrollable).
+  - Right panel: Output, Preview.
 """
 
 from PySide6.QtCore import Qt, QEvent, QObject
@@ -68,48 +73,30 @@ def build_report_builder_ui(widget):
     file_menu.addAction("Clear Current", widget.clear_current_report)
     layout.setMenuBar(menu_bar)
 
-    top_bar = QWidget()
-    top_bar_layout = QHBoxLayout(top_bar)
-    top_bar_layout.setContentsMargins(2, 0, 2, 0)
-    top_bar_layout.setSpacing(8)
-    top_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-    top_bar.setMinimumHeight(26)
-    top_bar.setMaximumHeight(26)
-
-    widget.current_report_label = QLabel("No report selected")
-    widget.current_report_label.setWordWrap(True)
-    title_font = widget.current_report_label.font()
-    title_font.setPointSize(title_font.pointSize() + 1)
-    title_font.setBold(True)
-    widget.current_report_label.setFont(title_font)
-    top_bar_layout.addStretch()
-    top_bar_layout.addWidget(widget.current_report_label, alignment=Qt.AlignCenter)
-    top_bar_layout.addStretch()
-    layout.addWidget(top_bar)
-
     splitter = QSplitter(Qt.Horizontal)
     splitter.setChildrenCollapsible(False)
     layout.addWidget(splitter)
 
-    form_panel = QWidget()
-    form_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-    form_layout = QVBoxLayout(form_panel)
-    form_layout.setContentsMargins(0, 0, 0, 0)
-    form_layout.setSpacing(0)
+    # ---- Left panel: Quick Start, Report Details, Data Source ----
+    left_panel = QWidget()
+    left_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+    left_layout = QVBoxLayout(left_panel)
+    left_layout.setContentsMargins(0, 0, 0, 0)
+    left_layout.setSpacing(0)
 
-    scroll_area = QScrollArea()
-    scroll_area.setWidgetResizable(True)
-    scroll_area.setAlignment(Qt.AlignTop)
-    widget._scroll_wheel_blocker = _WheelBlocker(scroll_area)
-    scroll_area.installEventFilter(widget._scroll_wheel_blocker)
-    form_layout.addWidget(scroll_area)
+    left_scroll = QScrollArea()
+    left_scroll.setWidgetResizable(True)
+    left_scroll.setAlignment(Qt.AlignTop)
+    widget._scroll_wheel_blocker = _WheelBlocker(left_scroll)
+    left_scroll.installEventFilter(widget._scroll_wheel_blocker)
+    left_layout.addWidget(left_scroll)
 
-    form_container = QWidget()
-    form_container.setMinimumWidth(700)
-    scroll_area.setWidget(form_container)
-    form_layout = QVBoxLayout(form_container)
-    form_layout.setContentsMargins(0, 0, 0, 0)
-    form_layout.setSpacing(8)
+    left_container = QWidget()
+    left_container.setMinimumWidth(260)
+    left_scroll.setWidget(left_container)
+    left_container_layout = QVBoxLayout(left_container)
+    left_container_layout.setContentsMargins(0, 0, 0, 0)
+    left_container_layout.setSpacing(8)
 
     quick_group = QGroupBox("Quick Start")
     quick_layout = QVBoxLayout(quick_group)
@@ -122,7 +109,7 @@ def build_report_builder_ui(widget):
     )
     quick_label.setWordWrap(True)
     quick_layout.addWidget(quick_label)
-    form_layout.addWidget(quick_group)
+    left_container_layout.addWidget(quick_group)
 
     details_group = QGroupBox("Report Details")
     details_layout = QFormLayout(details_group)
@@ -135,7 +122,7 @@ def build_report_builder_ui(widget):
     widget.mode_combo.currentTextChanged.connect(widget._schedule_preview)
     details_layout.addRow("Name:", widget.name_edit)
     details_layout.addRow("Mode:", widget.mode_combo)
-    form_layout.addWidget(details_group)
+    left_container_layout.addWidget(details_group)
 
     source_group = QGroupBox("Data Source")
     source_layout = QFormLayout(source_group)
@@ -160,7 +147,32 @@ def build_report_builder_ui(widget):
     source_help = QLabel("Tip: Use Selected Devices from the table for quick reports.")
     source_help.setWordWrap(True)
     source_layout.addRow("", source_help)
-    form_layout.addWidget(source_group)
+    left_container_layout.addWidget(source_group)
+
+    # ---- Middle panel: Table Info group (Columns / Filters / Sorting, Template Settings) ----
+    middle_panel = QWidget()
+    middle_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+    middle_layout = QVBoxLayout(middle_panel)
+    middle_layout.setContentsMargins(0, 0, 0, 0)
+    middle_layout.setSpacing(0)
+
+    middle_scroll = QScrollArea()
+    middle_scroll.setWidgetResizable(True)
+    middle_scroll.setAlignment(Qt.AlignTop)
+    middle_scroll.installEventFilter(widget._scroll_wheel_blocker)
+    middle_layout.addWidget(middle_scroll)
+
+    middle_container = QWidget()
+    middle_container.setMinimumWidth(320)
+    middle_scroll.setWidget(middle_container)
+    middle_container_layout = QVBoxLayout(middle_container)
+    middle_container_layout.setContentsMargins(0, 0, 0, 0)
+    middle_container_layout.setSpacing(8)
+
+    table_info_group = QGroupBox("Table Info")
+    table_info_layout = QVBoxLayout(table_info_group)
+    table_info_layout.setContentsMargins(8, 12, 8, 8)
+    table_info_layout.setSpacing(8)
 
     widget.table_controls_group = QFrame()
     widget.table_controls_group.setFrameShape(QFrame.NoFrame)
@@ -308,7 +320,7 @@ def build_report_builder_ui(widget):
     widget.wizard_tabs.addTab(sort_tab, "Sorting")
 
     wizard_layout.addWidget(widget.wizard_tabs)
-    form_layout.addWidget(widget.table_controls_group)
+    table_info_layout.addWidget(widget.table_controls_group)
 
     widget.template_group = QGroupBox("Template Settings")
     template_layout = QVBoxLayout(widget.template_group)
@@ -335,18 +347,16 @@ def build_report_builder_ui(widget):
     widget.template_properties_label.setWordWrap(True)
     widget.template_properties_label.setStyleSheet("color: var(--text-muted, #666); font-size: 0.95em;")
     template_layout.addWidget(widget.template_properties_label)
-    form_layout.addWidget(widget.template_group)
+    table_info_layout.addWidget(widget.template_group)
+    middle_container_layout.addWidget(table_info_group)
 
-    actions_help = QLabel("Tip: Save reports you want to reuse across sessions.")
-    actions_help.setWordWrap(True)
-    form_layout.addWidget(actions_help)
-
-    preview_panel = QWidget()
-    preview_panel.setMinimumWidth(360)
-    preview_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-    preview_layout = QVBoxLayout(preview_panel)
-    preview_layout.setContentsMargins(0, 0, 0, 0)
-    preview_layout.setSpacing(8)
+    # ---- Right panel: Output, Preview ----
+    right_panel = QWidget()
+    right_panel.setMinimumWidth(360)
+    right_panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+    right_layout = QVBoxLayout(right_panel)
+    right_layout.setContentsMargins(0, 0, 0, 0)
+    right_layout.setSpacing(8)
 
     output_group = QGroupBox("Output")
     output_layout = QFormLayout(output_group)
@@ -369,7 +379,6 @@ def build_report_builder_ui(widget):
     output_help.setWordWrap(True)
     output_layout.addRow("", output_help)
     widget.browse_button.clicked.connect(widget.browse_output_path)
-
     output_actions = QHBoxLayout()
     widget.save_button = QPushButton("Save Report")
     widget.preview_button = QPushButton("Generate Preview")
@@ -378,7 +387,7 @@ def build_report_builder_ui(widget):
     output_actions.addWidget(widget.preview_button)
     output_actions.addWidget(widget.export_button)
     output_layout.addRow("", output_actions)
-    preview_layout.addWidget(output_group)
+    right_layout.addWidget(output_group)
 
     preview_group = QGroupBox("Preview")
     preview_group_layout = QVBoxLayout(preview_group)
@@ -387,17 +396,19 @@ def build_report_builder_ui(widget):
     widget.preview_text.setLineWrapMode(QTextEdit.NoWrap)
     widget.preview_text.installEventFilter(widget._scroll_wheel_blocker)
     preview_group_layout.addWidget(widget.preview_text)
-    preview_layout.addWidget(preview_group)
+    right_layout.addWidget(preview_group)
 
     widget.save_button.clicked.connect(widget.save_report)
     widget.preview_button.clicked.connect(widget.generate_preview)
     widget.export_button.clicked.connect(widget.export_report)
 
-    splitter.addWidget(form_panel)
-    splitter.addWidget(preview_panel)
+    splitter.addWidget(left_panel)
+    splitter.addWidget(middle_panel)
+    splitter.addWidget(right_panel)
     splitter.setStretchFactor(0, 1)
-    splitter.setStretchFactor(1, 1)
-    splitter.setSizes([740, 520])
+    splitter.setStretchFactor(1, 2)  # Middle panel is largest
+    splitter.setStretchFactor(2, 1)
+    splitter.setSizes([300, 540, 360])
 
     widget._on_mode_changed(widget.mode_combo.currentText())
     widget._on_source_changed(widget.source_combo.currentText())

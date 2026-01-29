@@ -114,7 +114,8 @@ class LogPanel(QWidget):
         self.search_button.setProperty("iconOnlyInline", "true")
         self.search_button.setIcon(material_icon("close", self, QStyle.SP_DialogResetButton))
         self.search_button.setIconSize(QSize(18, 18))
-        self.search_button.setFixedSize(24, 24)
+        # Square 28×28 button so height matches other controls
+        self.search_button.setFixedSize(28, 28)
         self.search_button.setToolTip("Clear search")
         self.search_button.clicked.connect(lambda: self.search_box.setText(""))
         

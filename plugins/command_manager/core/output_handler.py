@@ -287,6 +287,22 @@ class OutputHandler:
         
         return widget
         
+    def _filter_commands_panel_table(self, command_list, text):
+        """Filter the properties panel command list table by search text (Command, Date/Time, Success)."""
+        search_text = (text or "").strip().lower()
+        if not search_text:
+            for row in range(command_list.rowCount()):
+                command_list.setRowHidden(row, False)
+            return
+        for row in range(command_list.rowCount()):
+            match_found = False
+            for col in range(command_list.columnCount()):
+                item = command_list.item(row, col)
+                if item and search_text in item.text().lower():
+                    match_found = True
+                    break
+            command_list.setRowHidden(row, not match_found)
+        
     def _refresh_device_commands(self, command_list):
         """Refresh the device command list"""
         # Clear the table
@@ -330,6 +346,10 @@ class OutputHandler:
                 command_list.setItem(row, 0, cmd_item)
                 command_list.setItem(row, 1, dt_item)
                 command_list.setItem(row, 2, success_item)
+        # Re-apply search filter after refresh
+        search_edit = getattr(command_list, "panel_search_edit", None)
+        if search_edit is not None:
+            self._filter_commands_panel_table(command_list, search_edit.text())
         
     def _on_command_selection_changed(self, command_list, output_stack, raw_output, table_output, table_view_toggle):
         """Handle command selection changed
@@ -1003,6 +1023,21 @@ class OutputHandler:
         
         # Store device for reference
         command_list.setProperty("device", device)
+        
+        # Search bar above the command list
+        search_layout = QHBoxLayout()
+        search_label = QLabel("Search:")
+        search_edit = QLineEdit()
+        search_edit.setPlaceholderText("Search commands, date, success...")
+        command_list.panel_search_edit = search_edit  # keep ref so refresh can re-apply filter
+
+        def on_panel_search(text):
+            self._filter_commands_panel_table(command_list, text)
+
+        search_edit.textChanged.connect(on_panel_search)
+        search_layout.addWidget(search_label)
+        search_layout.addWidget(search_edit, 1)
+        command_list_layout.addLayout(search_layout)
         
         # Add command outputs to the table
         for cmd_id, cmd_outputs in outputs.items():

@@ -245,18 +245,32 @@ def discover_plugins_in_directory(manager, directory):
     return plugins
 
 
+def _update_plugin_info_metadata(existing, discovered):
+    """Update existing PluginInfo with metadata from discovered (path, version, name, etc.). Preserves state and instance."""
+    existing.path = discovered.path
+    existing.name = discovered.name
+    existing.version = discovered.version
+    existing.description = discovered.description
+    existing.author = discovered.author
+    existing.entry_point = discovered.entry_point
+    if hasattr(discovered, "icon_path"):
+        existing.icon_path = discovered.icon_path
+    for attr in ("min_app_version", "max_app_version", "dependencies", "requirements", "changelog"):
+        if hasattr(discovered, attr):
+            setattr(existing, attr, getattr(discovered, attr))
+
+
 def run_discovery(manager):
-    """Run full discovery: internal, external, workspace dirs; merge registry state; sync. Modifies manager.plugins."""
+    """Run full discovery: internal, external, workspace dirs; merge with existing plugins so loaded state and instances are preserved. Modifies manager.plugins."""
     if manager._discovering:
         logger.warning("Plugin discovery already in progress, skipping duplicate call")
         return manager.plugins
     manager._discovering = True
     try:
         logger.info("Discovering plugins...")
-        manager.plugins = {}
+        existing_plugins = dict(manager.plugins)
         registry = manager._load_registry()
         logger.debug(f"Registry loaded with {len(registry)} entries")
-        logger.debug(f"Discovery call stack:\n{''.join(traceback.format_stack()[-3:-1])}")
         discovered_plugins = {}
         if manager.internal_plugins_dir:
             try:
@@ -287,21 +301,31 @@ def run_discovery(manager):
                     pass
         except Exception as e:
             logger.warning(f"Error checking workspace plugins: {e}", exc_info=True)
+        # Merge: keep existing PluginInfo (state + instance) for plugins still on disk; add new only for newly discovered
+        manager.plugins = {}
         for plugin_id, plugin_info in discovered_plugins.items():
-            if plugin_id in registry:
-                pd = registry[plugin_id]
-                if "state" in pd:
-                    try:
-                        plugin_info.state = PluginState[pd["state"]]
-                    except (KeyError, ValueError):
-                        plugin_info.state = PluginState.DISCOVERED
-                else:
-                    plugin_info.state = PluginState.from_enabled_loaded(
-                        pd.get("enabled", True), pd.get("loaded", False)
-                    )
+            if plugin_id in existing_plugins:
+                existing = existing_plugins[plugin_id]
+                _update_plugin_info_metadata(existing, plugin_info)
+                manager.plugins[plugin_id] = existing
             else:
-                plugin_info.state = PluginState.DISCOVERED
-            manager.plugins[plugin_id] = plugin_info
+                if plugin_id in registry:
+                    pd = registry[plugin_id]
+                    if "state" in pd:
+                        state_name = pd["state"]
+                        if state_name == "ENABLED":
+                            state_name = "DISCOVERED"
+                        try:
+                            plugin_info.state = PluginState[state_name]
+                        except (KeyError, ValueError):
+                            plugin_info.state = PluginState.DISCOVERED
+                    else:
+                        plugin_info.state = PluginState.from_enabled_loaded(
+                            pd.get("enabled", True), pd.get("loaded", False)
+                        )
+                else:
+                    plugin_info.state = PluginState.DISCOVERED
+                manager.plugins[plugin_id] = plugin_info
         manager._registry_cache = {
             pid: registry[pid] for pid in registry if pid in manager.plugins
         }

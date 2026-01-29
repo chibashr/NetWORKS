@@ -60,7 +60,9 @@ class PluginDockHeader(QWidget):
         self.actions_layout.setSpacing(PLUGIN_UI_SIZES["grid"])
         layout.addLayout(self.actions_layout)
 
-        self.setFixedHeight(PLUGIN_UI_SIZES["dock_header_height"])
+        # Use a compact minimum height so the header stays dense but can grow
+        # slightly when fonts or DPI are larger than default.
+        self.setMinimumHeight(PLUGIN_UI_SIZES["dock_header_height"])
 
     def set_title(self, title: str) -> None:
         self.title_label.setText(title)

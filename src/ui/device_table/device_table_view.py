@@ -216,7 +216,7 @@ class DeviceTableView(QTableView):
         filter_layout.addWidget(search_label)
         filter_layout.addWidget(self.search_edit, 1)
 
-        # Inline filter button: same style as device tree expand/collapse (12×12 icon, 18×18 button)
+        # Inline filter button: same style as device tree expand/collapse (12×12 icon, 28×28 button)
         add_filter_btn = QToolButton()
         add_filter_btn.setAutoRaise(True)
         add_filter_btn.setProperty("iconOnlyInline", "true")
@@ -227,7 +227,7 @@ class DeviceTableView(QTableView):
         else:
             add_filter_btn.setIcon(material_icon("filter_list", self))
         add_filter_btn.setIconSize(QSize(12, 12))
-        add_filter_btn.setFixedSize(18, 18)
+        add_filter_btn.setFixedSize(28, 28)
         add_filter_btn.clicked.connect(self.show_advanced_filter_dialog)
         filter_layout.addWidget(add_filter_btn)
 

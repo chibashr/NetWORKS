@@ -131,9 +131,10 @@ See the [Plugin Development Guide](docs/plugins/README.md) for details on creati
 
 NetWORKS includes comprehensive documentation to help you get started and extend the platform:
 
+- [Quick Start](docs/QUICK_START.md): Short path for first-time users
 - [Documentation Index](docs/index.md): Master entry point for all docs
 - [Program Reference](docs/PROGRAM_REFERENCE.md): Architecture, data layout, and core systems
-- [Getting Started Guide](docs/GETTING_STARTED.md): First steps with NetWORKS
+- [Getting Started Guide](docs/GETTING_STARTED.md): First steps with NetWORKS (full guide)
 - [Device Management Guide](docs/DEVICE_MANAGEMENT.md): Managing devices and groups
 - [Workspaces](docs/workspaces.md): Workspace structure and layout persistence
 - [Autosave Documentation](docs/autosave.md): Autosave and backups

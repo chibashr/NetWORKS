@@ -226,6 +226,15 @@ class CommandDialog(QDialog):
         command_layout = QVBoxLayout(command_panel)
         command_layout.setContentsMargins(0, 0, 0, 0)
         
+        # Panel-level search bar (top of command panel; stays visible and synced with table search)
+        panel_search_layout = QHBoxLayout()
+        self.panel_search = QLineEdit()
+        self.panel_search.setPlaceholderText("Search commands...")
+        self.panel_search.textChanged.connect(self._on_panel_search_changed)
+        panel_search_layout.addWidget(QLabel("Search:"))
+        panel_search_layout.addWidget(self.panel_search, 1)
+        command_layout.addLayout(panel_search_layout)
+        
         self.command_tabs = QTabWidget()
         
         # ---- Tab 1: Preloaded commands ----
@@ -283,7 +292,7 @@ class CommandDialog(QDialog):
         search_layout = QHBoxLayout()
         self.command_search = QLineEdit()
         self.command_search.setPlaceholderText("Search commands...")
-        self.command_search.textChanged.connect(self._on_search_commands)
+        self.command_search.textChanged.connect(self._on_command_search_changed)
         search_layout.addWidget(QLabel("Search:"))
         search_layout.addWidget(self.command_search, 1)
         
@@ -786,6 +795,7 @@ class CommandDialog(QDialog):
             self.command_table.setItem(row, 0, alias)
             self.command_table.setItem(row, 1, command_text)
             self.command_table.setItem(row, 2, description)
+        self._on_search_commands(self.panel_search.text())
 
     def _fill_command_table_from_list(self, commands_list):
         """Clear the command table and fill from a list of dicts {command, alias, description} (e.g. temporary saved set)."""
@@ -803,6 +813,7 @@ class CommandDialog(QDialog):
             self.command_table.setItem(row, 0, alias)
             self.command_table.setItem(row, 1, command_text)
             self.command_table.setItem(row, 2, description)
+        self._on_search_commands(self.panel_search.text())
 
     def _on_manage_sets(self):
         """Handle manage command sets button"""
@@ -1134,6 +1145,20 @@ class CommandDialog(QDialog):
                 "Error Opening Command Batch Export",
                 f"An error occurred while opening the Command Batch Export: {str(e)}"
             )
+
+    def _on_panel_search_changed(self, text):
+        """Sync panel search to table search and apply filter."""
+        self.command_search.blockSignals(True)
+        self.command_search.setText(text)
+        self.command_search.blockSignals(False)
+        self._on_search_commands(text)
+
+    def _on_command_search_changed(self, text):
+        """Sync table search to panel search and apply filter."""
+        self.panel_search.blockSignals(True)
+        self.panel_search.setText(text)
+        self.panel_search.blockSignals(False)
+        self._on_search_commands(text)
 
     def _on_search_commands(self, text):
         """Filter command table based on search text"""

@@ -53,8 +53,8 @@ class PluginListItem(QListWidgetItem):
             status_text = " [Loaded]"
             self.setForeground(QBrush(text_color))
             self.setIcon(self._load_plugin_icon(text_color))
-        elif self.plugin_info.state.is_enabled:
-            status_text = " [Enabled]"
+        elif self.plugin_info.state == PluginState.DISCOVERED:
+            status_text = " [Not loaded]"
             self.setForeground(QBrush(text_color))
             self.setIcon(self._load_plugin_icon(text_color))
         elif self.plugin_info.state == PluginState.ERROR:

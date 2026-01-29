@@ -1,0 +1,42 @@
+{
+  "id": "device_connector",
+  "name": "Device Connector",
+  "version": "1.2.0",
+  "description": "Adds a Connect submenu to open SSH, Telnet, VNC, RDP, HTTP, HTTPS, or FTP as links; the system decides how to open them (like FTP).",
+  "author": "chibashr",
+  "icon": "resources/icons/device_connector.svg",
+  "entry_point": "device_connector.py",
+  "min_app_version": "0.8.16",
+  "dependencies": [],
+  "changelog": [
+    {
+      "version": "1.2.0",
+      "date": "2026-01-29",
+      "changes": [
+        "Removed Web option; use HTTP and HTTPS only",
+        "All connection types open as links (ssh://, telnet://, etc.); system decides handler",
+        "Removed executable path settings; only default ports configurable"
+      ]
+    },
+    {
+      "version": "1.1.0",
+      "date": "2026-01-29",
+      "changes": [
+        "Added WEB, RDP, HTTP, HTTPS, FTP connection types",
+        "Plugin list icon (device_connector.svg)",
+        "Authentication in launched app; removed SSH username from settings",
+        "Filepath settings: '...' browse button for executable paths"
+      ]
+    },
+    {
+      "version": "1.0.0",
+      "date": "2026-01-29",
+      "changes": [
+        "Initial release",
+        "Connect submenu on device table context menu (SSH, Telnet, VNC, Web)",
+        "User-configurable executable paths and default ports",
+        "Default app detection for Windows (OpenSSH, PuTTY, Edge, VNC Viewer)"
+      ]
+    }
+  ]
+}

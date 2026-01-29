@@ -16,9 +16,9 @@ from PySide6.QtWidgets import (
 )
 from ..material_icons import material_icon
 
-# Small integrated expand/collapse: 12×12 icon, 18×18 button
+# Small integrated expand/collapse: 12×12 icon, 28×28 button (square, shared height)
 _EXPAND_COLLAPSE_ICON = 12
-_EXPAND_COLLAPSE_BUTTON = 18
+_EXPAND_COLLAPSE_BUTTON = 28
 
 
 class DeviceTreePanel(QWidget):

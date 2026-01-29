@@ -16,26 +16,25 @@ from loguru import logger
 class PluginState(Enum):
     """Enum representing possible plugin states"""
 
-    DISCOVERED = auto()  # Plugin is discovered but not enabled or loaded
-    ENABLED = auto()  # Plugin is enabled but not loaded
-    LOADED = auto()  # Plugin is enabled and loaded
-    DISABLED = auto()  # Plugin is explicitly disabled
+    DISCOVERED = auto()  # Plugin is discovered, not loaded (can be loaded)
+    LOADED = auto()  # Plugin is loaded and active
+    DISABLED = auto()  # Plugin is explicitly disabled (user chose Disable)
     ERROR = auto()  # Plugin has an error
 
     @staticmethod
     def from_enabled_loaded(enabled, loaded):
-        """Create a PluginState from enabled and loaded flags"""
+        """Create a PluginState from legacy enabled/loaded flags (e.g. registry)."""
         if not enabled:
             return PluginState.DISABLED
         elif loaded:
             return PluginState.LOADED
         else:
-            return PluginState.ENABLED
+            return PluginState.DISCOVERED
 
     @property
     def is_enabled(self):
-        """Check if the state represents an enabled plugin"""
-        return self in (PluginState.ENABLED, PluginState.LOADED)
+        """True if plugin is not disabled (DISCOVERED or LOADED). Kept for compatibility."""
+        return self in (PluginState.DISCOVERED, PluginState.LOADED)
 
     @property
     def is_loaded(self):
@@ -59,24 +58,15 @@ class PluginState(Enum):
         Returns:
             bool: True if the transition is valid, False otherwise
         """
-        # Valid transitions:
-        # DISCOVERED -> ENABLED | DISABLED
-        # ENABLED -> LOADED | DISABLED
-        # LOADED -> ENABLED | DISABLED
-        # DISABLED -> ENABLED
-        # Any -> ERROR
-
-        # Any state can transition to ERROR
+        # Valid transitions: DISCOVERED <-> LOADED (load/unload), -> DISABLED;
+        # LOADED -> DISCOVERED (unload), DISABLED; DISABLED -> LOADED. Any -> ERROR.
         if target_state == PluginState.ERROR:
             return True
-
-        # Map of allowed transitions
         allowed_transitions = {
-            PluginState.DISCOVERED: [PluginState.ENABLED, PluginState.DISABLED],
-            PluginState.ENABLED: [PluginState.LOADED, PluginState.DISABLED],
-            PluginState.LOADED: [PluginState.ENABLED, PluginState.DISABLED],
-            PluginState.DISABLED: [PluginState.ENABLED],
-            PluginState.ERROR: [PluginState.ENABLED, PluginState.DISABLED],
+            PluginState.DISCOVERED: [PluginState.LOADED, PluginState.DISABLED],
+            PluginState.LOADED: [PluginState.DISCOVERED, PluginState.DISABLED],
+            PluginState.DISABLED: [PluginState.LOADED],
+            PluginState.ERROR: [PluginState.LOADED, PluginState.DISABLED],
         }
 
         # State can always transition to itself
@@ -196,9 +186,8 @@ class PluginInfo:
         current_state = self.state
 
         if value and self.state == PluginState.DISABLED:
-            # Enabling a disabled plugin
-            self.state = PluginState.ENABLED
-            logger.debug(f"Plugin {self.id} enabled via enabled setter")
+            self.state = PluginState.DISCOVERED
+            logger.debug(f"Plugin {self.id} set to DISCOVERED via enabled setter")
         elif not value and self.state != PluginState.DISABLED:
             # Disabling an enabled or loaded plugin
 
@@ -229,10 +218,10 @@ class PluginInfo:
     @loaded.setter
     def loaded(self, value):
         """Set the loaded status of the plugin"""
-        if value and self.enabled:
+        if value and self.is_enabled:
             self._state = PluginState.LOADED
         elif not value and self.state == PluginState.LOADED:
-            self._state = PluginState.ENABLED
+            self._state = PluginState.DISCOVERED
 
     def to_dict(self):
         """Convert to dictionary"""
@@ -261,9 +250,12 @@ class PluginInfo:
             data["entry_point"],
             data.get("path"),
         )
-        # Handle state
-        if "state" in data and data["state"] in PluginState.__members__:
-            plugin_info._state = PluginState[data["state"]]
+        # Handle state (legacy "ENABLED" mapped to DISCOVERED)
+        state_name = data.get("state")
+        if state_name == "ENABLED":
+            state_name = "DISCOVERED"
+        if state_name and state_name in PluginState.__members__:
+            plugin_info._state = PluginState[state_name]
         else:
             # Backward compatibility with old registry format
             enabled = data.get("enabled", True)

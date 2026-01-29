@@ -1,5 +1,9 @@
 # Report Generator Patch Notes
 
+## 3-panel layout (unreleased)
+
+- **Generator dialog**: Report Builder uses a 3-panel layout. Left: Quick Start, Report Details, Data Source (tip removed). Middle (largest): **Table Info** group (Columns / Filters / Sorting tabs and Template Settings). Right: Output, Preview. Report title removed. Middle panel has stretch factor 2 and largest initial size; splitters are adjustable.
+
 ## Refactor and compliance (1.0.1)
 
 - **File structure**: Logic and UI split into `core/` and `ui/` modules. No file exceeds the 1,000-line limit; entry point `report_generator.py` is thin (plugin class and re-exports only).

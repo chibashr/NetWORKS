@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem, QLabel, QTextEdit, QWidget, QTabWidget, QCheckBox,
     QGroupBox, QFormLayout, QMessageBox, QLineEdit, QComboBox, QSpinBox,
     QDoubleSpinBox, QScrollArea, QApplication, QDialogButtonBox, QSplitter, QInputDialog,
-    QTextBrowser, QAbstractItemView
+    QTextBrowser, QAbstractItemView, QFileDialog
 )
 from PySide6.QtCore import Qt, Signal, Slot, QSettings, QTimer, QSize, QMargins, QRect, QPoint, QUrl
 from PySide6.QtGui import QIcon, QFont, QAction, QPixmap, QColor, QPainter, QPalette, QBrush, QLinearGradient, QShowEvent, QHideEvent, QIntValidator, QDesktopServices
@@ -98,18 +98,13 @@ class PluginManagerDialog(QDialog):
         self.plugin_list.currentItemChanged.connect(self.on_plugin_selected)
         self.plugin_list_layout.addWidget(self.plugin_list)
         
-        # Plugin action buttons
+        # Plugin action buttons (Load/Disable toggle + Reload + Repair)
         self.plugin_actions_layout = QHBoxLayout()
         
-        self.enable_button = QPushButton("Enable")
-        self.enable_button.clicked.connect(self.on_enable_button_clicked)
-        self.enable_button.setToolTip("Enable or disable the selected plugin (changes apply on save)")
-        self.enable_button.setEnabled(False)
-        
-        self.load_button = QPushButton("Load")
-        self.load_button.clicked.connect(self.on_load_button_clicked)
-        self.load_button.setToolTip("Load or unload the selected plugin")
-        self.load_button.setEnabled(False)
+        self.load_disable_button = QPushButton("Load")
+        self.load_disable_button.clicked.connect(self.on_load_disable_button_clicked)
+        self.load_disable_button.setToolTip("Load the selected plugin, or disable it if already loaded")
+        self.load_disable_button.setEnabled(False)
 
         self.reload_button = QPushButton("Reload")
         self.reload_button.clicked.connect(self.on_reload_clicked)
@@ -121,8 +116,7 @@ class PluginManagerDialog(QDialog):
         self.repair_button.setToolTip("Check and install missing dependencies for the selected plugin")
         self.repair_button.setEnabled(False)
         
-        self.plugin_actions_layout.addWidget(self.enable_button)
-        self.plugin_actions_layout.addWidget(self.load_button)
+        self.plugin_actions_layout.addWidget(self.load_disable_button)
         self.plugin_actions_layout.addWidget(self.reload_button)
         self.plugin_actions_layout.addWidget(self.repair_button)
         
@@ -405,8 +399,7 @@ class PluginManagerDialog(QDialog):
         self.no_docs_label.show()
         
         # Disable all action buttons
-        self.enable_button.setEnabled(False)
-        self.load_button.setEnabled(False)
+        self.load_disable_button.setEnabled(False)
         self.reload_button.setEnabled(False)
         
         # Update save button state based on whether there are pending changes
@@ -588,15 +581,7 @@ class PluginManagerDialog(QDialog):
         # Update the save button state
         self._update_save_button_state()
         
-        # Update enable/disable button label based on pending state if present
-        if hasattr(self, 'enable_button') and self.enable_button is not None:
-            pending_enabled = None
-            if plugin_info.id in self.pending_plugin_changes:
-                pending_enabled = self.pending_plugin_changes[plugin_info.id].get("enabled")
-            desired_state = plugin_info.state.is_enabled if pending_enabled is None else pending_enabled
-            self._update_enable_button_label(bool(desired_state))
-        
-        # Update action buttons (enable/disable/load/unload) to correctly reflect
+        # Update action buttons (disable/load/reload) to reflect current state
         # both current state and pending changes
         self._update_action_buttons(plugin_info)
         
@@ -724,6 +709,36 @@ class PluginManagerDialog(QDialog):
                 widget = QLineEdit(str(setting["value"]))
                 widget.textChanged.connect(lambda text, s_id=setting_id, p_id=plugin_info.id: 
                     self._on_setting_changed(p_id, s_id, text))
+                
+            elif setting["type"] == "filepath":
+                line_edit = QLineEdit(str(setting["value"]))
+                line_edit.textChanged.connect(lambda text, s_id=setting_id, p_id=plugin_info.id:
+                    self._on_setting_changed(p_id, s_id, text))
+                browse_btn = QPushButton("...")
+                browse_btn.setFixedWidth(28)
+                browse_btn.setToolTip("Browse for executable")
+                def _do_browse(line_widget):
+                    path, _ = QFileDialog.getOpenFileName(
+                        self, "Select executable", line_widget.text() or os.path.expanduser("~"),
+                        "Executables (*.exe);;All files (*)"
+                    )
+                    if path:
+                        line_widget.setText(path)
+                browse_btn.clicked.connect(lambda checked=False, le=line_edit: _do_browse(le))
+                path_layout = QHBoxLayout()
+                path_layout.setContentsMargins(0, 0, 0, 0)
+                path_layout.addWidget(line_edit)
+                path_layout.addWidget(browse_btn)
+                container = QWidget()
+                container.setLayout(path_layout)
+                widget = line_edit  # store line edit for value read
+                self.settings_form.addRow(label, container)
+                self.setting_widgets[setting_id] = {
+                    "widget": widget,
+                    "type": setting["type"],
+                    "original_value": setting["value"]
+                }
+                continue  # skip the generic addRow below
                 
             elif setting["type"] == "int":
                 widget = QSpinBox()
@@ -871,6 +886,8 @@ class PluginManagerDialog(QDialog):
             value = None
             
             if setting_type == "string":
+                value = widget.text()
+            elif setting_type == "filepath":
                 value = widget.text()
                 
             elif setting_type == "int":
@@ -1351,48 +1368,28 @@ class PluginManagerDialog(QDialog):
             
     def _update_action_buttons(self, plugin_info):
         """Update action button states based on plugin state"""
-        # Default all to disabled
-        self.enable_button.setEnabled(False)
-        self.load_button.setEnabled(False)
+        self.load_disable_button.setEnabled(False)
         self.reload_button.setEnabled(False)
         self.repair_button.setEnabled(False)
         
         if not plugin_info:
             return
             
-        # Check pending changes first
-        pending_enabled = None
-        if plugin_info.id in self.pending_plugin_changes:
-            pending_enabled = self.pending_plugin_changes[plugin_info.id].get("enabled")
-        
-        # Get actual current state
-        current_enabled = plugin_info.state.is_enabled
         is_loaded = plugin_info.state.is_loaded
+        is_disabled = plugin_info.state.is_disabled
         
-        # Log states for debugging
-        logger.debug(f"Plugin {plugin_info.id} state: enabled={current_enabled}, loaded={is_loaded}, pending_enabled={pending_enabled}")
+        logger.debug(f"Plugin {plugin_info.id} state: loaded={is_loaded}, disabled={is_disabled}")
         
-        self.enable_button.setEnabled(True)
-        self._update_enable_button_label(current_enabled if pending_enabled is None else pending_enabled)
-        
-        # Determine which actions make sense based on current state (ignoring pending changes)
-        if current_enabled:
-            if is_loaded:
-                self._update_load_button_label(True)
-                self.load_button.setEnabled(True)
-                self.reload_button.setEnabled(True)
-            else:
-                self._update_load_button_label(False)
-                self.load_button.setEnabled(True)
+        # Single Load/Disable button: "Load" when not loaded, "Disable" when loaded
+        self.load_disable_button.setEnabled(True)
+        if is_loaded:
+            self.load_disable_button.setText("Disable")
+            self.load_disable_button.setToolTip("Disable the selected plugin (unloads it)")
+            self.reload_button.setEnabled(True)
         else:
-            self._update_load_button_label(False)
-                
-        # Override based on pending state if necessary
-        if pending_enabled is False:
-            # If the plugin will be disabled, prevent load/unload actions
-            self.load_button.setEnabled(False)
+            self.load_disable_button.setText("Load")
+            self.load_disable_button.setToolTip("Load the selected plugin")
             self.reload_button.setEnabled(False)
-            self._update_load_button_label(is_loaded)
         
         # Repair button is only enabled if the plugin is in error or missing requirements
         repair_enabled = plugin_info.state == PluginState.ERROR
@@ -1403,28 +1400,6 @@ class PluginManagerDialog(QDialog):
             except Exception as exc:
                 logger.warning(f"Failed to check plugin requirements for repair button: {exc}")
         self.repair_button.setEnabled(repair_enabled)
-
-    def _update_enable_button_label(self, is_enabled):
-        """Update enable button label to match desired state"""
-        if not hasattr(self, "enable_button") or self.enable_button is None:
-            return
-        if is_enabled:
-            self.enable_button.setText("Disable")
-            self.enable_button.setToolTip("Disable the selected plugin (changes apply on save)")
-        else:
-            self.enable_button.setText("Enable")
-            self.enable_button.setToolTip("Enable the selected plugin (changes apply on save)")
-
-    def _update_load_button_label(self, is_loaded):
-        """Update load button label to match desired state"""
-        if not hasattr(self, "load_button") or self.load_button is None:
-            return
-        if is_loaded:
-            self.load_button.setText("Unload")
-            self.load_button.setToolTip("Unload the selected plugin")
-        else:
-            self.load_button.setText("Load")
-            self.load_button.setToolTip("Load the selected plugin")
         
     def _are_there_pending_changes(self):
         """Check if there are any pending changes"""
@@ -1464,6 +1439,8 @@ class PluginManagerDialog(QDialog):
                     # Get current value
                     current_value = None
                     if setting_type == "string":
+                        current_value = widget.text()
+                    elif setting_type == "filepath":
                         current_value = widget.text()
                     elif setting_type == "int":
                         current_value = widget.value()
@@ -2060,32 +2037,20 @@ class PluginManagerDialog(QDialog):
         self._apply_filters()
     
     @Slot()
-    def on_enable_button_clicked(self):
-        """Toggle enable/disable state for the selected plugin (staged)"""
+    def on_load_disable_button_clicked(self):
+        """Load the plugin if not loaded, or disable it if loaded (single Load/Disable button)"""
         current_item = self.plugin_list.currentItem()
         if not current_item:
             return
-        
-        plugin_info = current_item.plugin_info
-        pending_enabled = None
-        if plugin_info.id in self.pending_plugin_changes:
-            pending_enabled = self.pending_plugin_changes[plugin_info.id].get("enabled")
-        current_state = plugin_info.state.is_enabled if pending_enabled is None else pending_enabled
-        desired_state = not current_state
-        
-        self._set_pending_enabled_state(plugin_info, desired_state)
-        self.update_details(self.plugin_manager.get_plugin(plugin_info.id) or plugin_info)
-    
-    @Slot()
-    def on_load_button_clicked(self):
-        """Load or unload the selected plugin based on current state"""
-        current_item = self.plugin_list.currentItem()
-        if not current_item:
-            return
-        
         plugin_info = current_item.plugin_info
         if plugin_info.state.is_loaded:
-            self.on_unload_clicked()
+            success = self.plugin_manager.disable_plugin(plugin_info.id)
+            if success:
+                plugin_info = self.plugin_manager.get_plugin(plugin_info.id) or plugin_info
+                current_item.plugin_info = plugin_info
+                current_item.update_icon()
+                self.update_details(plugin_info)
+                self._update_action_buttons(plugin_info)
         else:
             self.on_load_clicked()
     
@@ -2354,13 +2319,13 @@ class PluginManagerDialog(QDialog):
     
     @Slot()
     def on_enable_clicked(self):
-        """Handle enable button clicked (legacy entry point)"""
-        self.on_enable_button_clicked()
+        """Handle enable (legacy): equivalent to load"""
+        self.on_load_clicked()
         
     @Slot()
     def on_disable_clicked(self):
-        """Handle disable button clicked (legacy entry point)"""
-        self.on_enable_button_clicked()
+        """Handle disable (legacy): same as Load/Disable button when loaded"""
+        self.on_load_disable_button_clicked()
         
     @Slot()
     def on_load_clicked(self):

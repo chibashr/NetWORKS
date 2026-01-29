@@ -194,9 +194,15 @@ class PluginManager(QObject):
         
         # Persist plugin state into the active workspace so that
         # enabled/disabled and loaded flags remain workspace-specific.
+        # Skip during plugin restore so we never overwrite loaded_plugins with a partial list.
         try:
-            if hasattr(self.app, "device_manager") and getattr(self.app.device_manager, "current_workspace", None):
-                self.app.device_manager.save_workspace(self.app.device_manager.current_workspace)
+            dm = getattr(self.app, "device_manager", None)
+            if dm is None or not getattr(dm, "current_workspace", None):
+                pass
+            elif getattr(dm, "_restoring_plugins", False):
+                logger.debug("Skipping workspace save during plugin restore to avoid partial loaded_plugins")
+            else:
+                dm.save_workspace(dm.current_workspace)
         except Exception as e:
             logger.error(f"Failed to save workspace after plugin state change: {e}", exc_info=True)
         
@@ -204,157 +210,9 @@ class PluginManager(QObject):
         return True, plugin_info
     
     def enable_plugin(self, plugin_id):
-        """Enable a plugin by ID"""
-        logger.info(f"Attempting to enable plugin: {plugin_id}")
-        
-        plugin_info = self.get_plugin(plugin_id)
-        if not plugin_info:
-            error_msg = f"Plugin not found with ID: {plugin_id}"
-            logger.warning(f"Cannot enable plugin: {error_msg}")
-            self._show_error_dialog(
-                "Plugin Not Found",
-                f"Cannot enable plugin '{plugin_id}'.\n\nPlugin not found in the system.",
-                f"Plugin ID: {plugin_id}"
-            )
-            return False
-            
-        if plugin_info.state.is_enabled:
-            logger.debug(f"Plugin {plugin_id} already enabled, no action needed")
-            return True
-        
-        # Check if requirements are already installed
-        if plugin_info.requirements["python"]:
-            all_installed, missing, requires_restart = self._check_plugin_requirements_installed(plugin_info)
-            
-            if not all_installed:
-                logger.info(f"Installing missing Python requirements for plugin {plugin_id}: {missing}")
-                self.plugin_status_changed.emit(plugin_info, f"Installing missing requirements...")
-                
-                # Install only missing requirements
-                original_requirements = plugin_info.requirements["python"]
-                plugin_info.requirements["python"] = missing
-                
-                if not self._install_plugin_requirements(plugin_info):
-                    error_msg = f"Failed to install requirements for plugin {plugin_id}"
-                    logger.error(error_msg)
-                    plugin_info.requirements["python"] = original_requirements
-                    plugin_info.state = PluginState.ERROR
-                    plugin_info.error = "Failed to install required Python packages"
-                    self._registry_dirty = True
-                    self._sync_registry()
-                    
-                    # Show error dialog
-                    self._show_error_dialog(
-                        "Plugin Requirements Installation Failed",
-                        f"Failed to install required Python packages for plugin '{plugin_info.name}'.\n\n"
-                        f"Missing packages: {', '.join(missing)}\n\n"
-                        f"Please check your internet connection and try again, or install the packages manually.",
-                        f"Plugin: {plugin_id}\nMissing packages: {', '.join(missing)}"
-                    )
-                    return False
-                
-                # Restore original requirements list
-                plugin_info.requirements["python"] = original_requirements
-                
-                # Check if restart is required
-                if self._requires_restart_after_install(missing):
-                    logger.info(f"Plugin {plugin_id} requires application restart after dependency installation")
-                    
-                    # Get current workspace name
-                    workspace_name = "default"
-                    if hasattr(self.app, 'device_manager') and self.app.device_manager.current_workspace:
-                        workspace_name = self.app.device_manager.current_workspace
-                    
-                    # Save workspace state
-                    if self._save_workspace_for_restart(workspace_name):
-                        # Show message to user
-                        from PySide6.QtWidgets import QMessageBox
-                        msg = QMessageBox()
-                        msg.setWindowTitle("Restart Required")
-                        msg.setText("Application restart required")
-                        msg.setInformativeText(
-                            f"Plugin '{plugin_info.name}' requires dependencies that need a restart to take effect.\n\n"
-                            f"Your workspace '{workspace_name}' will be automatically restored after restart."
-                        )
-                        msg.setStandardButtons(QMessageBox.Ok)
-                        msg.exec()
-                        
-                        # Trigger restart
-                        if hasattr(self.app, 'main_window') and self.app.main_window:
-                            # Save workspace and close
-                            self.app.device_manager.save_workspace(workspace_name)
-                            self.app.main_window.close()
-                        else:
-                            # If main window not available, just exit
-                            import sys
-                            sys.exit(0)
-                        
-                        return False  # Plugin not enabled yet, will be after restart
-                    else:
-                        error_msg = "Failed to save workspace state for restart"
-                        logger.error(error_msg)
-                        plugin_info.state = PluginState.ERROR
-                        plugin_info.error = error_msg
-                        self._registry_dirty = True
-                        self._sync_registry()
-                        
-                        # Show error dialog
-                        self._show_error_dialog(
-                            "Workspace Save Failed",
-                            f"Failed to save workspace state before restart.\n\n"
-                            f"Plugin '{plugin_info.name}' requires a restart, but the workspace could not be saved.\n\n"
-                            f"Please save your workspace manually before restarting.",
-                            f"Workspace: {workspace_name}\nPlugin: {plugin_id}"
-                        )
-                        return False
-                
-        # Check system requirements if any
-        if plugin_info.requirements.get("system"):
-            system_reqs = ", ".join(plugin_info.requirements["system"])
-            logger.info(f"Plugin {plugin_id} requires system dependencies: {system_reqs}")
-            
-            # Check if system requirements are available
-            system_available, missing_system, system_messages = self._check_system_requirements(plugin_info)
-            
-            if not system_available:
-                logger.warning(f"Plugin {plugin_id} has missing system requirements: {', '.join(missing_system)}")
-                # Offer to install system dependencies
-                if self._offer_system_dependency_installation(plugin_info, missing_system, system_messages):
-                    # Re-check after installation attempt
-                    system_available, missing_system, system_messages = self._check_system_requirements(plugin_info)
-                    if system_available:
-                        logger.info(f"All system requirements for plugin {plugin_id} are now available")
-                    else:
-                        # Still missing, show warning
-                        missing_list = "\n".join([f"  • {req}" for req in missing_system])
-                        warning_msg = (
-                            f"Plugin '{plugin_info.name}' still has missing system dependencies:\n\n"
-                            f"{missing_list}\n\n"
-                            f"The plugin will be enabled, but some features may not work until these are installed.\n\n"
-                            f"Please install them manually and restart NetWORKS."
-                        )
-                        self._show_warning_dialog(
-                            "System Requirements Still Missing",
-                            warning_msg,
-                            f"Plugin: {plugin_id}\nMissing: {', '.join(missing_system)}"
-                        )
-                else:
-                    # User declined installation, show info
-                    missing_list = "\n".join([f"  • {req}" for req in missing_system])
-                    info_msg = (
-                        f"Plugin '{plugin_info.name}' requires the following system dependencies:\n\n"
-                        f"{missing_list}\n\n"
-                        f"The plugin will be enabled, but some features may not work until these are installed."
-                    )
-                    self._show_warning_dialog(
-                        "System Requirements Missing",
-                        info_msg,
-                        f"Plugin: {plugin_id}\nMissing: {', '.join(missing_system)}"
-                    )
-        
-        success, _ = self._transition_plugin_state(plugin_id, PluginState.ENABLED, "enable")
-        return success
-        
+        """Enable a plugin by ID. Compatibility: equivalent to load_plugin (no separate enable step)."""
+        return self.load_plugin(plugin_id) is not None
+
     def disable_plugin(self, plugin_id):
         """Disable a plugin by ID"""
         logger.info(f"Attempting to disable plugin: {plugin_id}")
@@ -443,20 +301,7 @@ class PluginManager(QObject):
             logger.debug(f"Plugin {plugin_id} already loaded, skipping")
             return plugin_info.instance
             
-        # Check if plugin is enabled first
-        if not plugin_info.state.is_enabled:
-            error_msg = f"Plugin is not enabled: {plugin_id}"
-            logger.warning(f"Cannot load plugin: {error_msg}")
-            self.plugin_status_changed.emit(plugin_info, f"Cannot load: Plugin is not enabled")
-            self._show_error_dialog(
-                "Plugin Not Enabled",
-                f"Cannot load plugin '{plugin_info.name}'.\n\n"
-                f"The plugin must be enabled before it can be loaded.\n\n"
-                f"Please enable the plugin first.",
-                f"Plugin: {plugin_id}\nCurrent state: {plugin_info.state.name}"
-            )
-            return None
-            
+        # Load from DISCOVERED, DISABLED, or ERROR (no separate enable step)
         # Check and install plugin requirements if needed
         if plugin_info.requirements["python"]:
             logger.info(f"Checking Python requirements for plugin {plugin_id}")
@@ -712,6 +557,14 @@ class PluginManager(QObject):
             self.plugin_status_changed.emit(plugin_info, f"Plugin loaded and verified successfully")
             logger.info(f"Plugin loaded and verified successfully: {plugin_id}")
             
+            # Persist to workspace immediately so a crash or sudden close keeps this plugin as loaded
+            try:
+                dm = getattr(self.app, "device_manager", None)
+                if dm and getattr(dm, "current_workspace", None) and not getattr(dm, "_restoring_plugins", False):
+                    dm.save_workspace(dm.current_workspace)
+            except Exception as e:
+                logger.error(f"Failed to save workspace after loading plugin: {e}", exc_info=True)
+            
             return instance
             
         except Exception as e:
@@ -764,9 +617,9 @@ class PluginManager(QObject):
                 except Exception as e:
                     logger.error(f"Error during plugin cleanup for {plugin_id}: {e}", exc_info=True)
             
-            # Set state first to prevent any accidental reloading
+            # Set state first to prevent any accidental reloading (unload -> DISCOVERED so can load again)
             original_state = plugin_info.state
-            plugin_info.state = PluginState.ENABLED if original_state.is_enabled else PluginState.DISABLED
+            plugin_info.state = PluginState.DISCOVERED if original_state.is_enabled else PluginState.DISABLED
             
             # Force delete the instance
             if instance:
@@ -1266,10 +1119,10 @@ class PluginManager(QObject):
                     logger.info(f"Auto-enabling plugin: {plugin_info.id}")
                     self.enable_plugin(plugin_info.id)
         
-        # Get all enabled plugins
-        enabled_plugins = [p for p in self.plugins.values() if p.state.is_enabled and not p.state.is_loaded]
-        total_enabled = len(enabled_plugins)
-        logger.debug(f"Found {total_enabled} enabled plugins to load")
+        # Get all plugins that can be loaded (DISCOVERED, not DISABLED)
+        plugins_to_load = [p for p in self.plugins.values() if not p.state.is_loaded and p.state != PluginState.DISABLED]
+        total_to_load = len(plugins_to_load)
+        logger.debug(f"Found {total_to_load} plugins to load")
         
         # Track plugins that were already loaded
         already_loaded = [p.id for p in self.plugins.values() if p.state.is_loaded]
@@ -1280,7 +1133,7 @@ class PluginManager(QObject):
         
         try:
             # Build dependency graph - handle varying formats of dependencies
-            for plugin_info in enabled_plugins:
+            for plugin_info in plugins_to_load:
                 plugin_deps = []
                 
                 # Handle possible different dependency formats
@@ -1301,14 +1154,14 @@ class PluginManager(QObject):
             # Sort plugins by dependency order using topological sort
             sorted_plugins = self._topological_sort(dependencies)
             
-            # Filter to only include enabled plugins that aren't loaded yet
-            sorted_plugins = [p for p in sorted_plugins if p in [plugin.id for plugin in enabled_plugins]]
+            # Filter to only include plugins to load
+            sorted_plugins = [p for p in sorted_plugins if p in [plugin.id for plugin in plugins_to_load]]
             
             logger.debug(f"Ordered plugins to load: {', '.join(sorted_plugins)}")
         except Exception as e:
             logger.error(f"Error determining plugin load order: {e}", exc_info=True)
             # Fall back to loading in arbitrary order if we couldn't sort dependencies
-            sorted_plugins = [p.id for p in enabled_plugins]
+            sorted_plugins = [p.id for p in plugins_to_load]
             logger.warning(f"Falling back to unsorted plugin loading: {', '.join(sorted_plugins)}")
         
         loaded_plugins = []

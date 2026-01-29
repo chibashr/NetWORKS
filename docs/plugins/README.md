@@ -686,6 +686,7 @@ def get_settings(self):
 
 The supported setting types are:
 - `string`: Text input
+- `filepath`: Text input with a **...** browse button to select an executable (or file)
 - `int`: Integer input
 - `float`: Floating-point number input
 - `bool`: Boolean checkbox

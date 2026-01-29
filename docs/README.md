@@ -18,6 +18,7 @@ Start with the [Documentation Index](index.md) for a complete overview of all av
 
 ## Quick Links
 
+- [Quick Start](QUICK_START.md)
 - [Core API Documentation](api/core.md)
 - [UI API Documentation](api/ui.md)
 - [Plugin Development Guide](plugins/README.md)

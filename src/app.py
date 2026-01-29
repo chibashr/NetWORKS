@@ -168,12 +168,16 @@ class Application(QApplication):
         
         # Show workspace selection dialog before displaying the main window
         splash.update_progress(95, "Preparing workspace...")
-        self.show_workspace_selection(is_startup=True)
-        
+        if not self.show_workspace_selection(is_startup=True):
+            # User cancelled workspace manager at startup; exit the application
+            splash.close()
+            self.quit()
+            return
+
         # Complete progress and close splash screen
         splash.update_progress(100, "Startup complete...")
         splash.close()
-        
+
         # Now display the main window
         self.main_window.show()
 
@@ -262,7 +266,7 @@ class Application(QApplication):
         details_form.addRow("Path:", details_path)
         details_layout.addLayout(details_form)
         
-        plugins_label = QLabel("Enabled Plugins")
+        plugins_label = QLabel("Loaded Plugins")
         plugins_label.setStyleSheet("font-weight: 600;")
         details_layout.addWidget(plugins_label)
         details_plugins = QListWidget()
@@ -272,6 +276,12 @@ class Application(QApplication):
         splitter.addWidget(details_group)
         splitter.setSizes([240, 520])
         
+        # Save current workspace so on-disk data is fresh (skip at startup when no workspace loaded yet)
+        if not is_startup and getattr(self.device_manager, "current_workspace", None):
+            try:
+                self.device_manager.save_workspace()
+            except Exception:
+                pass
         workspaces = self.device_manager.list_workspaces()
         for workspace in workspaces:
             name = workspace.get("name", "Unknown")
@@ -324,16 +334,27 @@ class Application(QApplication):
                 clear_details()
                 return
             
-            details_name.setText(workspace_data.get("name", "—"))
+            details_name.setText(workspace_data.get("name", "—") or "—")
             details_description.setText(workspace_data.get("description", "—") or "—")
-            details_created.setText(workspace_data.get("created", "—"))
-            details_last_saved.setText(workspace_data.get("last_saved", "—"))
-            details_device_count.setText(str(len(workspace_data.get("devices", []))))
-            details_group_count.setText(str(len(workspace_data.get("groups", []))))
+            details_created.setText(workspace_data.get("created") or "—")
+            details_last_saved.setText(workspace_data.get("last_saved") or "—")
+            # Use in-memory counts for current workspace so Devices/Groups are always up to date
+            if workspace_name == getattr(self.device_manager, "current_workspace", None):
+                details_device_count.setText(str(len(self.device_manager.devices)))
+                details_group_count.setText(str(len(self.device_manager.groups)))
+            else:
+                devices = workspace_data.get("devices", [])
+                groups_list = workspace_data.get("groups", [])
+                if not isinstance(devices, list):
+                    devices = list(devices) if devices else []
+                if not isinstance(groups_list, list):
+                    groups_list = list(groups_list) if groups_list else []
+                details_device_count.setText(str(len(devices)))
+                details_group_count.setText(str(len(groups_list)))
             details_path.setText(os.path.join(self.device_manager.workspaces_dir, workspace_name))
             
             details_plugins.clear()
-            plugins = workspace_data.get("enabled_plugins", [])
+            plugins = workspace_data.get("loaded_plugins", workspace_data.get("enabled_plugins", []))
             if plugins:
                 for plugin_id in plugins:
                     details_plugins.addItem(plugin_id)
@@ -452,12 +473,6 @@ class Application(QApplication):
                 QMessageBox.critical(dialog, "Error", f"Failed to delete workspace: {workspace_name}")
         
         def on_cancel():
-            if not is_startup:
-                dialog.reject()
-                return
-            self.device_manager.load_workspace("default")
-            if hasattr(self, "main_window"):
-                self.main_window.refresh_workspace_ui()
             dialog.reject()
         
         browse_button.clicked.connect(on_browse)
@@ -496,8 +511,8 @@ class Application(QApplication):
             self.logger.debug(f"Failed to position workspace dialog on startup screen: {e}")
 
         dialog.setModal(True)
-        dialog.exec()
-        return
+        from PySide6.QtWidgets import QDialog as _QDialog
+        return dialog.exec() == _QDialog.DialogCode.Accepted
 
 
 

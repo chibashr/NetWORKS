@@ -53,17 +53,26 @@ def apply_compact_button(button: QAbstractButton) -> None:
 
 
 def apply_icon_button(button: QAbstractButton) -> None:
-    """Apply square icon button sizing (same aspect ratio as icon per design)."""
+    """Apply square icon button sizing using the shared button height."""
     if button is None:
         return
-    size = PLUGIN_UI_SIZES["icon_button_size"]
-    button.setMinimumSize(size, size)
-    button.setMaximumSize(size, size)
+    height = PLUGIN_UI_SIZES["button_height"]
+    button.setMinimumSize(height, height)
+    button.setMaximumSize(height, height)
 
 
 def plugin_ui_stylesheet(tokens=None) -> str:
     """Return plugin-scoped QSS to style plugin surfaces only."""
     theme = tokens or get_theme_tokens("light")
+
+    # Derive compact control sizes from theme tokens so plugin UI follows
+    # configured row/header heights instead of hardcoded pixels.
+    button_height = theme.row_height + 6
+    section_header_height = theme.header_height
+    dock_header_height = theme.header_height + 4
+    tab_height = theme.header_height + 8
+    button_bar_height = button_height + 12
+
     return f"""
     QDockWidget[plugin_ui="true"] {{
         border: 1px solid {theme.border};
@@ -82,7 +91,7 @@ def plugin_ui_stylesheet(tokens=None) -> str:
         background-color: {theme.surface};
     }}
     QToolButton[plugin_ui_section="true"] {{
-        min-height: {PLUGIN_UI_SIZES["section_header_height"]}px;
+        min-height: {section_header_height}px;
         padding: 2px 8px 4px 8px;
         margin-bottom: 12px;
         text-align: left;
@@ -101,22 +110,22 @@ def plugin_ui_stylesheet(tokens=None) -> str:
         background-color: {theme.surface};
     }}
     QDockWidget[plugin_ui="true"] QPushButton {{
-        min-height: {PLUGIN_UI_SIZES["button_height"]}px;
+        min-height: {button_height}px;
         border-radius: 0px;
     }}
     QDialog[plugin_ui="true"] QPushButton {{
-        min-height: {PLUGIN_UI_SIZES["button_height"]}px;
+        min-height: {button_height}px;
         border-radius: 0px;
     }}
     QDialog[plugin_ui="true"] QWidget#PluginDialogButtonBar {{
-        min-height: {PLUGIN_UI_SIZES["button_bar_height"]}px;
+        min-height: {button_bar_height}px;
     }}
     QTabWidget[plugin_ui="true"]::pane {{
         border: 1px solid {theme.border};
         background-color: {theme.surface};
     }}
     QTabBar[plugin_ui="true"]::tab {{
-        min-height: {PLUGIN_UI_SIZES["tab_height"]}px;
+        min-height: {tab_height}px;
         padding: 0 12px;
         background-color: {theme.surface_alt};
         border: 1px solid {theme.border};

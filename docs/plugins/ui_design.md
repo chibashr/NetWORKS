@@ -8,11 +8,13 @@ This guide describes the plugin-scoped UI theme and helper widgets available in 
 - **Grid**: 4px spacing
 - **Section padding**: 8px
 - **Dialog padding**: 16px
-- **Dock header height**: 28px
-- **Section header height**: 24px
-- **Tab height**: 32px
-- **Button height**: 28px
-- **Button bar height**: 40px
+- **Dock header height**: compact, targeting ~28px at default scaling
+- **Section header height**: compact, targeting ~24px at default scaling
+- **Tab height**: compact tab row, targeting ~32px at default scaling
+- **Button height**: compact single-line height, targeting ~28px at default scaling
+- **Button bar height**: compact bottom bar, targeting ~40px at default scaling
+
+These values are **visual targets** based on a compact desktop density. In code, derive actual sizes from Qt font metrics and layouts using the 4px grid, rather than hardcoding these pixel values, so plugin UIs stay compact but respond correctly to DPI, font, and accessibility settings.
 
 ## Plugin Scope
 
@@ -61,6 +63,21 @@ flush against the content.
   minimal detail and sourced from Material Icons.
 - Plugin toolbar actions may set `toolbar_priority` (int) to influence overflow
   order; higher values stay visible longer when space is tight.
+
+All plugin buttons (text-only, icon-only, text+icon) should use the **same 28px visual height** so mixed button rows feel consistent; icon-only buttons are square at that height, while text and text+icon buttons expand only horizontally.
+
+### Button content variants (icons vs text)
+
+- **Text-only buttons**:
+  - Label is centered horizontally; height remains **28px**.
+  - Use standard horizontal padding; do not reserve empty space for a missing icon.
+- **Icon-only buttons**:
+  - Use a **square button** with side length equal to the standard button height (28px), with the 24×24px icon centered inside.
+  - Icon is centered; no visible text label, but tooltips and accessible names are required.
+- **Text + icon buttons**:
+  - In standard layouts, place the icon to the left of the text with a small (4–6px) gap.
+  - In ribbon-style toolbars, stack the icon above the label as shown in the main design spec.
+  - When toolbar space is constrained, hide the text label and treat the control as icon-only, keeping the tooltip as the primary label.
 
 ## Icon Specifications
 

@@ -47,7 +47,7 @@ See `docs/Design Considerations.md` for broader product design guidance.
 
 ## Dock Panels
 
-- Dock headers target a 28px height with bold titles.
+- Dock headers target a compact visual height (around 28px at default scaling) with bold titles; rely on Qt's default dock title sizing instead of hardcoded heights.
 - Dock widget header text uses the plugin name so the panel is easy to identify.
 - Padding uses 4px grid spacing for compact density.
 - Controls inherit global theme styling (avoid per-widget color overrides).
@@ -64,6 +64,7 @@ See `docs/Design Considerations.md` for broader product design guidance.
 - Dialogs inherit the global theme and tab styling.
 - Button bars stay right-aligned and use consistent spacing.
 - Inline color styling should be avoided unless it communicates status.
+- Dialogs should remain compact and depend on layouts and font metrics (rather than fixed pixel values) to adapt to DPI and accessibility settings while following the plugin dialog density guidelines in `docs/Design Considerations.md` and `docs/plugins/ui_design.md`.
 
 ## Status Bar
 

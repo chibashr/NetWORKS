@@ -174,6 +174,12 @@ def get_theme_tokens(theme_name, font_size=10, row_height=22, accent_override=No
 
 
 def build_stylesheet(tokens):
+    # Derive compact control sizes from theme tokens so sizing follows
+    # configured row height / header height instead of hardcoded pixels.
+    button_height = tokens.row_height + 6
+    control_height = tokens.row_height + 2
+    dock_header_height = tokens.header_height + 4
+
     return f"""
     QWidget {{
         background-color: transparent;
@@ -263,6 +269,7 @@ def build_stylesheet(tokens):
         border-radius: {tokens.radius}px;
         padding: 3px 6px;
         min-width: 64px;
+        min-height: {button_height}px;
     }}
     QToolButton:hover {{
         background-color: {tokens.surface_alt};
@@ -276,25 +283,25 @@ def build_stylesheet(tokens):
         background-color: {tokens.accent};
         color: {tokens.selection_text};
     }}
-    /* Icon-only tool buttons: square. 32×32 for toolbar; 24×24 inline (max height of adjacent inputs). */
+    /* Icon-only tool buttons: square chrome so they share height with text buttons. */
     QToolButton[iconOnly="true"] {{
-        min-width: 32px;
-        max-width: 32px;
-        min-height: 32px;
-        max-height: 32px;
+        min-width: {button_height}px;
+        max-width: {button_height}px;
+        min-height: {button_height}px;
+        max-height: {button_height}px;
     }}
     QToolButton[iconOnlyInline="true"] {{
-        min-width: 24px;
-        max-width: 24px;
-        min-height: 24px;
-        max-height: 24px;
+        min-width: {button_height}px;
+        max-width: {button_height}px;
+        min-height: {button_height}px;
+        max-height: {button_height}px;
     }}
     QPushButton {{
         background-color: {tokens.surface_raised};
         border: 1px solid {tokens.border};
         border-radius: {tokens.radius}px;
         padding: 4px 10px;
-        min-height: 24px;
+        min-height: {button_height}px;
     }}
     QPushButton:hover {{
         background-color: {tokens.surface_alt};
@@ -315,7 +322,7 @@ def build_stylesheet(tokens):
         border: 1px solid {tokens.border};
         border-radius: {tokens.radius}px;
         padding: 4px;
-        min-height: 24px;
+        min-height: {control_height}px;
     }}
     QTextEdit, QPlainTextEdit {{
         background-color: {tokens.surface_raised};
@@ -333,7 +340,7 @@ def build_stylesheet(tokens):
         border: 1px solid {tokens.border};
         border-radius: {tokens.radius}px;
         padding: 3px 18px 3px 6px;
-        min-height: 22px;
+        min-height: {control_height}px;
     }}
     QCheckBox, QRadioButton {{
         color: {tokens.text};
@@ -388,7 +395,7 @@ def build_stylesheet(tokens):
         border-bottom: none;
         border-top-left-radius: {tokens.radius}px;
         border-top-right-radius: {tokens.radius}px;
-        min-height: 24px;
+        min-height: {tokens.header_height}px;
     }}
     QTabBar::tab:selected {{
         background-color: {tokens.surface};
@@ -438,7 +445,7 @@ def build_stylesheet(tokens):
         color: {tokens.dock_title_text};
         padding: 6px 8px;
         font-weight: bold;
-        min-height: 28px;
+        min-height: {dock_header_height}px;
     }}
     QDockWidget > QWidget {{
         border-top: 1px solid {tokens.border};

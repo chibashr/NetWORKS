@@ -1927,13 +1927,21 @@ class MainWindow(QMainWindow):
         settings.setValue("pos", self.pos())
         logger.debug("Window state and position saved")
         
-        # Save the current workspace
-        self.device_manager.save_workspace()
-        
+        # Persist loaded plugins for this workspace before unloading, so they restore on next open
+        loaded_plugin_ids = [p.id for p in self.plugin_manager.get_plugins() if p.loaded]
+        self.device_manager._closing_app = True
+        try:
+            self.device_manager._save_workspace(
+                self.device_manager.current_workspace,
+                loaded_plugins_override=loaded_plugin_ids,
+            )
+        finally:
+            pass  # leave _closing_app True so any save during unload is skipped
+
         # Also save the window layout specifically for this workspace
         self._save_workspace_layout()
-        
-        # Unload all plugins
+
+        # Unload all plugins (any save_workspace from cleanup is skipped via _closing_app)
         self.plugin_manager.unload_all_plugins()
         
         # Accept the event

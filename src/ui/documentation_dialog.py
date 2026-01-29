@@ -110,8 +110,10 @@ class DocumentationDialog(QDialog):
     def load_user_documentation(self):
         """Load user documentation tree"""
         # General documentation
+        self.add_doc_item("Quick Start", os.path.join(self.docs_path, "QUICK_START.md"))
         self.add_doc_item("Introduction", os.path.join(self.docs_path, "README.md"))
-        self.add_doc_item("Getting Started", os.path.join(self.docs_path, "index.md"))
+        self.add_doc_item("Getting Started", os.path.join(self.docs_path, "GETTING_STARTED.md"))
+        self.add_doc_item("Documentation Index", os.path.join(self.docs_path, "index.md"))
         
         # Workspaces
         workspaces_item = QTreeWidgetItem(["Workspaces"])

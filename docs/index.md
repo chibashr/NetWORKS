@@ -6,6 +6,7 @@ Welcome to the NetWORKS documentation. This index provides a complete map of the
 
 ### User Documentation
 
+- [Quick Start](QUICK_START.md) - Short path for first-time users
 - [Getting Started](GETTING_STARTED.md) - First steps with NetWORKS
 - [Device Management](DEVICE_MANAGEMENT.md) - Devices, groups, and importing
 - [Multi-Device Operations](MULTI_DEVICE_OPERATIONS.md) - Bulk selection workflows

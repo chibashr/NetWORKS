@@ -117,7 +117,6 @@ class ReportBuilderWidget(QWidget):
             report = self._find_report(self.current_report_id)
             if report:
                 self.load_report_into_form(report)
-        self._update_current_report_label()
         self._schedule_preview()
 
     def _collect_device_properties(self):
@@ -377,7 +376,6 @@ class ReportBuilderWidget(QWidget):
         report = self._find_report(report_id)
         if report:
             self.load_report_into_form(report)
-        self._update_current_report_label()
         self._refresh_preview_from_form()
 
     def _get_current_report(self):
@@ -929,15 +927,6 @@ class ReportBuilderWidget(QWidget):
         except Exception:
             filename = f"{report_name}_{variables['date']}_{variables['time']}"
         return filename
-
-    def _update_current_report_label(self):
-        report = self._get_current_report()
-        if not report:
-            self.current_report_label.setText("No report selected")
-            return
-        name = report.get("name", "Unnamed Report")
-        mode = report.get("mode", "table").title()
-        self.current_report_label.setText(f"{name} ({mode})")
 
     def open_report_manager(self):
         show_manage_reports_dialog(self, self)

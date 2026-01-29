@@ -12,9 +12,10 @@ from PySide6.QtWidgets import QMenu, QStyle, QToolBar, QToolButton
 
 from .material_icons import material_icon
 
-# Design: icon buttons use same aspect ratio as icon (square). 24×24 icon, 32×32 minimum click area.
+# Design: icon buttons use same aspect ratio as icon (square).
+# 24×24 icon, 28×28 visible button chrome so height matches text buttons.
 _ICON_SIZE = 24
-_ICON_BUTTON_SIZE = 32
+_ICON_BUTTON_SIZE = 28
 
 
 class ScalableToolbar(QToolBar):
@@ -134,7 +135,7 @@ class ScalableToolbar(QToolBar):
         target_style = Qt.ToolButtonIconOnly if enabled else self._expanded_toolbutton_style
         if self.toolButtonStyle() != target_style:
             super().setToolButtonStyle(target_style)
-        # Icon-only buttons use square aspect ratio (design: same as icon, 32×32 minimum).
+        # Icon-only buttons use square aspect ratio at the shared 28px button height.
         if enabled:
             self.setStyleSheet(
                 f"QToolBar QToolButton {{ min-width: {_ICON_BUTTON_SIZE}px; max-width: {_ICON_BUTTON_SIZE}px; "

@@ -4,6 +4,10 @@
 
 In NetWORKS, workspaces provide a way to organize and manage different sets of devices and their configurations. Each workspace maintains its own collection of devices, groups, and settings, allowing you to switch between different configurations easily.
 
+## Plugin Persistence
+
+Each workspace stores which plugins were **loaded** (active) in that session. When you open a workspace, NetWORKS restores that set of loaded plugins automatically. This state is saved in `workspace.json` as `loaded_plugins` (a list of plugin IDs). On application close, the current loaded plugin list is persisted before plugins are unloaded so the next time you open the same workspace, your plugin selection is restored.
+
 ## UI Layout Persistence
 
 Workspaces now save and restore UI layouts, including:
@@ -55,7 +59,7 @@ Device data is stored inside each workspace under `devices/<device-id>/device.js
     "Core Routers",
     "Edge Switches"
   ],
-  "enabled_plugins": [
+  "loaded_plugins": [
     "sample",
     "network_scanner",
     "device_backup"

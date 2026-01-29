@@ -2,7 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.0] - 2026-01-29
+
+### Changed
+- Version bump to 0.12.0
+
 ## [0.11.5] - 2026-01-28
+
+### Fixed
+- Plugin persistence: loaded plugins for a workspace are now correctly saved on application close and restored when opening the same workspace in a later session. Previously, the workspace was saved again during plugin unload, overwriting `loaded_plugins` with an empty list; shutdown now persists the loaded plugin list once before unloading and skips further workspace saves during close.
 
 ### Changed
 - Version bump to 0.11.5
