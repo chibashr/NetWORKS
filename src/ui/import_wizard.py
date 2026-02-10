@@ -37,6 +37,7 @@ class DeviceImportWizard(QWizard):
         self._updating_preview = False
         self._selected_sheet = None
         self._selected_sheets = []
+        self._mapping_page_initialized = False
 
         self.setWindowTitle("Import Devices")
         self.setMinimumSize(900, 650)
@@ -256,6 +257,19 @@ class DeviceImportWizard(QWizard):
         self.duplicate_strategy_combo.addItem("Overwrite existing", "overwrite")
         self.duplicate_strategy_combo.addItem("Create new entries", "create_new")
         duplicate_layout.addRow("When duplicates are found:", self.duplicate_strategy_combo)
+
+        # Allow the user to choose which field is used to identify duplicates.
+        # The default behavior matches the previous implementation (IP or hostname).
+        self.duplicate_key_combo = QComboBox()
+        self.duplicate_key_combo.addItem("IP address or hostname (default)", None)
+        self.duplicate_key_combo.addItem("IP address", "ip_address")
+        self.duplicate_key_combo.addItem("Hostname", "hostname")
+        self.duplicate_key_combo.addItem("Alias", "alias")
+        self.duplicate_key_combo.addItem("MAC address", "mac_address")
+        self.duplicate_key_combo.addItem("Serial number", "serial_number")
+        self.duplicate_key_combo.addItem("Vendor", "vendor")
+        self.duplicate_key_combo.addItem("Model", "model")
+        duplicate_layout.addRow("Identify duplicates by:", self.duplicate_key_combo)
         options_layout.addWidget(duplicate_group)
 
         self.mark_imported_check = QCheckBox("Add 'imported' tag to devices")
@@ -329,10 +343,24 @@ class DeviceImportWizard(QWizard):
             logger.debug(f"Import file selected: {file_path}")
 
     def _on_page_changed(self, page_id):
-        if self.page(page_id) == self.mapping_page:
-            self._prepare_mapping_page_state()
-            self._populate_mapping_page()
-        elif self.page(page_id) == self.confirm_page:
+        page = self.page(page_id)
+        if page == self.source_page:
+            # When returning to the source page, the user may change the input.
+            # Force the mapping page to be rebuilt next time it is shown.
+            self._mapping_page_initialized = False
+        elif page == self.mapping_page:
+            # Only build the mapping page once per source configuration so that
+            # user edits (field mappings, options, preview settings) are preserved
+            # when navigating back from the confirm page.
+            if not self._mapping_page_initialized:
+                self._prepare_mapping_page_state()
+                self._populate_mapping_page()
+                self._mapping_page_initialized = True
+            else:
+                # Ensure preview/validation stay in sync with the current mapping.
+                self._refresh_effective_preview()
+                self._update_validation_warnings()
+        elif page == self.confirm_page:
             self._update_summary()
 
     def _prepare_data(self):
@@ -858,6 +886,7 @@ class DeviceImportWizard(QWizard):
         options = {
             "field_mapping": field_mapping,
             "duplicate_strategy": duplicate_strategy,
+            "duplicate_key": self.duplicate_key_combo.currentData(),
             "mark_imported": self.mark_imported_check.isChecked(),
             "target_group": target_group,
             "progress_callback": progress_callback,

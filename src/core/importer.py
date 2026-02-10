@@ -687,6 +687,7 @@ class DeviceImporter:
         # Get options
         field_mapping = options.get('field_mapping', {})
         duplicate_strategy = options.get('duplicate_strategy')
+        duplicate_key = options.get('duplicate_key')
         skip_duplicates = options.get('skip_duplicates', False)
         mark_imported = options.get('mark_imported', True)
         target_group = options.get('target_group', None)
@@ -694,7 +695,7 @@ class DeviceImporter:
         
         if not duplicate_strategy:
             duplicate_strategy = "skip" if skip_duplicates else "create_new"
-        
+
         # If no field mapping provided, try to auto-detect
         if not field_mapping:
             field_mapping = self._auto_detect_field_mapping(headers)
@@ -702,16 +703,29 @@ class DeviceImporter:
         # Check for duplicates if needed
         existing_ips = {}
         existing_hostnames = {}
-        
+        existing_by_key = {}
+
         if duplicate_strategy in ["skip", "overwrite"]:
-            for device in self.device_manager.get_devices():
-                ip = device.get_property("ip_address")
-                hostname = device.get_property("hostname")
-                
-                if ip and ip.strip():
-                    existing_ips[ip.strip()] = device
-                if hostname and hostname.strip():
-                    existing_hostnames[hostname.strip()] = device
+            # When a specific duplicate key is selected, use that property for
+            # duplicate detection. Otherwise, preserve the original behavior
+            # that checks by IP address and then hostname.
+            if duplicate_key:
+                for device in self.device_manager.get_devices():
+                    value = device.get_property(duplicate_key)
+                    if value is None:
+                        continue
+                    key_val = str(value).strip()
+                    if key_val:
+                        existing_by_key[key_val] = device
+            else:
+                for device in self.device_manager.get_devices():
+                    ip = device.get_property("ip_address")
+                    hostname = device.get_property("hostname")
+
+                    if ip and str(ip).strip():
+                        existing_ips[str(ip).strip()] = device
+                    if hostname and str(hostname).strip():
+                        existing_hostnames[str(hostname).strip()] = device
         
         # Process each row and create devices (bulk: save workspace once at end)
         total_rows = len(data)
@@ -811,20 +825,33 @@ class DeviceImporter:
             # Check for duplicates
             duplicate_device = None
             if duplicate_strategy in ["skip", "overwrite"]:
-                ip = str(device_props.get("ip_address", "") or "").strip()
-                hostname = str(device_props.get("hostname", "") or "").strip()
-                
-                if ip and ip in existing_ips:
-                    duplicate_device = existing_ips[ip]
-                elif hostname and hostname in existing_hostnames:
-                    duplicate_device = existing_hostnames[hostname]
+                if duplicate_key:
+                    key_val = str(device_props.get(duplicate_key, "") or "").strip()
+                    if key_val and key_val in existing_by_key:
+                        duplicate_device = existing_by_key[key_val]
+                else:
+                    ip = str(device_props.get("ip_address", "") or "").strip()
+                    hostname = str(device_props.get("hostname", "") or "").strip()
+
+                    if ip and ip in existing_ips:
+                        duplicate_device = existing_ips[ip]
+                    elif hostname and hostname in existing_hostnames:
+                        duplicate_device = existing_hostnames[hostname]
                     
                 if duplicate_device and duplicate_strategy == "skip":
-                    logger.debug("Skipping duplicate device based on IP/hostname")
+                    logger.debug("Skipping duplicate device based on configured duplicate key")
+                    if duplicate_key:
+                        reason = (
+                            f"Row {row_index}: duplicate based on '{duplicate_key}'; "
+                            "existing device kept."
+                        )
+                    else:
+                        reason = (
+                            f"Row {row_index}: duplicate based on IP/hostname; "
+                            "existing device kept."
+                        )
                     stats["skipped_count"] += 1
-                    stats["skipped_reasons"].append(
-                        f"Row {row_index}: duplicate based on IP/hostname; existing device kept."
-                    )
+                    stats["skipped_reasons"].append(reason)
                     continue
             
             # Add imported tag if option is selected
@@ -888,12 +915,17 @@ class DeviceImporter:
                 
                 # Update tracking for duplicates
                 if duplicate_strategy in ["skip", "overwrite"]:
-                    ip = str(device_props.get("ip_address", "") or "").strip()
-                    hostname = str(device_props.get("hostname", "") or "").strip()
-                    if ip:
-                        existing_ips[ip] = device
-                    if hostname:
-                        existing_hostnames[hostname] = device
+                    if duplicate_key:
+                        key_val = str(device_props.get(duplicate_key, "") or "").strip()
+                        if key_val:
+                            existing_by_key[key_val] = device
+                    else:
+                        ip = str(device_props.get("ip_address", "") or "").strip()
+                        hostname = str(device_props.get("hostname", "") or "").strip()
+                        if ip:
+                            existing_ips[ip] = device
+                        if hostname:
+                            existing_hostnames[hostname] = device
                 
                 stats["imported_count"] += 1
                 
