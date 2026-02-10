@@ -9,11 +9,13 @@ import os
 from loguru import logger
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
     QWizard, QWizardPage, QVBoxLayout, QHBoxLayout, QFormLayout, QGroupBox,
     QLabel, QLineEdit, QPushButton, QCheckBox, QComboBox, QTableWidget,
     QTableWidgetItem, QAbstractItemView, QPlainTextEdit, QFileDialog,
-    QMessageBox, QTabWidget, QSpinBox, QProgressDialog
+    QMessageBox, QTabWidget, QSpinBox, QProgressDialog, QSplitter,
+    QScrollArea, QFrame, QSizePolicy,
 )
 
 from ..core.importer import DeviceImporter
@@ -32,17 +34,34 @@ class DeviceImportWizard(QWizard):
         self._headers = []
         self._field_mapping = {}
         self._preview_rows = 10
+        self._updating_preview = False
+        self._selected_sheet = None
+        self._selected_sheets = []
 
         self.setWindowTitle("Import Devices")
         self.setMinimumSize(900, 650)
+        if self.layout():
+            # Tighten outer margins so the top border gap is minimal
+            self.layout().setContentsMargins(4, 4, 4, 4)
 
         self._create_pages()
         self.currentIdChanged.connect(self._on_page_changed)
 
+        # Ensure wizard buttons follow consistent sizing guidelines
+        for button_role in (
+            QWizard.BackButton,
+            QWizard.NextButton,
+            QWizard.FinishButton,
+            QWizard.CancelButton,
+        ):
+            btn = self.button(button_role)
+            if btn is not None:
+                btn.setMinimumHeight(28)
+                btn.setMinimumWidth(90)
+
     def _create_pages(self):
         self._create_source_page()
         self._create_mapping_page()
-        self._create_options_page()
         self._create_confirm_page()
 
     def _create_source_page(self):
@@ -51,6 +70,7 @@ class DeviceImportWizard(QWizard):
         self.source_page.setSubTitle("Choose a file or paste text data")
 
         layout = QVBoxLayout(self.source_page)
+        layout.setContentsMargins(8, 8, 8, 8)
 
         self.source_tabs = QTabWidget()
 
@@ -87,11 +107,6 @@ class DeviceImportWizard(QWizard):
         )
         file_options_layout.addRow("Text Encoding:", self.file_encoding_combo)
 
-        self.file_skip_rows_spin = QSpinBox()
-        self.file_skip_rows_spin.setRange(0, 100)
-        self.file_skip_rows_spin.setToolTip("Skip rows after the header row is processed")
-        file_options_layout.addRow("Skip Rows:", self.file_skip_rows_spin)
-
         file_layout.addWidget(file_options_group)
 
         self.source_tabs.addTab(file_tab, "File")
@@ -113,11 +128,6 @@ class DeviceImportWizard(QWizard):
         self.text_has_header_check.setChecked(True)
         text_options_layout.addRow("", self.text_has_header_check)
 
-        self.text_skip_rows_spin = QSpinBox()
-        self.text_skip_rows_spin.setRange(0, 100)
-        self.text_skip_rows_spin.setToolTip("Skip rows after the header row is processed")
-        text_options_layout.addRow("Skip Rows:", self.text_skip_rows_spin)
-
         text_layout.addWidget(text_options_group)
 
         self.text_edit = QPlainTextEdit()
@@ -134,6 +144,12 @@ class DeviceImportWizard(QWizard):
 
         layout.addWidget(self.source_tabs)
 
+        # Placeholder labels that will be updated after auto-detection runs
+        self.auto_detect_info_label = QLabel("")
+        self.auto_detect_info_label.setWordWrap(True)
+        self.auto_detect_info_label.setStyleSheet("color: #6B7280; font-size: 11px;")
+        layout.addWidget(self.auto_detect_info_label)
+
         def is_complete():
             if self.source_tabs.currentIndex() == 0:
                 return bool(self.file_path_edit.text().strip())
@@ -148,47 +164,76 @@ class DeviceImportWizard(QWizard):
     def _create_mapping_page(self):
         self.mapping_page = QWizardPage()
         self.mapping_page.setTitle("Preview & Field Mapping")
-        self.mapping_page.setSubTitle("Review data and map fields to device properties")
+        self.mapping_page.setSubTitle("Review data, map fields, and configure import options")
 
-        layout = QVBoxLayout(self.mapping_page)
+        page_layout = QVBoxLayout(self.mapping_page)
+        page_layout.setContentsMargins(8, 8, 8, 8)
 
+        # Top bar: worksheet and skip rows (full width)
+        controls_layout = QHBoxLayout()
+        self.sheet_label = QLabel("Worksheet:")
+        self.sheet_combo = QComboBox()
+        self.sheet_label.setVisible(False)
+        self.sheet_combo.setVisible(False)
+        self.sheet_combo.currentTextChanged.connect(self._on_sheet_changed)
+        controls_layout.addWidget(self.sheet_label)
+        controls_layout.addWidget(self.sheet_combo)
+
+        self.import_all_sheets_check = QCheckBox("Import all worksheets")
+        self.import_all_sheets_check.setVisible(False)
+        self.import_all_sheets_check.toggled.connect(self._on_import_all_sheets_toggled)
+        controls_layout.addWidget(self.import_all_sheets_check)
+
+        controls_layout.addStretch()
+
+        self.preview_skip_rows_label = QLabel("Skip Rows:")
+        self.preview_skip_rows_spin = QSpinBox()
+        self.preview_skip_rows_spin.setRange(0, 100)
+        self.preview_skip_rows_spin.setToolTip(
+            "Skip rows after the header row is processed"
+        )
+        self.preview_skip_rows_spin.valueChanged.connect(
+            self._on_preview_skip_rows_changed
+        )
+        controls_layout.addWidget(self.preview_skip_rows_label)
+        controls_layout.addWidget(self.preview_skip_rows_spin)
+
+        page_layout.addLayout(controls_layout)
+
+        # Paneled content: left = field mapping + import options, right = preview (larger)
+        splitter = QSplitter(Qt.Horizontal)
+
+        # Left panel: field mapping and import options
+        left_widget = QFrame()
+        left_widget.setFrameShape(QFrame.NoFrame)
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+
+        mapping_group = QGroupBox("Field Mapping")
+        mapping_group_layout = QVBoxLayout(mapping_group)
         self.mapping_table = QTableWidget()
         self.mapping_table.setColumnCount(2)
         self.mapping_table.setHorizontalHeaderLabels(["Field", "Device Property"])
         self.mapping_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.mapping_table.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(self.mapping_table)
+        mapping_group_layout.addWidget(self.mapping_table)
 
         self.mapping_warning_label = QLabel("")
         self.mapping_warning_label.setStyleSheet("color: #a04a00;")
         self.mapping_warning_label.setWordWrap(True)
-        layout.addWidget(self.mapping_warning_label)
+        mapping_group_layout.addWidget(self.mapping_warning_label)
+        left_layout.addWidget(mapping_group)
 
-        preview_group = QGroupBox("Data Preview")
-        preview_layout = QVBoxLayout(preview_group)
-
-        self.preview_table = QTableWidget()
-        preview_layout.addWidget(self.preview_table)
-        layout.addWidget(preview_group)
-
-        self.addPage(self.mapping_page)
-
-    def _create_options_page(self):
-        self.options_page = QWizardPage()
-        self.options_page.setTitle("Import Options")
-        self.options_page.setSubTitle("Configure import behavior")
-
-        layout = QVBoxLayout(self.options_page)
-
+        options_group = QGroupBox("Import Options")
+        options_layout = QVBoxLayout(options_group)
         target_group_label = QLabel("Target Group:")
-        layout.addWidget(target_group_label)
-
+        options_layout.addWidget(target_group_label)
         self.target_group_combo = QComboBox()
         self.target_group_combo.addItem("All Devices")
         for group in self.device_manager.get_groups():
             if group != self.device_manager.root_group:
                 self.target_group_combo.addItem(group.name)
-        layout.addWidget(self.target_group_combo)
+        options_layout.addWidget(self.target_group_combo)
 
         new_group_layout = QHBoxLayout()
         self.new_group_check = QCheckBox("Create new group:")
@@ -202,7 +247,7 @@ class DeviceImportWizard(QWizard):
         self.new_group_check.toggled.connect(toggle_new_group)
         new_group_layout.addWidget(self.new_group_check)
         new_group_layout.addWidget(self.new_group_edit)
-        layout.addLayout(new_group_layout)
+        options_layout.addLayout(new_group_layout)
 
         duplicate_group = QGroupBox("Duplicate Handling")
         duplicate_layout = QFormLayout(duplicate_group)
@@ -211,20 +256,50 @@ class DeviceImportWizard(QWizard):
         self.duplicate_strategy_combo.addItem("Overwrite existing", "overwrite")
         self.duplicate_strategy_combo.addItem("Create new entries", "create_new")
         duplicate_layout.addRow("When duplicates are found:", self.duplicate_strategy_combo)
-        layout.addWidget(duplicate_group)
+        options_layout.addWidget(duplicate_group)
 
         self.mark_imported_check = QCheckBox("Add 'imported' tag to devices")
         self.mark_imported_check.setChecked(True)
-        layout.addWidget(self.mark_imported_check)
+        options_layout.addWidget(self.mark_imported_check)
 
         self.validation_label = QLabel("")
         self.validation_label.setStyleSheet("color: #a04a00;")
         self.validation_label.setWordWrap(True)
-        layout.addWidget(self.validation_label)
+        options_layout.addWidget(self.validation_label)
 
-        layout.addStretch()
+        left_layout.addWidget(options_group)
+        left_layout.addStretch()
 
-        self.addPage(self.options_page)
+        left_scroll = QScrollArea()
+        left_scroll.setWidget(left_widget)
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setFrameShape(QFrame.NoFrame)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        left_scroll.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        left_scroll.setMinimumWidth(280)
+        left_scroll.setMaximumWidth(420)
+        splitter.addWidget(left_scroll)
+
+        # Right panel: preview (effective data, like confirmation page)
+        preview_group = QGroupBox("Preview")
+        preview_group.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        preview_layout = QVBoxLayout(preview_group)
+        self.preview_caption_label = QLabel("")
+        self.preview_caption_label.setStyleSheet("color: #6B7280; font-size: 11px;")
+        preview_layout.addWidget(self.preview_caption_label)
+
+        self.preview_table = QTableWidget()
+        self.preview_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.preview_table.setAlternatingRowColors(True)
+        preview_layout.addWidget(self.preview_table)
+
+        splitter.addWidget(preview_group)
+
+        # Give more space to the right (preview): e.g. left ~35%, right ~65%
+        splitter.setSizes([350, 650])
+        page_layout.addWidget(splitter, 1)
+
+        self.addPage(self.mapping_page)
 
     def _create_confirm_page(self):
         self.confirm_page = QWizardPage()
@@ -232,10 +307,16 @@ class DeviceImportWizard(QWizard):
         self.confirm_page.setSubTitle("Review summary and import devices")
 
         layout = QVBoxLayout(self.confirm_page)
+        layout.setContentsMargins(8, 8, 8, 8)
 
         self.summary_label = QLabel("")
         self.summary_label.setWordWrap(True)
         layout.addWidget(self.summary_label)
+
+        # Final review table showing the rows that will be imported
+        self.review_table = QTableWidget()
+        self.review_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        layout.addWidget(self.review_table)
 
         self.addPage(self.confirm_page)
 
@@ -249,9 +330,8 @@ class DeviceImportWizard(QWizard):
 
     def _on_page_changed(self, page_id):
         if self.page(page_id) == self.mapping_page:
+            self._prepare_mapping_page_state()
             self._populate_mapping_page()
-        elif self.page(page_id) == self.options_page:
-            self._update_validation_warnings()
         elif self.page(page_id) == self.confirm_page:
             self._update_summary()
 
@@ -264,11 +344,16 @@ class DeviceImportWizard(QWizard):
                 "delimiter": self.file_delimiter_combo.currentText(),
                 "has_header": self.file_has_header_check.isChecked(),
                 "encoding": self.file_encoding_combo.currentText(),
-                "skip_rows": self.file_skip_rows_spin.value(),
+                "skip_rows": self.preview_skip_rows_spin.value(),
+                "sheet_name": self._selected_sheet,
+                "sheet_names": self._selected_sheets or None,
             }
-            return self.importer._extract_data_from_file(
+            data, headers = self.importer._extract_data_from_file(
                 file_path, os.path.splitext(file_path)[1].lower(), options
             )
+            # Update auto-detect info if applicable
+            self._update_auto_detect_info()
+            return data, headers
 
         text = self.text_edit.toPlainText().strip()
         if not text:
@@ -276,9 +361,11 @@ class DeviceImportWizard(QWizard):
         options = {
             "delimiter": self.text_delimiter_combo.currentText(),
             "has_header": self.text_has_header_check.isChecked(),
-            "skip_rows": self.text_skip_rows_spin.value(),
+            "skip_rows": self.preview_skip_rows_spin.value(),
         }
-        return self.importer._extract_data_from_text(text, options)
+        data, headers = self.importer._extract_data_from_text(text, options)
+        self._update_auto_detect_info()
+        return data, headers
 
     def _populate_mapping_page(self):
         data, headers = self._prepare_data()
@@ -326,18 +413,9 @@ class DeviceImportWizard(QWizard):
             combo.currentTextChanged.connect(self._update_mapping_warning)
             self.mapping_table.setCellWidget(i, 1, combo)
 
-        max_rows = min(self._preview_rows, len(data))
-        self.preview_table.setRowCount(max_rows)
-        self.preview_table.setColumnCount(len(headers))
-        self.preview_table.setHorizontalHeaderLabels([str(h) for h in headers])
-
-        for row in range(max_rows):
-            for col in range(len(headers)):
-                if col < len(data[row]):
-                    item = QTableWidgetItem(str(data[row][col]))
-                    self.preview_table.setItem(row, col, item)
-
         self._update_mapping_warning()
+        self._refresh_effective_preview()
+        self._update_validation_warnings()
 
     def _collect_field_mapping(self):
         mapping = {}
@@ -387,14 +465,96 @@ class DeviceImportWizard(QWizard):
         return missing
 
     def _update_mapping_warning(self):
-        mapping = self._collect_field_mapping()
-        has_required_mapping = bool(mapping.get("ip_address") or mapping.get("hostname"))
+        self._field_mapping = self._collect_field_mapping()
+        has_required_mapping = bool(
+            self._field_mapping.get("ip_address")
+            or self._field_mapping.get("hostname")
+        )
         if not has_required_mapping:
             self.mapping_warning_label.setText(
                 "Warning: No IP address or hostname mapping is selected."
             )
         else:
             self.mapping_warning_label.setText("")
+        self._refresh_effective_preview()
+
+    def _refresh_effective_preview(self):
+        """Update the right-side preview to show effective data (mapped columns, eligible rows only)."""
+        self.preview_table.clear()
+        self.preview_caption_label.setText("")
+        if not self._data or not self._headers:
+            self.preview_table.setRowCount(0)
+            self.preview_table.setColumnCount(0)
+            return
+
+        field_mapping = self._field_mapping or self._collect_field_mapping()
+        header_index = {header: idx for idx, header in enumerate(self._headers)}
+        ip_headers = field_mapping.get("ip_address", [])
+        host_headers = field_mapping.get("hostname", [])
+
+        # Effective columns: only mapped (non-ignore) in original order
+        effective_headers = []
+        for prop, mapped_headers in field_mapping.items():
+            if prop == "ignore":
+                continue
+            effective_headers.extend(mapped_headers)
+        effective_headers = [h for h in self._headers if h in effective_headers]
+
+        rows_for_import = []
+        for row in self._data:
+            ip_value = ""
+            hostname_value = ""
+            for header in ip_headers:
+                idx = header_index.get(header)
+                if idx is not None and idx < len(row):
+                    ip_value = str(row[idx]).strip() if row[idx] is not None else ""
+                    if ip_value:
+                        break
+            for header in host_headers:
+                idx = header_index.get(header)
+                if idx is not None and idx < len(row):
+                    hostname_value = (
+                        str(row[idx]).strip() if row[idx] is not None else ""
+                    )
+                    if hostname_value:
+                        break
+            if ip_value or hostname_value:
+                rows_for_import.append(row)
+
+        subset = rows_for_import[: self._preview_rows]
+        total_eligible = len(rows_for_import)
+
+        if effective_headers:
+            self.preview_table.setColumnCount(len(effective_headers))
+            self.preview_table.setHorizontalHeaderLabels(
+                [str(h) for h in effective_headers]
+            )
+        self.preview_table.setRowCount(len(subset))
+
+        for row_idx, row in enumerate(subset):
+            for col_idx, header in enumerate(effective_headers):
+                idx = header_index.get(header)
+                value = ""
+                if idx is not None and idx < len(row):
+                    value = str(row[idx]) if row[idx] is not None else ""
+                item = QTableWidgetItem(value)
+                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                self.preview_table.setItem(row_idx, col_idx, item)
+
+        # Caption: subset info
+        if total_eligible == 0:
+            self.preview_caption_label.setText(
+                "No eligible rows (map IP address or hostname). Ignored columns are hidden."
+            )
+        elif len(subset) < total_eligible:
+            self.preview_caption_label.setText(
+                f"Showing first {len(subset)} of {total_eligible} eligible rows. "
+                "Ignored columns are hidden."
+            )
+        else:
+            self.preview_caption_label.setText(
+                f"Showing all {total_eligible} eligible row(s). Ignored columns are hidden."
+            )
 
     def _update_validation_warnings(self):
         self._field_mapping = self._collect_field_mapping()
@@ -432,14 +592,240 @@ class DeviceImportWizard(QWizard):
         warnings = self.validation_label.text().strip()
         warning_text = f"\n\n{warnings}" if warnings else ""
 
+        # Derive counts based on current mapping so the user can see exactly
+        # what will be imported vs skipped.
+        field_mapping = self._collect_field_mapping()
+        self._field_mapping = field_mapping
+        missing_required = self._count_missing_required_rows(
+            self._data, self._headers, field_mapping
+        )
+        eligible_rows = max(data_count - missing_required, 0)
+
         summary = (
-            f"Ready to import {data_count} row(s).\n\n"
+            f"Total rows in data: {data_count}\n"
+            f"Rows with required IP/hostname (eligible for import): {eligible_rows}\n"
+            f"Rows missing IP/hostname (will be skipped): {missing_required}\n\n"
             f"{target}\n"
             f"Duplicate handling: {duplicate_label}\n"
             f"Add 'imported' tag: {'Yes' if self.mark_imported_check.isChecked() else 'No'}"
             f"{warning_text}"
         )
         self.summary_label.setText(summary)
+
+        # Populate the final review table with the rows that will be imported.
+        # This table only shows mapped fields; ignored fields are omitted so the
+        # user can clearly see the effective dataset.
+        self.review_table.clear()
+        if not self._data or not self._headers:
+            self.review_table.setRowCount(0)
+            self.review_table.setColumnCount(0)
+            return
+
+        # Use the current field mapping to determine which rows have required
+        # fields and which columns are actually imported.
+        header_index = {header: idx for idx, header in enumerate(self._headers)}
+        ip_headers = field_mapping.get("ip_address", [])
+        host_headers = field_mapping.get("hostname", [])
+
+        # Build a flat list of effective columns (ignore + unmapped are dropped)
+        effective_headers = []
+        for prop, mapped_headers in field_mapping.items():
+            if prop == "ignore":
+                continue
+            effective_headers.extend(mapped_headers)
+        # Deduplicate while preserving order of appearance in original headers
+        effective_headers = [h for h in self._headers if h in effective_headers]
+
+        rows_for_import = []
+        for row in self._data:
+            ip_value = ""
+            hostname_value = ""
+            for header in ip_headers:
+                idx = header_index.get(header)
+                if idx is not None and idx < len(row):
+                    ip_value = str(row[idx]).strip() if row[idx] is not None else ""
+                    if ip_value:
+                        break
+            for header in host_headers:
+                idx = header_index.get(header)
+                if idx is not None and idx < len(row):
+                    hostname_value = (
+                        str(row[idx]).strip() if row[idx] is not None else ""
+                    )
+                    if hostname_value:
+                        break
+            if ip_value or hostname_value:
+                rows_for_import.append(row)
+
+        self.review_table.setColumnCount(len(effective_headers))
+        self.review_table.setHorizontalHeaderLabels([str(h) for h in effective_headers])
+        self.review_table.setRowCount(len(rows_for_import))
+
+        for row_idx, row in enumerate(rows_for_import):
+            for col_idx, header in enumerate(effective_headers):
+                idx = header_index.get(header)
+                value = ""
+                if idx is not None and idx < len(row):
+                    value = str(row[idx]) if row[idx] is not None else ""
+                item = QTableWidgetItem(value)
+                self.review_table.setItem(row_idx, col_idx, item)
+
+    def _prepare_mapping_page_state(self):
+        """Prepare mapping-page-specific state before populating data."""
+        # Load worksheet list for Excel files when applicable
+        if self.source_tabs.currentIndex() == 0:
+            file_path = self.file_path_edit.text().strip()
+            self._load_sheet_names(file_path)
+        else:
+            # Text source has no sheets
+            self._selected_sheet = None
+            self._selected_sheets = []
+            self.sheet_label.setVisible(False)
+            self.sheet_combo.setVisible(False)
+            self.import_all_sheets_check.setVisible(False)
+
+        # Ensure preview skip-rows starts at zero for fresh configuration
+        self.preview_skip_rows_spin.blockSignals(True)
+        if self.preview_skip_rows_spin.value() < 0:
+            self.preview_skip_rows_spin.setValue(0)
+        self.preview_skip_rows_spin.blockSignals(False)
+
+    def _load_sheet_names(self, file_path: str):
+        """Load worksheet names for an Excel file into the sheet selector."""
+        self.sheet_combo.blockSignals(True)
+        self.sheet_combo.clear()
+        self.sheet_combo.blockSignals(False)
+        self.sheet_label.setVisible(False)
+        self.sheet_combo.setVisible(False)
+        self._selected_sheet = None
+        self._selected_sheets = []
+        self.import_all_sheets_check.setVisible(False)
+        self.import_all_sheets_check.setChecked(False)
+
+        if not file_path or not os.path.exists(file_path):
+            return
+        ext = os.path.splitext(file_path)[1].lower()
+        if ext not in (".xlsx", ".xls"):
+            return
+
+        try:
+            sheet_names = self.importer.get_excel_sheet_names(file_path)
+        except Exception as exc:
+            logger.error(f"Failed to get Excel sheet names: {exc}", exc_info=True)
+            return
+
+        if not sheet_names:
+            return
+
+        self.sheet_combo.blockSignals(True)
+        for name in sheet_names:
+            self.sheet_combo.addItem(name)
+        self.sheet_combo.blockSignals(False)
+
+        # Select the first sheet by default
+        self._selected_sheet = sheet_names[0]
+        self.sheet_combo.setCurrentIndex(0)
+        self.sheet_label.setVisible(True)
+        self.sheet_combo.setVisible(True)
+        self.import_all_sheets_check.setVisible(True)
+
+    def _on_sheet_changed(self, sheet_name: str):
+        """Handle user changing the worksheet selection."""
+        if self.import_all_sheets_check.isChecked():
+            # When importing all sheets, individual selection is informational only
+            self._selected_sheet = None
+        else:
+            self._selected_sheet = sheet_name or None
+        self._selected_sheets = []
+        # Refresh data and preview based on the newly selected sheet
+        self._populate_mapping_page()
+
+    def _on_import_all_sheets_toggled(self, checked: bool):
+        """Toggle between single-sheet import and all-sheets import."""
+        if checked:
+            # Cache all sheet names from the combo
+            self._selected_sheets = [
+                self.sheet_combo.itemText(i) for i in range(self.sheet_combo.count())
+            ]
+            self._selected_sheet = None
+        else:
+            self._selected_sheets = []
+            current = self.sheet_combo.currentText()
+            self._selected_sheet = current or None
+        self._populate_mapping_page()
+
+    def _on_preview_skip_rows_changed(self, value: int):
+        """When the preview skip-rows is changed, update the active source control and preview."""
+        self._populate_mapping_page()
+
+    def _on_preview_item_changed(self, item: QTableWidgetItem):
+        """Keep the internal data model in sync with edits made in the preview table."""
+        if self._updating_preview:
+            return
+        row = item.row()
+        col = item.column()
+        if row < 0 or col < 0:
+            return
+        if row >= len(self._data):
+            return
+        # Ensure the row has enough columns
+        while len(self._data[row]) <= col:
+            self._data[row].append("")
+        self._data[row][col] = item.text()
+        # Re-evaluate highlighting for this row
+        self._update_preview_error_highlighting()
+
+    def _update_preview_error_highlighting(self):
+        """Highlight rows in the preview that are missing required fields."""
+        if not self._data or not self._headers:
+            return
+        if self.preview_table.rowCount() == 0:
+            return
+
+        field_mapping = self._field_mapping or self._collect_field_mapping()
+        header_index = {header: idx for idx, header in enumerate(self._headers)}
+        ip_headers = field_mapping.get("ip_address", [])
+        host_headers = field_mapping.get("hostname", [])
+
+        for row_idx in range(self.preview_table.rowCount()):
+            # Determine if this row has the required values
+            has_required = False
+            if row_idx < len(self._data):
+                row = self._data[row_idx]
+                ip_value = ""
+                hostname_value = ""
+                for header in ip_headers:
+                    idx = header_index.get(header)
+                    if idx is not None and idx < len(row):
+                        ip_value = (
+                            str(row[idx]).strip() if row[idx] is not None else ""
+                        )
+                        if ip_value:
+                            break
+                for header in host_headers:
+                    idx = header_index.get(header)
+                    if idx is not None and idx < len(row):
+                        hostname_value = (
+                            str(row[idx]).strip() if row[idx] is not None else ""
+                        )
+                        if hostname_value:
+                            break
+                has_required = bool(ip_value or hostname_value)
+
+            # Apply coloring/tooltips to the entire row
+            for col_idx in range(self.preview_table.columnCount()):
+                item = self.preview_table.item(row_idx, col_idx)
+                if item is None:
+                    item = QTableWidgetItem("")
+                    self.preview_table.setItem(row_idx, col_idx, item)
+                if has_required:
+                    item.setBackground(QColor(Qt.white))
+                    item.setToolTip("")
+                else:
+                    item.setBackground(QColor("#ffe6e6"))
+                    item.setToolTip(
+                        "Row is missing both IP address and hostname and will be skipped."
+                    )
 
     def _run_import(self):
         if not self._data or not self._headers:
@@ -484,7 +870,9 @@ class DeviceImportWizard(QWizard):
                     "delimiter": self.file_delimiter_combo.currentText(),
                     "has_header": self.file_has_header_check.isChecked(),
                     "encoding": self.file_encoding_combo.currentText(),
-                    "skip_rows": self.file_skip_rows_spin.value(),
+                    "skip_rows": self.preview_skip_rows_spin.value(),
+                    "sheet_name": self._selected_sheet,
+                    "sheet_names": self._selected_sheets or None,
                 }
             )
             success, stats = self.importer.import_from_file(file_path, options)
@@ -494,7 +882,7 @@ class DeviceImportWizard(QWizard):
                 {
                     "delimiter": self.text_delimiter_combo.currentText(),
                     "has_header": self.text_has_header_check.isChecked(),
-                    "skip_rows": self.text_skip_rows_spin.value(),
+                    "skip_rows": self.preview_skip_rows_spin.value(),
                 }
             )
             success, stats = self.importer.import_from_text(text, options)
@@ -503,24 +891,58 @@ class DeviceImportWizard(QWizard):
         self.import_stats = stats
         self.import_success = success
 
+        # Build a detailed summary including reasons for skipped rows (when available)
+        base_msg = (
+            f"Imported: {stats.get('imported_count', 0)}\n"
+            f"Skipped: {stats.get('skipped_count', 0)}\n"
+            f"Errors: {stats.get('error_count', 0)}"
+        )
+        skipped_reasons = stats.get("skipped_reasons") or []
+        if skipped_reasons:
+            # Only show the first few reasons to avoid overwhelming the dialog
+            max_details = 10
+            reason_lines = "\n".join(
+                f"- {reason}" for reason in skipped_reasons[:max_details]
+            )
+            if len(skipped_reasons) > max_details:
+                reason_lines += f"\n… and {len(skipped_reasons) - max_details} more skipped row(s)."
+            base_msg += "\n\nReasons for skipped rows:\n" + reason_lines
+
         if success:
             QMessageBox.information(
                 self,
                 "Import Successful",
-                f"Successfully imported {stats['imported_count']} device(s).\n"
-                f"Skipped: {stats['skipped_count']}\n"
-                f"Errors: {stats['error_count']}",
+                base_msg,
             )
         else:
             QMessageBox.warning(
                 self,
                 "Import Completed",
-                f"Imported: {stats['imported_count']}\n"
-                f"Skipped: {stats['skipped_count']}\n"
-                f"Errors: {stats['error_count']}",
+                base_msg,
             )
 
         return success
+
+    def _update_auto_detect_info(self):
+        """Show the resolved delimiter/encoding when auto-detect options are used."""
+        parts = []
+        if self.source_tabs.currentIndex() == 0:
+            # File source
+            if self.file_delimiter_combo.currentText() == "Auto-detect":
+                detected = getattr(self.importer, "last_detected_delimiter", None)
+                if detected:
+                    parts.append(f"Detected delimiter: '{detected}'")
+            if self.file_encoding_combo.currentText() == "Auto-detect":
+                detected_enc = getattr(self.importer, "last_detected_encoding", None)
+                if detected_enc:
+                    parts.append(f"Detected encoding: {detected_enc}")
+        else:
+            # Text source
+            if self.text_delimiter_combo.currentText() == "Auto-detect":
+                detected = getattr(self.importer, "last_detected_delimiter", None)
+                if detected:
+                    parts.append(f"Detected delimiter: '{detected}'")
+        self.auto_detect_info_label.setText(" • ".join(parts))
 
     def accept(self):
         try:

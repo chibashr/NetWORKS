@@ -538,4 +538,10 @@ def apply_theme(
     )
     combined = build_stylesheet(tokens) + (extra_stylesheet or "")
     app.setStyleSheet(combined)
+    # Ensure primitive controls (like spin box arrows) respect theme colors.
+    # These often ignore QSS and use the palette's ButtonText role instead.
+    palette = app.palette()
+    button_text_color = tokens.text_muted if tokens.name == "light" else tokens.text
+    palette.setColor(QPalette.ButtonText, QColor(button_text_color))
+    app.setPalette(palette)
     return tokens

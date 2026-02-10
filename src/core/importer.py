@@ -41,6 +41,9 @@ class DeviceImporter:
             device_manager: The device manager instance to add imported devices to
         """
         self.device_manager = device_manager
+        # These are updated during auto-detection and can be surfaced in the UI.
+        self.last_detected_encoding = None
+        self.last_detected_delimiter = None
     
     def import_from_file(self, file_path, options=None):
         """Import devices from a file
@@ -158,6 +161,8 @@ class DeviceImporter:
             tuple: (data, headers) where data is a list of rows and headers is a list of column names
         """
         has_header = options.get('has_header', True)
+        sheet_name = options.get('sheet_name')
+        sheet_names = options.get('sheet_names')
         
         has_pandas = _try_import_pandas()
         if file_ext == '.xlsx' or (file_ext == '.xls' and has_pandas):
@@ -173,17 +178,35 @@ class DeviceImporter:
             try:
                 pd = get_pandas()
                 engine = 'xlrd' if file_ext == '.xls' else None
-                df = pd.read_excel(file_path, engine=engine)
-                logger.debug(f"Excel file loaded with {len(df)} rows")
-                
-                if has_header:
-                    headers = df.columns.tolist()
-                    data = df.values.tolist()
+                # Support importing multiple worksheets when requested.
+                if sheet_names:
+                    df_dict = pd.read_excel(file_path, sheet_name=sheet_names, engine=engine)
+                    frames = []
+                    headers = None
+                    for name in sheet_names:
+                        frame = df_dict.get(name)
+                        if frame is None:
+                            continue
+                        if headers is None:
+                            headers = frame.columns.tolist() if has_header else [
+                                f"Column {i+1}" for i in range(len(frame.columns))
+                            ]
+                        # Align columns with the first sheet's headers
+                        frame = frame.reindex(columns=headers, fill_value=None)
+                        frames.append(frame)
+                    if not frames or headers is None:
+                        return [], None
+                    df = pd.concat(frames, ignore_index=True)
                 else:
-                    # Use row 0 as data, create generic headers
-                    headers = [f"Column {i+1}" for i in range(len(df.columns))]
-                    data = df.values.tolist()
-                    
+                    # Use specific sheet when provided, otherwise default to first sheet
+                    df = pd.read_excel(file_path, sheet_name=sheet_name or 0, engine=engine)
+                    logger.debug(f"Excel file loaded with {len(df)} rows")
+                    headers = df.columns.tolist() if has_header else [
+                        f"Column {i+1}" for i in range(len(df.columns))
+                    ]
+
+                data = df.values.tolist()
+
                 return data, headers
             except Exception as e:
                 logger.error(f"Error reading Excel file with pandas: {e}", exc_info=True)
@@ -215,25 +238,63 @@ class DeviceImporter:
         skip_rows = max(int(options.get('skip_rows', 0)), 0)
         
         try:
-            # Use xlrd directly
-            workbook = xlrd.open_workbook(file_path)
-            sheet = workbook.sheet_by_index(0)
-            logger.debug(f"XLS file loaded with {sheet.nrows} rows")
-            
-            # Get all rows
-            all_rows = [sheet.row_values(i) for i in range(sheet.nrows)]
-            
-            if has_header and len(all_rows) > 0:
-                headers = all_rows[0]
-                data = all_rows[1:]
+            xlrd_mod = get_xlrd()
+            if not xlrd_mod:
+                return [], None
+            workbook = xlrd_mod.open_workbook(file_path)
+            sheet_name = options.get('sheet_name')
+            sheet_names = options.get('sheet_names')
+
+            def _load_sheet(s):
+                logger.debug(f"XLS sheet '{s.name}' loaded with {s.nrows} rows")
+                all_rows = [s.row_values(i) for i in range(s.nrows)]
+                if has_header and len(all_rows) > 0:
+                    hdrs = all_rows[0]
+                    rows = all_rows[1:]
+                else:
+                    hdrs = [f"Column {i+1}" for i in range(s.ncols)]
+                    rows = all_rows
+                return hdrs, rows
+
+            combined_data = []
+            headers = None
+
+            if sheet_names:
+                for name in sheet_names:
+                    try:
+                        sheet = workbook.sheet_by_name(name)
+                    except Exception:
+                        continue
+                    hdrs, rows = _load_sheet(sheet)
+                    if headers is None:
+                        headers = hdrs
+                    # Align column counts
+                    if len(hdrs) != len(headers):
+                        # Extend or truncate rows to match header length
+                        adjusted_rows = []
+                        for r in rows:
+                            if len(r) < len(headers):
+                                r = r + [None] * (len(headers) - len(r))
+                            adjusted_rows.append(r[: len(headers)])
+                        rows = adjusted_rows
+                    combined_data.extend(rows)
             else:
-                headers = [f"Column {i+1}" for i in range(sheet.ncols)]
-                data = all_rows
-                
+                if sheet_name:
+                    try:
+                        sheet = workbook.sheet_by_name(sheet_name)
+                    except Exception:
+                        sheet = workbook.sheet_by_index(0)
+                else:
+                    sheet = workbook.sheet_by_index(0)
+                headers, combined_data = _load_sheet(sheet)
+
+            if headers is None:
+                return [], None
+
             if skip_rows:
-                data = data[skip_rows:]
-                
-            return data, headers
+                combined_data = combined_data[skip_rows:]
+
+            return combined_data, headers
         except Exception as e:
             logger.error(f"Error reading Excel file with xlrd: {e}", exc_info=True)
             return [], None
@@ -256,25 +317,59 @@ class DeviceImporter:
             if not openpyxl_mod:
                 return [], None
             workbook = openpyxl_mod.load_workbook(file_path, read_only=True, data_only=True)
-            sheet = workbook.active
-            rows = list(sheet.iter_rows(values_only=True))
-            if not rows:
+            sheet_name = options.get('sheet_name')
+            sheet_names = options.get('sheet_names')
+
+            def _rows_from_sheet(s):
+                rows_local = list(s.iter_rows(values_only=True))
+                if not rows_local:
+                    return None, []
+                rows_local = [list(row) for row in rows_local]
+                if has_header and len(rows_local) > 0:
+                    hdrs = [str(value) if value is not None else "" for value in rows_local[0]]
+                    data_local = rows_local[1:]
+                else:
+                    hdrs = [f"Column {i+1}" for i in range(len(rows_local[0]))]
+                    data_local = rows_local
+                return hdrs, data_local
+
+            headers = None
+            combined_data = []
+
+            if sheet_names:
+                for name in sheet_names:
+                    if name not in workbook.sheetnames:
+                        continue
+                    sheet = workbook[name]
+                    hdrs, data_local = _rows_from_sheet(sheet)
+                    if hdrs is None:
+                        continue
+                    if headers is None:
+                        headers = hdrs
+                    # Align column counts
+                    if len(hdrs) != len(headers):
+                        adjusted_rows = []
+                        for r in data_local:
+                            if len(r) < len(headers):
+                                r = r + [None] * (len(headers) - len(r))
+                            adjusted_rows.append(r[: len(headers)])
+                        data_local = adjusted_rows
+                    combined_data.extend(data_local)
+            else:
+                if sheet_name and sheet_name in workbook.sheetnames:
+                    sheet = workbook[sheet_name]
+                else:
+                    sheet = workbook.active
+                headers, combined_data = _rows_from_sheet(sheet)
+
+            if headers is None:
                 logger.warning("No rows found in XLSX file")
                 return [], None
-                
-            rows = [list(row) for row in rows]
-            
-            if has_header and len(rows) > 0:
-                headers = [str(value) if value is not None else "" for value in rows[0]]
-                data = rows[1:]
-            else:
-                headers = [f"Column {i+1}" for i in range(len(rows[0]))]
-                data = rows
-                
+
             if skip_rows:
-                data = data[skip_rows:]
-                
-            return data, headers
+                combined_data = combined_data[skip_rows:]
+
+            return combined_data, headers
         except Exception as e:
             logger.error(f"Error reading Excel file with openpyxl: {e}", exc_info=True)
             return [], None
@@ -354,6 +449,7 @@ class DeviceImporter:
                         logger.debug(f"Detected encoding: {encoding} (confidence: {result.get('confidence', 0):.2f})")
                         if not encoding:
                             encoding = 'utf-8'  # Fallback to UTF-8
+                        self.last_detected_encoding = encoding
                 except Exception as e:
                     logger.error(f"Error detecting file encoding: {e}")
                     encoding = 'utf-8'  # Fallback to UTF-8
@@ -363,10 +459,10 @@ class DeviceImporter:
                 encoding = 'utf-8'
         else:
             encoding = encoding_option
+            self.last_detected_encoding = encoding
             
         delimiter = options.get('delimiter', ',')
         has_header = options.get('has_header', True)
-        skip_rows = max(int(options.get('skip_rows', 0)), 0)
         skip_rows = max(int(options.get('skip_rows', 0)), 0)
         
         # Handle different delimiter options
@@ -390,9 +486,11 @@ class DeviceImporter:
                     try:
                         delimiter = csv.Sniffer().sniff(sample).delimiter
                         logger.debug(f"Auto-detected delimiter: '{delimiter}'")
+                        self.last_detected_delimiter = delimiter
                     except Exception:
                         delimiter = ','
                         logger.debug("Could not auto-detect delimiter, defaulting to comma")
+                        self.last_detected_delimiter = delimiter
                         
                 reader = csv.reader(f, delimiter=delimiter)
                 rows = list(reader)
@@ -442,6 +540,7 @@ class DeviceImporter:
         # Get options
         delimiter = options.get('delimiter', ',')
         has_header = options.get('has_header', True)
+        skip_rows = max(int(options.get('skip_rows', 0)), 0)
         
         # Handle different delimiter options
         delimiter_map = {
@@ -487,6 +586,7 @@ class DeviceImporter:
                     delimiter = csv.Sniffer().sniff(sample).delimiter
                 except Exception:
                     delimiter = ','
+                self.last_detected_delimiter = delimiter
                     
             logger.debug(f"Processing as CSV with delimiter: '{delimiter}'")
             f = io.StringIO(text)
@@ -524,7 +624,40 @@ class DeviceImporter:
         except Exception as e:
             logger.error(f"Error parsing CSV text: {e}", exc_info=True)
             return [], None
-    
+
+    def get_excel_sheet_names(self, file_path):
+        """Return a list of worksheet names for an Excel file.
+
+        This is used by the import wizard UI to let users choose
+        which worksheet to import from when a file has multiple sheets.
+        """
+        sheet_names = []
+        try:
+            file_ext = os.path.splitext(file_path)[1].lower()
+            if file_ext not in [".xlsx", ".xls"]:
+                return sheet_names
+
+            # Prefer pandas if available for consistent behavior
+            if _try_import_pandas():
+                pd = get_pandas()
+                excel_file = pd.ExcelFile(file_path)
+                return list(excel_file.sheet_names)
+
+            if file_ext == ".xlsx" and HAS_OPENPYXL:
+                openpyxl_mod = get_openpyxl()
+                if openpyxl_mod:
+                    workbook = openpyxl_mod.load_workbook(file_path, read_only=True)
+                    return list(workbook.sheetnames)
+
+            if file_ext == ".xls" and HAS_XLRD:
+                xlrd_mod = get_xlrd()
+                if xlrd_mod:
+                    workbook = xlrd_mod.open_workbook(file_path)
+                    return list(workbook.sheet_names())
+        except Exception as e:
+            logger.error(f"Error getting Excel sheet names: {e}", exc_info=True)
+        return sheet_names
+        
     def _import_data(self, data, headers, options):
         """Import device data from extracted rows
         
@@ -546,7 +679,9 @@ class DeviceImporter:
         stats = {
             "imported_count": 0,
             "skipped_count": 0,
-            "error_count": 0
+            "error_count": 0,
+            # Optional details for UI to explain why rows were skipped
+            "skipped_reasons": [],
         }
         
         # Get options
@@ -582,7 +717,9 @@ class DeviceImporter:
         total_rows = len(data)
         processed_rows = 0
         self.device_manager.begin_bulk_operation()
+        row_index = 0
         for row_data in data:
+            row_index += 1
             processed_rows += 1
             if progress_callback:
                 progress_callback(processed_rows, total_rows)
@@ -666,6 +803,9 @@ class DeviceImporter:
             if not device_props.get("ip_address") and not device_props.get("hostname"):
                 logger.debug(f"Skipping row with no IP or hostname: {row_data}")
                 stats["skipped_count"] += 1
+                stats["skipped_reasons"].append(
+                    f"Row {row_index}: missing both IP address and hostname."
+                )
                 continue
                 
             # Check for duplicates
@@ -682,6 +822,9 @@ class DeviceImporter:
                 if duplicate_device and duplicate_strategy == "skip":
                     logger.debug("Skipping duplicate device based on IP/hostname")
                     stats["skipped_count"] += 1
+                    stats["skipped_reasons"].append(
+                        f"Row {row_index}: duplicate based on IP/hostname; existing device kept."
+                    )
                     continue
             
             # Add imported tag if option is selected

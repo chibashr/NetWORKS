@@ -2038,21 +2038,110 @@ class PluginManagerDialog(QDialog):
     
     @Slot()
     def on_load_disable_button_clicked(self):
-        """Load the plugin if not loaded, or disable it if loaded (single Load/Disable button)"""
-        current_item = self.plugin_list.currentItem()
-        if not current_item:
+        """
+        Load one or more plugins if not loaded, or disable them if loaded.
+
+        Behaviour:
+        - Single selection: legacy behaviour (load if not loaded, disable if loaded)
+        - Multi-selection:
+            * If all selected plugins are loaded -> disable them all
+            * Otherwise -> attempt to load any that are not yet loaded
+        """
+        items = self._get_selected_plugin_items()
+        if not items:
             return
-        plugin_info = current_item.plugin_info
-        if plugin_info.state.is_loaded:
-            success = self.plugin_manager.disable_plugin(plugin_info.id)
-            if success:
-                plugin_info = self.plugin_manager.get_plugin(plugin_info.id) or plugin_info
-                current_item.plugin_info = plugin_info
-                current_item.update_icon()
-                self.update_details(plugin_info)
-                self._update_action_buttons(plugin_info)
-        else:
-            self.on_load_clicked()
+
+        # Optimised path for single selection to preserve existing UX
+        if len(items) == 1:
+            current_item = items[0]
+            plugin_info = current_item.plugin_info
+            if plugin_info.state.is_loaded:
+                success = self.plugin_manager.disable_plugin(plugin_info.id)
+                if success:
+                    plugin_info = self.plugin_manager.get_plugin(plugin_info.id) or plugin_info
+                    current_item.plugin_info = plugin_info
+                    current_item.update_icon()
+                    self.update_details(plugin_info)
+                    self._update_action_buttons(plugin_info)
+            else:
+                self.on_load_clicked()
+            return
+
+        # Multi-selection behaviour
+        any_loaded = any(item.plugin_info.state.is_loaded for item in items)
+        any_not_loaded = any(not item.plugin_info.state.is_loaded for item in items)
+
+        # Case 1: all selected plugins are loaded -> disable all
+        if any_loaded and not any_not_loaded:
+            disabled_names = []
+            failed_names = []
+            for item in items:
+                info = item.plugin_info
+                plugin_id = info.id
+                success = self.plugin_manager.disable_plugin(plugin_id)
+                # Get fresh info after operation
+                info = self.plugin_manager.get_plugin(plugin_id) or info
+                item.plugin_info = info
+                item.update_icon()
+                if success:
+                    disabled_names.append(info.name or plugin_id)
+                else:
+                    failed_names.append(info.name or plugin_id)
+
+            if disabled_names:
+                QMessageBox.information(
+                    self,
+                    "Plugins Disabled",
+                    "The following plugins have been disabled:\n\n- " + "\n- ".join(disabled_names),
+                )
+            if failed_names:
+                QMessageBox.warning(
+                    self,
+                    "Disable Failed",
+                    "Failed to disable the following plugins:\n\n- " + "\n- ".join(failed_names),
+                )
+
+            # Update details/action buttons based on the last item
+            last_info = items[-1].plugin_info
+            self.update_details(last_info)
+            self._update_action_buttons(last_info)
+            return
+
+        # Case 2: at least one plugin is not loaded -> try to load all not loaded
+        loaded_names = []
+        failed_names = []
+        for item in items:
+            info = item.plugin_info
+            if info.state.is_loaded:
+                continue
+            plugin_id = info.id
+            instance = self.plugin_manager.load_plugin(plugin_id)
+            # Get fresh info
+            info = self.plugin_manager.get_plugin(plugin_id) or info
+            item.plugin_info = info
+            item.update_icon()
+            if instance:
+                loaded_names.append(info.name or plugin_id)
+            else:
+                failed_names.append(info.name or plugin_id)
+
+        if loaded_names:
+            QMessageBox.information(
+                self,
+                "Plugins Loaded",
+                "The following plugins have been loaded:\n\n- " + "\n- ".join(loaded_names),
+            )
+        if failed_names:
+            QMessageBox.warning(
+                self,
+                "Load Failed",
+                "Failed to load the following plugins:\n\n- " + "\n- ".join(failed_names),
+            )
+
+        if items:
+            last_info = items[-1].plugin_info
+            self.update_details(last_info)
+            self._update_action_buttons(last_info)
     
     def _apply_filters(self):
         """Apply text and group filters, with group highlighting"""
@@ -2272,6 +2361,21 @@ class PluginManagerDialog(QDialog):
         if not group_name:
             return []
         return list(self.plugin_groups.get(group_name, []))
+
+    def _get_selected_plugin_items(self):
+        """
+        Return the list of selected QListWidgetItems.
+        Falls back to the current item so keyboard users (or single-click users)
+        still get sensible behaviour.
+        """
+        selected_items = self.plugin_list.selectedItems()
+        if not selected_items:
+            current_item = self.plugin_list.currentItem()
+            if current_item:
+                selected_items = [current_item]
+        # Only keep items that actually have plugin_info attached
+        return [item for item in selected_items if getattr(item, "plugin_info", None)]
+
     def _set_pending_enabled_state(self, plugin_info, enabled, allow_unload=True, show_status=True):
         """Stage an enable/disable change for a plugin"""
         plugin_id = plugin_info.id
@@ -2329,101 +2433,200 @@ class PluginManagerDialog(QDialog):
         
     @Slot()
     def on_load_clicked(self):
-        """Handle load button clicked"""
-        current_item = self.plugin_list.currentItem()
-        if not current_item:
+        """Handle load button clicked (supports multi-selection)"""
+        items = self._get_selected_plugin_items()
+        if not items:
             return
-            
-        plugin_info = current_item.plugin_info
-        plugin_id = plugin_info.id
-        
-        # Attempt to load the plugin immediately (no pending changes)
-        instance = self.plugin_manager.load_plugin(plugin_id)
-        
-        if instance:
-            # Update UI to reflect the new state
-            self.update_details(plugin_info)
-            current_item.update_icon()
+
+        # Single selection: keep existing detailed messaging
+        if len(items) == 1:
+            current_item = items[0]
+            plugin_info = current_item.plugin_info
+            plugin_id = plugin_info.id
+
+            # Attempt to load the plugin immediately (no pending changes)
+            instance = self.plugin_manager.load_plugin(plugin_id)
+
+            if instance:
+                # Update UI to reflect the new state
+                plugin_info = self.plugin_manager.get_plugin(plugin_id) or plugin_info
+                current_item.plugin_info = plugin_info
+                self.update_details(plugin_info)
+                current_item.update_icon()
+                QMessageBox.information(
+                    self,
+                    "Plugin Loaded",
+                    f"Plugin '{plugin_info.name}' has been loaded successfully.",
+                )
+            else:
+                QMessageBox.warning(
+                    self,
+                    "Load Failed",
+                    f"Failed to load plugin '{plugin_info.name}'. Check the logs for details.",
+                )
+            return
+
+        # Multi-selection: load all not-yet-loaded plugins
+        loaded_names = []
+        failed_names = []
+        for item in items:
+            info = item.plugin_info
+            if info.state.is_loaded:
+                continue
+            plugin_id = info.id
+            instance = self.plugin_manager.load_plugin(plugin_id)
+            info = self.plugin_manager.get_plugin(plugin_id) or info
+            item.plugin_info = info
+            item.update_icon()
+            if instance:
+                loaded_names.append(info.name or plugin_id)
+            else:
+                failed_names.append(info.name or plugin_id)
+
+        if loaded_names:
             QMessageBox.information(
-                self, 
-                "Plugin Loaded",
-                f"Plugin '{plugin_info.name}' has been loaded successfully."
+                self,
+                "Plugins Loaded",
+                "The following plugins have been loaded:\n\n- " + "\n- ".join(loaded_names),
             )
-        else:
+        if failed_names:
             QMessageBox.warning(
-                self, 
+                self,
                 "Load Failed",
-                f"Failed to load plugin '{plugin_info.name}'. Check the logs for details."
+                "Failed to load the following plugins:\n\n- " + "\n- ".join(failed_names),
             )
+
+        # Update details/action buttons based on the last item
+        if items:
+            last_info = items[-1].plugin_info
+            self.update_details(last_info)
+            self._update_action_buttons(last_info)
             
     @Slot()
     def on_unload_clicked(self):
-        """Handle unload button clicked"""
-        current_item = self.plugin_list.currentItem()
-        if not current_item:
+        """Handle unload button clicked (supports multi-selection)"""
+        items = self._get_selected_plugin_items()
+        if not items:
             return
-            
-        plugin_info = current_item.plugin_info
-        plugin_id = plugin_info.id
-        
-        logger.debug(f"Unloading plugin via UI: {plugin_id} (current state: {plugin_info.state.name})")
-        
-        # Show "Unloading..." message with busy cursor
+
+        # Single selection path (preserve detailed status bar messaging)
+        if len(items) == 1:
+            current_item = items[0]
+            plugin_info = current_item.plugin_info
+            plugin_id = plugin_info.id
+
+            logger.debug(f"Unloading plugin via UI: {plugin_id} (current state: {plugin_info.state.name})")
+
+            # Show "Unloading..." message with busy cursor
+            self.setCursor(Qt.WaitCursor)
+            self.status_bar.setText(f"Unloading plugin: {plugin_info.name}...")
+            self.status_bar.setStyleSheet("padding: 5px; background-color: #ffe8cc; font-weight: bold;")
+            QApplication.processEvents()  # Ensure the UI updates
+
+            # Attempt to unload the plugin immediately (no pending changes)
+            success = self.plugin_manager.unload_plugin(plugin_id)
+
+            # Get fresh plugin info after unload attempt
+            plugin_info = self.plugin_manager.get_plugin(plugin_id)
+            current_item.plugin_info = plugin_info
+
+            # Restore cursor
+            self.setCursor(Qt.ArrowCursor)
+
+            if success:
+                # Log success for debugging
+                logger.debug(f"Successfully unloaded plugin {plugin_id}, state is now {plugin_info.state.name}")
+
+                # Forcibly update the icon to reflect the new state
+                current_item.update_icon()
+
+                # Update UI to reflect the new state
+                self.update_details(plugin_info)
+
+                # Force update action buttons
+                self._update_action_buttons(plugin_info)
+
+                # Show success message
+                self.status_bar.setText(f"Plugin '{plugin_info.name}' successfully unloaded.")
+                self.status_bar.setStyleSheet("padding: 5px; background-color: #d0f0d0; font-weight: bold;")
+
+                QMessageBox.information(
+                    self,
+                    "Plugin Unloaded",
+                    f"Plugin '{plugin_info.name}' has been unloaded successfully.",
+                )
+            else:
+                # Log failure for debugging
+                logger.error(f"Failed to unload plugin {plugin_id}, state remained {plugin_info.state.name}")
+
+                # Update UI anyway in case of partial state change
+                current_item.update_icon()
+                self.update_details(plugin_info)
+                self._update_action_buttons(plugin_info)
+
+                # Show error message
+                self.status_bar.setText(f"Failed to unload plugin '{plugin_info.name}'. See logs for details.")
+                self.status_bar.setStyleSheet("padding: 5px; background-color: #ffd0d0; font-weight: bold;")
+
+                QMessageBox.warning(
+                    self,
+                    "Unload Failed",
+                    f"Failed to unload plugin '{plugin_info.name}'. Check the logs for details.",
+                )
+            return
+
+        # Multi-selection: unload any loaded plugins in the selection
         self.setCursor(Qt.WaitCursor)
-        self.status_bar.setText(f"Unloading plugin: {plugin_info.name}...")
+        self.status_bar.setText("Unloading selected plugins...")
         self.status_bar.setStyleSheet("padding: 5px; background-color: #ffe8cc; font-weight: bold;")
-        QApplication.processEvents()  # Ensure the UI updates
-        
-        # Attempt to unload the plugin immediately (no pending changes)
-        success = self.plugin_manager.unload_plugin(plugin_id)
-        
-        # Get fresh plugin info after unload attempt
-        plugin_info = self.plugin_manager.get_plugin(plugin_id)
-        current_item.plugin_info = plugin_info
-        
-        # Restore cursor
+        QApplication.processEvents()
+
+        unloaded_names = []
+        failed_names = []
+        for item in items:
+            info = item.plugin_info
+            if not info.state.is_loaded:
+                continue
+            plugin_id = info.id
+            logger.debug(f"Unloading plugin via UI (batch): {plugin_id} (current state: {info.state.name})")
+            success = self.plugin_manager.unload_plugin(plugin_id)
+            info = self.plugin_manager.get_plugin(plugin_id) or info
+            item.plugin_info = info
+            item.update_icon()
+            if success:
+                unloaded_names.append(info.name or plugin_id)
+            else:
+                failed_names.append(info.name or plugin_id)
+
         self.setCursor(Qt.ArrowCursor)
-        
-        if success:
-            # Log success for debugging
-            logger.debug(f"Successfully unloaded plugin {plugin_id}, state is now {plugin_info.state.name}")
-            
-            # Forcibly update the icon to reflect the new state
-            current_item.update_icon()
-            
-            # Update UI to reflect the new state
-            self.update_details(plugin_info)
-            
-            # Force update action buttons
-            self._update_action_buttons(plugin_info)
-            
-            # Show success message
-            self.status_bar.setText(f"Plugin '{plugin_info.name}' successfully unloaded.")
+
+        if unloaded_names:
+            self.status_bar.setText("Selected plugins successfully unloaded.")
             self.status_bar.setStyleSheet("padding: 5px; background-color: #d0f0d0; font-weight: bold;")
-            
             QMessageBox.information(
-                self, 
-                "Plugin Unloaded",
-                f"Plugin '{plugin_info.name}' has been unloaded successfully."
+                self,
+                "Plugins Unloaded",
+                "The following plugins have been unloaded:\n\n- " + "\n- ".join(unloaded_names),
             )
-        else:
-            # Log failure for debugging
-            logger.error(f"Failed to unload plugin {plugin_id}, state remained {plugin_info.state.name}")
-            
-            # Update UI anyway in case of partial state change
-            current_item.update_icon()
-            self.update_details(plugin_info)
-            self._update_action_buttons(plugin_info)
-            
-            # Show error message
-            self.status_bar.setText(f"Failed to unload plugin '{plugin_info.name}'. See logs for details.")
+        elif not failed_names:
+            # Nothing to do (e.g. all were already unloaded)
+            self.status_bar.setText("No loaded plugins found in the current selection.")
+            self.status_bar.setStyleSheet("padding: 5px; background-color: #ffe8cc; font-weight: bold;")
+
+        if failed_names:
+            self.status_bar.setText("Some plugins could not be unloaded. See logs for details.")
             self.status_bar.setStyleSheet("padding: 5px; background-color: #ffd0d0; font-weight: bold;")
-            
             QMessageBox.warning(
-                self, 
+                self,
                 "Unload Failed",
-                f"Failed to unload plugin '{plugin_info.name}'. Check the logs for details."
-            ) 
+                "Failed to unload the following plugins:\n\n- " + "\n- ".join(failed_names),
+            )
+
+        # Update details/action buttons based on the last item
+        if items:
+            last_info = items[-1].plugin_info
+            self.update_details(last_info)
+            self._update_action_buttons(last_info)
 
     @Slot()
     def on_repair_dependencies_clicked(self):

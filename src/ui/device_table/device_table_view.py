@@ -505,10 +505,21 @@ class DeviceTableView(QTableView):
             self._save_column_visibility(selected_columns)
             self._update_header_checkbox_state()
             
-    def show_deduplicate_dialog(self):
-        """Show dialog to deduplicate devices based on a selected column"""
-        # Check if there are enough devices to deduplicate
-        current_devices = self.table_model._devices
+    def show_deduplicate_dialog(self, device_or_devices=None):
+        """Show dialog to deduplicate devices based on a selected column.
+
+        When invoked from the context menu, device_or_devices is the selected
+        device(s); deduplication is scoped to that set. Otherwise all devices
+        in the table are used.
+        """
+        # Scope to selected devices when provided, else all devices
+        if device_or_devices is not None:
+            current_devices = (
+                device_or_devices if isinstance(device_or_devices, list)
+                else [device_or_devices]
+            )
+        else:
+            current_devices = self.table_model._devices
         if len(current_devices) < 2:
             QMessageBox.information(
                 self,
@@ -1275,19 +1286,25 @@ class DeviceTableView(QTableView):
         basic_form = QFormLayout()
         
         # Core property fields
-        alias_edit = QLineEdit(device.get_property("alias", "") if device else "")
+        # Ensure all initial values passed to QLineEdit are strings to avoid
+        # type errors if device properties are stored as non-string types.
+        alias_value = device.get_property("alias", "") if device else ""
+        alias_edit = QLineEdit(str(alias_value) if alias_value is not None else "")
         alias_edit.setPlaceholderText("Device name/alias")
         basic_form.addRow("Alias:", alias_edit)
         
-        hostname_edit = QLineEdit(device.get_property("hostname", "") if device else "")
+        hostname_value = device.get_property("hostname", "") if device else ""
+        hostname_edit = QLineEdit(str(hostname_value) if hostname_value is not None else "")
         hostname_edit.setPlaceholderText("Enter hostname or FQDN")
         basic_form.addRow("Hostname:", hostname_edit)
         
-        ip_edit = QLineEdit(device.get_property("ip_address", "") if device else "")
+        ip_value = device.get_property("ip_address", "") if device else ""
+        ip_edit = QLineEdit(str(ip_value) if ip_value is not None else "")
         ip_edit.setPlaceholderText("Enter IP address")
         basic_form.addRow("IP Address:", ip_edit)
         
-        mac_edit = QLineEdit(device.get_property("mac_address", "") if device else "")
+        mac_value = device.get_property("mac_address", "") if device else ""
+        mac_edit = QLineEdit(str(mac_value) if mac_value is not None else "")
         mac_edit.setPlaceholderText("Enter MAC address")
         basic_form.addRow("MAC Address:", mac_edit)
         
@@ -1306,7 +1323,8 @@ class DeviceTableView(QTableView):
         # Notes tab
         notes_tab = QWidget()
         notes_layout = QVBoxLayout(notes_tab)
-        notes_edit = QTextEdit(device.get_property("notes", "") if device else "")
+        notes_value = device.get_property("notes", "") if device else ""
+        notes_edit = QTextEdit(str(notes_value) if notes_value is not None else "")
         notes_edit.setPlaceholderText("Enter notes about this device")
         notes_layout.addWidget(notes_edit)
         tab_widget.addTab(notes_tab, "Notes")
@@ -1728,10 +1746,13 @@ class DeviceTableView(QTableView):
 
     def on_context_menu(self, pos):
         """Show context menu"""
-        devices = self._get_highlighted_devices()
-        if not devices:
-            checked_devices = self.device_manager.get_selected_devices()
-            devices = checked_devices.copy() if checked_devices else []
+        # Prefer checkbox-based selection (device_manager) for bulk actions.
+        # If nothing is checked, fall back to highlighted rows.
+        checked_devices = self.device_manager.get_selected_devices()
+        if checked_devices:
+            devices = checked_devices.copy()
+        else:
+            devices = self._get_highlighted_devices()
 
         if not devices:
             index = self.indexAt(pos)

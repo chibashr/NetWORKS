@@ -1727,8 +1727,14 @@ class MainWindow(QMainWindow):
                 )
                 
                 if result == QMessageBox.Yes:
-                    for device in devices_to_delete:
-                        self.device_manager.permanently_delete_device(device)
+                    # Perform permanent deletes as a single bulk operation so we only
+                    # save the workspace once instead of per device.
+                    self.device_manager.begin_bulk_operation()
+                    try:
+                        for device in devices_to_delete:
+                            self.device_manager.permanently_delete_device(device)
+                    finally:
+                        self.device_manager.end_bulk_operation()
                         
                     QMessageBox.information(
                         dialog,
