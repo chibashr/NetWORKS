@@ -52,8 +52,10 @@ See [docs/plugins/publishing.md](../plugins/publishing.md) for plugin release fl
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
 | release-core.yml | Push to stable (core paths) | Bump version, tag, trigger build |
-| release-windows.yml | Push tag v* | Build zip, create GitHub Release |
-| release-plugins.yml | Push to stable (plugins/**) | Build and publish plugin packages |
+| release-windows.yml | Push tag v* | Build core zip + plugin zips, create GitHub Release (both appear on same release) |
+| release-plugins.yml | Push to stable (plugins/**) | Build and publish plugin packages to standalone "plugins" release |
+
+Each versioned release (e.g. v0.12.5) includes both the core zip (`NetWORKS-Repo-X.Y.Z.zip`) and individual plugin zips as separate downloadable assets.
 
 ## CHANGELOG Conventions
 

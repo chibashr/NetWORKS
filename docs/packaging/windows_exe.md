@@ -24,11 +24,11 @@ The release zip contains the top-level `NetWORKS` folder.
 
 ## GitHub Actions Release
 
-The workflow `Release Windows Zip` builds and publishes a repository zip when you push a tag:
+The workflow `Release Windows Zip` builds and publishes when you push a tag:
 
 1. Create a tag like `v1.0.0` and push it to GitHub.
-2. The workflow builds `dist/NetWORKS-Repo-<version>.zip`.
-3. The zip is attached to the GitHub Release for that tag.
+2. The workflow builds the core zip (`NetWORKS-Repo-<version>.zip`) and plugin zips.
+3. Both are attached to the same GitHub Release as separate downloadable assets.
 
 You can also run the workflow manually from the Actions tab to create a release:
 

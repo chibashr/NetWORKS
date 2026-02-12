@@ -21,6 +21,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Determine release version
         id: version
         shell: pwsh
@@ -52,7 +57,7 @@ jobs:
           $notes += "`n`n---`n`n**Automatic Updates:** This release supports automatic updates via Git. When you extract the zip and run NetWORKS, the update system will automatically initialize a Git repository on first update, enabling seamless future updates."
           $notes | Out-File -FilePath "release_notes.md" -Encoding utf8
 
-      - name: Package repository zip
+      - name: Package repository zip (core)
         shell: pwsh
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
@@ -68,6 +73,9 @@ jobs:
           if (Test-Path $zip) { Remove-Item $zip -Force }
           Compress-Archive -Path $staging -DestinationPath $zip -Force
 
+      - name: Build plugin packages
+        run: python scripts/build_plugin_package.py --all
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -81,6 +89,8 @@ jobs:
           token: ${{ secrets.RELEASE_TOKEN != '' && secrets.RELEASE_TOKEN || github.token }}
           files: |
             dist/NetWORKS-Repo-${{ steps.version.outputs.version }}.zip
+            dist/plugins/*.zip
+          fail_on_unmatched_files: false
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || steps.version.outputs.tag }}
           name: NetWORKS ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || steps.version.outputs.tag }}
           body_path: release_notes.md

@@ -78,11 +78,11 @@ def _run_trap_receiver_loop(host: str, port: int, on_trap: Callable, stop_event:
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     dispatcher = AsyncioDispatcher()
-    dispatcher.register_recv_callback(callback)
+    dispatcher.registerRecvCbFun(callback)
     try:
         transport = udp.UdpAsyncioTransport().open_server_mode((host, port))
-        dispatcher.register_transport(udp.DOMAIN_NAME, transport)
-        dispatcher.job_started(1)
+        dispatcher.registerTransport(udp.DOMAIN_NAME, transport)
+        dispatcher.jobStarted(1)
         logger.info(f"SNMP trap receiver listening on {host}:{port}")
         while not stop_event.is_set():
             loop.run_until_complete(asyncio.sleep(0.5))
@@ -90,7 +90,7 @@ def _run_trap_receiver_loop(host: str, port: int, on_trap: Callable, stop_event:
         logger.error(f"Trap receiver error: {e}")
     finally:
         try:
-            dispatcher.close_dispatcher()
+            dispatcher.closeDispatcher()
         except Exception:
             pass
         loop.close()
