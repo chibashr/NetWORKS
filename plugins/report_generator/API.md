@@ -1,5 +1,7 @@
 # Report Generator API Documentation
 
+Available from **Plugin Manager → Browse**.
+
 ## Overview
 
 The Report Generator plugin adds a report builder UI to create tabular or template-based reports from devices. Reports can be exported to HTML, JSON, CSV, and TXT and are stored per workspace.

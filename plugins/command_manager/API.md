@@ -1,6 +1,6 @@
 # Command Manager Plugin API
 
-The Command Manager plugin provides an interface for running commands on network devices and managing credentials.
+Available from **Plugin Manager → Browse**. The Command Manager plugin provides an interface for running commands on network devices and managing credentials.
 
 ## Plugin Interface
 

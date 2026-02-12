@@ -1,5 +1,7 @@
 # Network Scanner Plugin API
 
+Available from **Plugin Manager → Browse**.
+
 ## Overview
 
 The Network Scanner plugin provides capabilities to discover devices on a network using nmap and add them to the NetWORKS device inventory. It supports various scanning options and can be integrated with other plugins.

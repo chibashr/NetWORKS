@@ -1,0 +1,446 @@
+{
+  "plugins": [
+    {
+      "id": "command_manager",
+      "name": "Command Manager",
+      "version": "1.0.3",
+      "description": "Run and manage commands on network devices",
+      "author": "chibashr",
+      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/command_manager-1.0.3.zip",
+      "sha256": "e82836e9e44ceed5a6f4fbe7c7055c4fb2371664d41f6c95612dfcd2c50b9422",
+      "min_app_version": "0.8.16",
+      "changelog": [
+        {
+          "version": "1.0.3",
+          "date": "2025-05-16",
+          "changes": [
+            "Added command search functionality to quickly find commands",
+            "Added support for running custom commands directly from the UI",
+            "Implemented safety checks for non-show commands to prevent accidental configuration changes"
+          ]
+        },
+        {
+          "version": "1.0.2",
+          "date": "2025-05-16",
+          "changes": [
+            "Fixed credential manager issues with device groups and subnets",
+            "Added proper logger initialization to prevent UnboundLocalError",
+            "Fixed TypeError: unhashable type: 'dict' bug in subnet credential handling"
+          ]
+        },
+        {
+          "version": "1.0.1",
+          "date": "2025-05-16",
+          "changes": [
+            "Fixed device groups display in Command Manager",
+            "Improved group handling with more robust device group detection",
+            "Better error handling for different group structures"
+          ]
+        },
+        {
+          "version": "1.0.0",
+          "changes": [
+            "Initial release",
+            "Support for running commands on network devices",
+            "Credential management for devices",
+            "Command output history and reporting",
+            "Bulk command execution"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "device_connector",
+      "name": "Device Connector",
+      "version": "1.2.0",
+      "description": "Adds a Connect submenu to open SSH, Telnet, VNC, RDP, HTTP, HTTPS, or FTP as links; the system decides how to open them (like FTP).",
+      "author": "chibashr",
+      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/device_connector-1.2.0.zip",
+      "sha256": "704472ba614699b3d9d270d63992914e1a6d9396a56b1c539f0a0d1e0759a406",
+      "min_app_version": "0.8.16",
+      "changelog": [
+        {
+          "version": "1.2.0",
+          "date": "2026-01-29",
+          "changes": [
+            "Removed Web option; use HTTP and HTTPS only",
+            "All connection types open as links (ssh://, telnet://, etc.); system decides handler",
+            "Removed executable path settings; only default ports configurable"
+          ]
+        },
+        {
+          "version": "1.1.0",
+          "date": "2026-01-29",
+          "changes": [
+            "Added WEB, RDP, HTTP, HTTPS, FTP connection types",
+            "Plugin list icon (device_connector.svg)",
+            "Authentication in launched app; removed SSH username from settings",
+            "Filepath settings: '...' browse button for executable paths"
+          ]
+        },
+        {
+          "version": "1.0.0",
+          "date": "2026-01-29",
+          "changes": [
+            "Initial release",
+            "Connect submenu on device table context menu (SSH, Telnet, VNC, Web)",
+            "User-configurable executable paths and default ports",
+            "Default app detection for Windows (OpenSSH, PuTTY, Edge, VNC Viewer)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "network_scanner",
+      "name": "Network Scanner",
+      "version": "10.5",
+      "description": "A plugin that scans the network for devices and adds them to NetWORKS",
+      "author": "chibashr",
+      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/network_scanner-10.5.zip",
+      "sha256": "8da1edbf189680bf4463fc8ceb69ec7ee7d1315ca8df2b04093e988b24735091",
+      "min_app_version": "0.8.16",
+      "changelog": [
+        {
+          "version": "10.5",
+          "date": "2026-01-27",
+          "changes": [
+            "Fixed subnet determination from interface when Start Scan uses the interface combo display text",
+            "Replaced target-selection radio buttons with a single Target dropdown in panel and scan dialog",
+            "Removed OS Detection and Port Scanning toggles; scan behavior is defined by profile/scan-type arguments only",
+            "Chunked range scanning with status updates (e.g. Scanning 192.168.1.0/28 (1/16)) and devices added to the table as they are found",
+            "Table refresh after each new device during nmap range scans for incremental feedback"
+          ]
+        },
+        {
+          "version": "10.4",
+          "date": "2026-01-26",
+          "changes": [
+            "Major improvements to nmap detection and integration",
+            "Enhanced nmap detection to check multiple locations including common Windows installation paths",
+            "Improved nmap executable verification to ensure it actually works before reporting availability",
+            "Added support for detecting nmap.exe on Windows systems",
+            "Implemented PATH management to ensure python-nmap can find nmap even when not in system PATH",
+            "Added actual functionality testing to verify python-nmap can execute nmap",
+            "Improved error handling and logging for nmap detection failures",
+            "Updated error messages to be more helpful for users",
+            "ScannerWorker now receives and uses nmap path for better compatibility"
+          ]
+        },
+        {
+          "version": "1.2.4",
+          "date": "2026-01-26",
+          "changes": [
+            "Improved nmap detection to check multiple locations including common Windows installation paths",
+            "Enhanced nmap executable verification to ensure it actually works before reporting availability",
+            "Added support for detecting nmap.exe on Windows systems",
+            "Improved error handling and logging for nmap detection failures",
+            "Updated error messages to be more helpful for users"
+          ]
+        },
+        {
+          "version": "1.2.3",
+          "date": "2025-05-28",
+          "changes": [
+            "Fixed critical bug: Only add devices that actually return data during a scan",
+            "Improved filtering to exclude non-responsive hosts from scan results",
+            "Added verification of host status before adding to inventory"
+          ]
+        },
+        {
+          "version": "1.2.2",
+          "date": "2025-05-27",
+          "changes": [
+            "Fixed stop scan functionality to properly terminate nmap processes",
+            "Added real-time status updates during scanning for better feedback",
+            "Added new Quick Ping scan option that's faster than nmap for simple discovery",
+            "Improved progress feedback with detailed status messages during scans"
+          ]
+        },
+        {
+          "version": "1.2.1",
+          "date": "2025-05-26",
+          "changes": [
+            "Fixed critical bug causing nmap to time out due to duplicate scan arguments",
+            "Improved argument handling to prevent duplicated command-line options"
+          ]
+        },
+        {
+          "version": "1.2.0",
+          "date": "2025-05-25",
+          "changes": [
+            "Modified scan button to directly run scan with current panel settings",
+            "Added new 'Advanced...' button to open the full scan dialog",
+            "Fixed nmap timeout issues on new installations by increasing default timeout values",
+            "Added -T4 timing template to scan profiles to improve scan speed",
+            "Improved error handling for scan timeouts with more helpful messages"
+          ]
+        },
+        {
+          "version": "1.1.9",
+          "date": "2025-05-24",
+          "changes": [
+            "Fixed import error for QIntValidator in plugin manager dialog",
+            "Corrected Qt module imports to ensure proper functionality"
+          ]
+        },
+        {
+          "version": "1.1.8",
+          "date": "2025-05-23",
+          "changes": [
+            "Fixed error when opening profile editor from plugin manager dialog",
+            "Implemented custom profile editor in the plugin manager UI",
+            "Improved user experience for managing scan profiles"
+          ]
+        },
+        {
+          "version": "1.1.7",
+          "date": "2025-05-22",
+          "changes": [
+            "Fixed error when accessing plugin methods from settings dialog",
+            "Added safe method forwarding for plugin settings pages",
+            "Improved dialog handling to prevent missing method errors"
+          ]
+        },
+        {
+          "version": "1.1.6",
+          "date": "2025-05-21",
+          "changes": [
+            "Fixed JSON settings display in plugin manager dialog",
+            "Added ability to edit scan profiles through plugin manager interface",
+            "Improved scan profile management with dedicated editor dialog"
+          ]
+        },
+        {
+          "version": "1.1.5",
+          "date": "2025-05-20",
+          "changes": [
+            "Fixed scan profiles not showing up correctly in the plugin settings dialog",
+            "Improved settings page organization to ensure all options are properly displayed",
+            "Added ability to create and manage scan types directly through the settings interface",
+            "Added additional controls for Custom Arguments and Auto Tag settings"
+          ]
+        },
+        {
+          "version": "1.1.4",
+          "date": "2025-05-19",
+          "changes": [
+            "Fixed scan profiles not showing up properly in plugin settings dialog",
+            "Added dedicated Scan Profiles settings page for better organization and visibility"
+          ]
+        },
+        {
+          "version": "1.1.3",
+          "date": "2025-05-18",
+          "changes": [
+            "Improved scan profiles management UI with clearer workflow",
+            "Added dedicated 'Add New Profile' option to the profiles list",
+            "Enhanced form layout with better validation and profile creation experience",
+            "Added interface refresh button to update network interfaces dynamically"
+          ]
+        },
+        {
+          "version": "1.1.2",
+          "date": "2025-05-17",
+          "changes": [
+            "Fixed validator import in scan dialog",
+            "Fixed QIntValidator reference in the timeout field"
+          ]
+        },
+        {
+          "version": "1.1.1",
+          "date": "2025-05-16",
+          "changes": [
+            "Fixed context menu integration with device table",
+            "Improved handling of device selection in context menu actions"
+          ]
+        },
+        {
+          "version": "1.1.0",
+          "date": "2025-05-15",
+          "changes": [
+            "Added interface selection for network scanning",
+            "Added more granular scan permissions and options",
+            "Added ability to scan interface subnet directly",
+            "Added ability to rescan selected devices",
+            "Added support for custom nmap arguments",
+            "Added elevated permissions option for more accurate scans"
+          ]
+        },
+        {
+          "version": "1.0.0",
+          "date": "2025-05-12",
+          "changes": [
+            "Initial release of the Network Scanner plugin",
+            "Automatic discovery of network devices using nmap",
+            "Adds scanned devices to device table with 'scanned' tag",
+            "Supports scanning of IP ranges and CIDR networks",
+            "Context menu integration for on-demand scanning"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "report_generator",
+      "name": "Report Generator",
+      "version": "1.0.1",
+      "description": "Build tabular and template-based reports from devices and export to common formats",
+      "author": "chibashr",
+      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/report_generator-1.0.1.zip",
+      "sha256": "f69e7610be5d13f52472a51acca6633b0abf2da253016a728878cbdd0603b165",
+      "min_app_version": "0.8.16",
+      "changelog": [
+        {
+          "version": "1.0.1",
+          "date": "2026-01-27",
+          "changes": [
+            "Refactored into core/ and ui/ modules; entry point thinned to plugin class only",
+            "Added tooltips for Report Generator menu and toolbar actions",
+            "Extracted Manage Reports dialog to ui/manage_reports_dialog.py",
+            "Added hint 'Applied to first selected column' in column options",
+            "Removed no-op device/group signal handlers"
+          ]
+        },
+        {
+          "version": "1.0.0",
+          "date": "2026-01-21",
+          "changes": [
+            "Initial release of the report generator plugin",
+            "Added report builder UI with table and template modes",
+            "Added HTML, JSON, CSV, and TXT export formats",
+            "Added per-workspace report storage"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sample",
+      "name": "Sample Plugin",
+      "version": "1.0.9",
+      "description": "A comprehensive sample plugin that demonstrates the plugin system and provides testing capabilities",
+      "author": "chibashr",
+      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/sample-1.0.9.zip",
+      "sha256": "35ef8f340739e1623a7766d0e00809bb31d1d584655a5db26d0375b20cfa2b42",
+      "min_app_version": "0.8.16",
+      "changelog": [
+        {
+          "version": "1.0.9",
+          "date": "2025-05-12",
+          "changes": [
+            "Added proper integration with device manager's create_device API",
+            "Replaced custom context menu with standard context menu registration",
+            "Updated all action handlers to properly handle both single device and lists",
+            "Fixed group context menu integration to follow app standards"
+          ]
+        },
+        {
+          "version": "1.0.8",
+          "date": "2025-05-12",
+          "changes": [
+            "Added safe_action_wrapper decorator to all action handlers to prevent crashes",
+            "Completely redesigned signal disconnection logic to prevent errors during cleanup",
+            "Added comprehensive protection against PySide6 signal disconnection errors",
+            "Improved context menu handlers to prevent crashes from invalid device references"
+          ]
+        },
+        {
+          "version": "1.0.7",
+          "date": "2025-05-12",
+          "changes": [
+            "Fixed \"No module named 'src.core.device'\" error in test_device_manager",
+            "Replaced direct module import with device_manager API calls",
+            "Added error handling to Sample Action to prevent crashes",
+            "Improved plugin cleanup to avoid disconnection errors"
+          ]
+        },
+        {
+          "version": "1.0.6",
+          "date": "2025-05-12",
+          "changes": [
+            "Fixed signal disconnection warnings by improving signal connection tracking",
+            "Implemented robust error handling for signal connections and disconnections",
+            "Added tracking for all connected signals to ensure proper cleanup",
+            "Enhanced context menu setup to gracefully handle connection errors"
+          ]
+        },
+        {
+          "version": "1.0.5",
+          "date": "2025-05-11",
+          "changes": [
+            "Added comprehensive device testing capabilities",
+            "Implemented signal monitoring for debugging",
+            "Added support for plugin configuration via settings",
+            "Enhanced device property display and management"
+          ]
+        },
+        {
+          "version": "1.0.4",
+          "date": "2025-05-09",
+          "changes": [
+            "Added device details panel",
+            "Implemented device and group context menu actions",
+            "Enhanced logging and monitoring capabilities"
+          ]
+        },
+        {
+          "version": "1.0.3",
+          "date": "2025-05-05",
+          "changes": [
+            "Added custom table columns for sample data",
+            "Implemented toolbar and menu integration",
+            "Added device property editing capabilities"
+          ]
+        },
+        {
+          "version": "1.0.2",
+          "date": "2025-05-03",
+          "changes": [
+            "Improved error handling for device operations",
+            "Added support for device groups",
+            "Enhanced cleanup process for better plugin lifecycle"
+          ]
+        },
+        {
+          "version": "1.0.1",
+          "date": "2025-05-01",
+          "changes": [
+            "Added basic device property management",
+            "Implemented device event monitoring",
+            "Added logger integration for debugging"
+          ]
+        },
+        {
+          "version": "1.0.0",
+          "date": "2025-04-29",
+          "changes": [
+            "Initial release of the sample plugin",
+            "Basic plugin structure and examples",
+            "Documentation of plugin API usage"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "template_manager",
+      "name": "Template Manager",
+      "version": "1.0.0",
+      "description": "Create reusable command templates from device outputs using Report Generator-style variable binding; export or send to Command Manager for execution.",
+      "author": "chibashr",
+      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/template_manager-1.0.0.zip",
+      "sha256": "90ff6030e7749fcd7c87bfb63d7d273d526e320a4897c6344ac1b1b20daacd60",
+      "min_app_version": "0.8.16",
+      "changelog": [
+        {
+          "version": "1.0.0",
+          "date": "2026-01-27",
+          "changes": [
+            "Initial release of the Template Manager plugin",
+            "Variable binding matches Report Generator ({{property_name}})",
+            "Per-workspace template storage",
+            "Export template file and Load into Command Manager",
+            "Data sources: All Devices, Selected Devices, Group, Subnet, Tag with filters"
+          ]
+        }
+      ]
+    }
+  ]
+}

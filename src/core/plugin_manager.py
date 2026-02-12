@@ -28,6 +28,8 @@ from loguru import logger
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QToolBar, QMenu, QDockWidget, QWidget, QTabWidget, QMessageBox
 
+from .plugin_catalog import CatalogPluginInfo, PluginCatalogClient
+from .plugin_installer import PluginInstaller
 from .plugin_interface import PluginInterface
 from .plugin.plugin_registry import (
     build_registry_data,
@@ -90,6 +92,10 @@ class PluginManager(QObject):
         # Flag to prevent concurrent discovery
         self._discovering = False
         
+        # Marketplace: lazy-initialized catalog client and installer
+        self._catalog_client = None
+        self._installer = None
+        
         # Discover and register plugins
         self.discover_plugins()
         
@@ -132,6 +138,75 @@ class PluginManager(QObject):
     def get_plugin(self, plugin_id):
         """Get a plugin by ID"""
         return self.plugins.get(plugin_id)
+
+    def _get_catalog_client(self):
+        """Lazy-init PluginCatalogClient."""
+        if self._catalog_client is None:
+            app_version = "0.12.0"
+            if hasattr(self.app, "manifest"):
+                app_version = self.app.manifest.get("version", app_version)
+            config = getattr(self.app, "config", None)
+            if config:
+                self._catalog_client = PluginCatalogClient(config, app_version)
+            else:
+                self._catalog_client = PluginCatalogClient(
+                    type("Config", (), {"get": lambda s, k, d=None: d})(),
+                    app_version,
+                )
+        return self._catalog_client
+
+    def _get_installer(self):
+        """Lazy-init PluginInstaller."""
+        if self._installer is None:
+            self._installer = PluginInstaller(self.external_plugins_dir)
+        return self._installer
+
+    def install_plugin_from_catalog(self, plugin_id: str):
+        """
+        Install a plugin from the catalog. Fetches catalog, downloads ZIP, extracts
+        to external_plugins_dir, then runs discover_plugins.
+        Returns PluginInfo on success, None on failure.
+        """
+        client = self._get_catalog_client()
+        entry = client.get_plugin_from_catalog(plugin_id)
+        if not entry:
+            logger.warning(f"Plugin {plugin_id} not found in catalog")
+            return None
+        installer = self._get_installer()
+        plugin_info = installer.install_from_url(
+            entry.download_url, plugin_id, entry.sha256
+        )
+        if plugin_info:
+            self.discover_plugins()
+            return self.get_plugin(plugin_id)
+        return None
+
+    def uninstall_plugin(self, plugin_id: str) -> bool:
+        """
+        Remove plugin from disk (external_plugins_dir) and from registry.
+        Does not unload if currently loaded; caller should disable/unload first.
+        """
+        plugin_info = self.get_plugin(plugin_id)
+        if plugin_info and plugin_info.state.is_loaded:
+            logger.warning(f"Cannot uninstall loaded plugin {plugin_id}; disable first")
+            return False
+        installer = self._get_installer()
+        if not installer.uninstall_plugin(plugin_id):
+            return False
+        if plugin_id in self.plugins:
+            del self.plugins[plugin_id]
+            self._registry_dirty = True
+            self._sync_registry()
+        return True
+
+    def get_plugin_update_available(self, plugin_id: str):
+        """Return CatalogPluginInfo if catalog has a newer version for this plugin, else None."""
+        client = self._get_catalog_client()
+        inst = self.get_plugin(plugin_id)
+        if not inst:
+            return None
+        updates = client.get_updates_available_for_installed({plugin_id: inst})
+        return updates[0] if updates else None
         
     def _transition_plugin_state(self, plugin_id, target_state, operation_name):
         """

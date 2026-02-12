@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.3] - 2026-02-12
+
+### Added
+- **Plugin Marketplace**: Browse tab in Plugin Manager to discover, install, and update plugins from the catalog without core app updates.
+- Build script `scripts/build_plugin_package.py` for dynamic plugin packaging and catalog generation.
+- GitHub workflow `release-plugins.yml` for automated plugin releases on push to `plugins/**`.
+- Config keys: `plugins.catalog_url`, `plugins.catalog_cache_ttl_minutes`, `plugins.check_for_updates_on_startup`.
+- Documentation: `docs/plugins/marketplace.md`, `docs/plugins/publishing.md`, `docs/plugins/catalog_schema.json`.
+
+### Changed
+- Version bump to 0.12.3
+
 ## [0.12.2] - 2026-02-10
 
 ### Changed

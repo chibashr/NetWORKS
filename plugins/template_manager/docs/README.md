@@ -1,5 +1,11 @@
 # Template Manager Plugin
 
+## Installation
+
+Available from **Plugin Manager → Browse** (Tools → Plugin Manager → Browse). Install or update without updating the core application.
+
+## Overview
+
 Template Manager creates reusable command templates from device outputs using **Report Generator–style variable binding** (`{{property_name}}`), stores them per workspace, and exports populated commands to file or sends them to Command Manager for execution.
 
 Open Template Manager from the **toolbar** or **Tools** menu; it opens as a dialog (no dock panel).

@@ -1,24 +1,24 @@
 {
   "command_manager": {
-    "state": "DISCOVERED",
+    "state": "DISABLED",
     "last_loaded": "",
     "path": "plugins\\command_manager",
     "version": "1.0.3"
   },
   "device_connector": {
-    "state": "DISCOVERED",
+    "state": "DISABLED",
     "last_loaded": "",
     "path": "plugins\\device_connector",
     "version": "1.2.0"
   },
   "network_scanner": {
-    "state": "DISCOVERED",
+    "state": "DISABLED",
     "last_loaded": "",
     "path": "plugins\\network_scanner",
     "version": "10.5"
   },
   "report_generator": {
-    "state": "DISCOVERED",
+    "state": "DISABLED",
     "last_loaded": "",
     "path": "plugins\\report_generator",
     "version": "1.0.1"
@@ -30,7 +30,7 @@
     "version": "1.0.9"
   },
   "template_manager": {
-    "state": "DISCOVERED",
+    "state": "DISABLED",
     "last_loaded": "",
     "path": "plugins\\template_manager",
     "version": "1.0.0"

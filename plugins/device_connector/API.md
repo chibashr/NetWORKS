@@ -1,5 +1,7 @@
 # Device Connector Plugin — API Documentation
 
+Available from **Plugin Manager → Browse**.
+
 ## Overview
 
 The Device Connector plugin adds a **Connect** submenu to the **device table** context menu (right-click on device(s)). It opens protocol URLs (ssh://, telnet://, vnc://, rdp://, http://, https://, ftp://) so the system decides how to open them (like FTP). No executable paths; only default ports are configurable.

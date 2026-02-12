@@ -2,6 +2,8 @@
 
 Each NetWORKS plugin must include a manifest file that describes the plugin and its requirements. The manifest can be provided as `manifest.json`, `plugin.json`, or legacy `plugin.yaml` in the root directory of the plugin.
 
+Plugins with valid manifests are automatically discovered by the build system and included in the [plugin catalog](marketplace.md). Users can install and update plugins from **Plugin Manager → Browse** without updating the core application.
+
 ## Required Fields
 
 The following fields are required in every plugin manifest:
@@ -17,7 +19,7 @@ The following fields are optional but recommended:
 
 - `description`: A description of the plugin's functionality
 - `icon`: Path to the plugin icon (relative to the plugin root, stored in `resources/icons`)
-- `author`: The plugin author or organization
+- `author`: The plugin author (e.g. `chibashr`)
 - `min_app_version`: The minimum NetWORKS version required
 - `max_app_version`: The maximum NetWORKS version supported
 - `dependencies`: A list of plugin dependencies

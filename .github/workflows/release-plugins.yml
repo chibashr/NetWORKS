@@ -1,0 +1,57 @@
+name: Release Plugins
+
+on:
+  push:
+    branches:
+      - stable
+    paths:
+      - "plugins/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release-plugins:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build all plugins
+        run: python scripts/build_plugin_package.py --all
+
+      - name: Delete existing plugins release
+        run: |
+          gh release delete plugins --yes 2>/dev/null || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create plugins release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: plugins
+          name: Plugins
+          body: "NetWORKS plugin packages. Updated automatically when plugins change."
+          files: dist/plugins/*.zip
+          fail_on_unmatched_files: true
+
+      - name: Generate plugin catalog
+        run: python scripts/build_plugin_package.py --generate-catalog --output plugin_catalog.json
+
+      - name: Commit catalog
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add plugin_catalog.json
+          if git diff --staged --quiet; then
+            echo "No changes to catalog"
+          else
+            git commit -m "chore: update plugin catalog [skip ci]"
+            git push
+          fi

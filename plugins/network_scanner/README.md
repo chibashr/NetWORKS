@@ -33,6 +33,8 @@ The Network Scanner plugin allows NetWORKS to discover devices on your network u
 
 ## Installation
 
+Available from **Plugin Manager → Browse** (Tools → Plugin Manager → Browse). Install or update without updating the core application.
+
 1. Make sure Nmap is installed on your system:
    - Windows: Download and install from [nmap.org](https://nmap.org/download.html)
    - macOS: `brew install nmap`

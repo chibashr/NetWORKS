@@ -1,5 +1,7 @@
 # Sample Plugin API Documentation
 
+Available from **Plugin Manager → Browse** (also included with NetWORKS by default).
+
 ## Overview
 
 The Sample Plugin demonstrates how to extend NetWORKS functionality while providing comprehensive testing capabilities for the application. It serves as both a reference implementation for plugin developers and a testing utility for core application features.

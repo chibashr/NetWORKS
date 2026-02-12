@@ -3,6 +3,7 @@
 
 """
 List widget item for plugin list in the plugin manager dialog.
+Supports both PluginInfo (installed) and CatalogPluginInfo (catalog-only).
 """
 
 import os
@@ -14,11 +15,16 @@ from ...core.plugin_manager import PluginState
 
 
 class PluginListItem(QListWidgetItem):
-    """Custom list widget item for plugins"""
+    """Custom list widget item for plugins (installed or catalog)."""
 
-    def __init__(self, plugin_info):
+    def __init__(self, plugin_info, catalog_status=None):
+        """
+        plugin_info: PluginInfo (installed) or CatalogPluginInfo (catalog).
+        catalog_status: For catalog items: "installed"|"update_available"|"not_installed".
+        """
         super().__init__(plugin_info.name)
         self.plugin_info = plugin_info
+        self.catalog_status = catalog_status
         self.setToolTip(plugin_info.description)
         self.update_icon()
 
@@ -40,11 +46,25 @@ class PluginListItem(QListWidgetItem):
         painter.end()
         return QIcon(tinted)
 
+    def _is_catalog_item(self):
+        return self.catalog_status is not None
+
     def update_icon(self):
         palette = QApplication.palette()
         text_color = palette.color(QPalette.Text)
         disabled_color = palette.color(QPalette.Disabled, QPalette.Text)
         error_color = QColor(Qt.red)
+        if self._is_catalog_item():
+            if self.catalog_status == "update_available":
+                status_text = " [Update available]"
+            elif self.catalog_status == "installed":
+                status_text = " [Installed]"
+            else:
+                status_text = " [Not installed]"
+            self.setForeground(QBrush(text_color))
+            self.setIcon(self._load_plugin_icon(text_color))
+            self.setText(f"{self.plugin_info.name}{status_text}")
+            return
         if self.plugin_info.state.is_disabled:
             status_text = " [Disabled]"
             self.setForeground(QBrush(disabled_color))

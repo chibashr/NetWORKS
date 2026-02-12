@@ -1,6 +1,6 @@
 # Template Manager Plugin API
 
-For future callers and integration, the Template Manager plugin and its storage support the following concepts. The current UI is the primary interface; these are documented for programmatic use or extensions.
+Available from **Plugin Manager → Browse**. For future callers and integration, the Template Manager plugin and its storage support the following concepts. The current UI is the primary interface; these are documented for programmatic use or extensions.
 
 ## Template storage
 

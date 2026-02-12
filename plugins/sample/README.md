@@ -84,7 +84,7 @@ def _on_sample_action_context(self, device_or_devices):
 
 ## Installation
 
-The sample plugin is included with NetWORKS by default. To study its code, look at:
+Available from **Plugin Manager → Browse** (Tools → Plugin Manager → Browse). Also included with NetWORKS by default. To study its code, look at:
 
 - `sample_plugin.py`: Main plugin implementation
 - `manifest.json`: Plugin metadata and version information

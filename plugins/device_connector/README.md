@@ -1,5 +1,11 @@
 # Device Connector Plugin
 
+## Installation
+
+Available from **Plugin Manager → Browse** (Tools → Plugin Manager → Browse). Install or update without updating the core application.
+
+## Overview
+
 Adds a **Connect** submenu to the device table context menu so you can open **SSH**, **Telnet**, **VNC**, **RDP**, **HTTP**, **HTTPS**, or **FTP** to selected devices using their IP or hostname. All options open as links (like FTP): the system decides which application handles each protocol (e.g. PuTTY for ssh://, browser for http://).
 
 ## Usage

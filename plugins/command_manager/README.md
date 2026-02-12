@@ -1,5 +1,9 @@
 # Command Manager Plugin for NetWORKS
 
+## Installation
+
+Available from **Plugin Manager → Browse** (Tools → Plugin Manager → Browse). Install or update without updating the core application.
+
 ## Overview
 
 The Command Manager plugin provides a powerful interface for running commands on network devices. It supports SSH and Telnet connections, command templates, credential management, and output storage.

@@ -1,5 +1,11 @@
 # Report Generator Plugin
 
+## Installation
+
+Available from **Plugin Manager → Browse** (Tools → Plugin Manager → Browse). Install or update without updating the core application.
+
+## Overview
+
 The Report Generator plugin lets you build tabular or template-based reports from devices, apply filters, and export to HTML, JSON, CSV, or TXT. Report definitions are saved per workspace.
 
 ## Features

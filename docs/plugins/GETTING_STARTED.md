@@ -2,6 +2,8 @@
 
 This guide will walk you through creating your first NetWORKS plugin from scratch.
 
+> **Tip:** You can install and update plugins from **Plugin Manager → Browse** without updating the core application. See [Plugin Marketplace](marketplace.md) for details.
+
 ## Prerequisites
 
 - Basic knowledge of Python programming

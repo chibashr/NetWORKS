@@ -4,9 +4,9 @@
   "version": "1.0.3",
   "description": "Run and manage commands on network devices",
   "icon": "resources/icons/command_manager.svg",
-  "author": "NetWORKS",
+  "author": "chibashr",
   "entry_point": "command_manager.py",
-  "min_app_version": "0.1.0",
+  "min_app_version": "0.8.16",
   "dependencies": [],
   "requirements": {
     "python": [

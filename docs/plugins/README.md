@@ -18,6 +18,8 @@ This guide provides comprehensive information for developing plugins for the Net
 - [Troubleshooting](#troubleshooting)
 - [Device Properties](#device-properties)
 - [Plugin UI Design Guide](ui_design.md)
+- [Plugin Marketplace](marketplace.md) – Browse, install, and update plugins from the catalog
+- [Publishing Plugins](publishing.md) – Author guide for publishing to the catalog
 
 ## Quick Start
 
@@ -72,7 +74,7 @@ The NetWORKS plugin system is designed to be:
 
 - **Flexible**: Plugins can extend almost any part of the application
 - **Modular**: Plugins can be enabled, disabled, or uninstalled independently
-- **Discoverable**: Plugins are discovered from internal/external plugin directories at startup, and workspace plugins are discovered when a workspace loads
+- **Discoverable**: Plugins are discovered from internal/external plugin directories at startup; workspace plugins are discovered when a workspace loads; the [Plugin Marketplace](marketplace.md) (Plugin Manager → Browse) lets users install and update plugins without core app updates
 - **Transparent**: Plugins run in-process with the application, so only install plugins you trust
 
 Plugins can extend NetWORKS by:

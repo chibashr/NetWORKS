@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Plugin Catalog Schema",
+  "description": "Schema for NetWORKS plugin catalog (plugin_catalog.json)",
+  "type": "object",
+  "required": ["version", "plugins"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Catalog schema version"
+    },
+    "min_app_version": {
+      "type": "string",
+      "description": "Minimum app version required for catalog"
+    },
+    "updated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO timestamp when catalog was last updated"
+    },
+    "plugins": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "version", "description", "author", "download_url"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Unique plugin identifier"
+          },
+          "name": {
+            "type": "string",
+            "description": "Display name"
+          },
+          "version": {
+            "type": "string",
+            "description": "Plugin version"
+          },
+          "description": {
+            "type": "string",
+            "description": "Plugin description"
+          },
+          "author": {
+            "type": "string",
+            "description": "Plugin author"
+          },
+          "download_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL to plugin ZIP"
+          },
+          "sha256": {
+            "type": "string",
+            "description": "Optional SHA-256 checksum of ZIP"
+          },
+          "min_app_version": {
+            "type": "string",
+            "description": "Minimum app version required"
+          },
+          "changelog": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "version": { "type": "string" },
+                "date": { "type": "string" },
+                "changes": { "type": "array", "items": { "type": "string" } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

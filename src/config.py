@@ -81,6 +81,11 @@ class Config(QObject):
                 "repository_url": "",
                 "check_for_updates": True,
                 "auto_update": False
+            },
+            "plugins": {
+                "catalog_url": "https://raw.githubusercontent.com/chibashr/NetWORKS/stable/plugin_catalog.json",
+                "catalog_cache_ttl_minutes": 60,
+                "check_for_updates_on_startup": True
             }
         }
         

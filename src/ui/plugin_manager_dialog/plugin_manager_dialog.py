@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem, QLabel, QTextEdit, QWidget, QTabWidget, QCheckBox,
     QGroupBox, QFormLayout, QMessageBox, QLineEdit, QComboBox, QSpinBox,
     QDoubleSpinBox, QScrollArea, QApplication, QDialogButtonBox, QSplitter, QInputDialog,
-    QTextBrowser, QAbstractItemView, QFileDialog
+    QTextBrowser, QAbstractItemView, QFileDialog, QProgressBar
 )
 from PySide6.QtCore import Qt, Signal, Slot, QSettings, QTimer, QSize, QMargins, QRect, QPoint, QUrl
 from PySide6.QtGui import QIcon, QFont, QAction, QPixmap, QColor, QPainter, QPalette, QBrush, QLinearGradient, QShowEvent, QHideEvent, QIntValidator, QDesktopServices
@@ -20,6 +20,7 @@ import os
 
 # Import from core
 from ...core.plugin_manager import PluginState
+from ...core.plugin_catalog import CatalogPluginInfo
 from .plugin_list_item import PluginListItem
 
 
@@ -45,6 +46,11 @@ class PluginManagerDialog(QDialog):
         # Plugin list with filter
         self.plugin_list_group = QGroupBox("Plugins")
         self.plugin_list_layout = QVBoxLayout(self.plugin_list_group)
+
+        # Mode tabs: Installed | Browse
+        self.mode_tabs = QTabWidget()
+        self.installed_page = QWidget()
+        self.installed_tab_layout = QVBoxLayout(self.installed_page)
         
         # Add search/filter
         self.filter_layout = QHBoxLayout()
@@ -54,7 +60,7 @@ class PluginManagerDialog(QDialog):
         self.filter_input.textChanged.connect(self.filter_plugins)
         self.filter_layout.addWidget(self.filter_label)
         self.filter_layout.addWidget(self.filter_input)
-        self.plugin_list_layout.addLayout(self.filter_layout)
+        self.installed_tab_layout.addLayout(self.filter_layout)
         
         # Group controls
         self.group_controls_layout = QHBoxLayout()
@@ -89,14 +95,14 @@ class PluginManagerDialog(QDialog):
         self.group_controls_layout.addWidget(self.group_delete_button)
         self.group_controls_layout.addWidget(self.group_add_button)
         self.group_controls_layout.addWidget(self.group_remove_button)
-        self.plugin_list_layout.addLayout(self.group_controls_layout)
+        self.installed_tab_layout.addLayout(self.group_controls_layout)
         
         # Plugin list
         self.plugin_list = QListWidget()
         self.plugin_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.plugin_list.setIconSize(QSize(32, 32))
         self.plugin_list.currentItemChanged.connect(self.on_plugin_selected)
-        self.plugin_list_layout.addWidget(self.plugin_list)
+        self.installed_tab_layout.addWidget(self.plugin_list)
         
         # Plugin action buttons (Load/Disable toggle + Reload + Repair)
         self.plugin_actions_layout = QHBoxLayout()
@@ -120,9 +126,49 @@ class PluginManagerDialog(QDialog):
         self.plugin_actions_layout.addWidget(self.reload_button)
         self.plugin_actions_layout.addWidget(self.repair_button)
         
-        self.plugin_list_layout.addLayout(self.plugin_actions_layout)
+        self.installed_tab_layout.addLayout(self.plugin_actions_layout)
+        self.mode_tabs.addTab(self.installed_page, "Installed")
+
+        # Browse tab
+        self.browse_page = QWidget()
+        self.browse_tab_layout = QVBoxLayout(self.browse_page)
+        self.catalog_filter_input = QLineEdit()
+        self.catalog_filter_input.setPlaceholderText("Filter catalog...")
+        self.catalog_filter_input.textChanged.connect(self.filter_catalog)
+        self.browse_tab_layout.addWidget(self.catalog_filter_input)
+        self.catalog_list = QListWidget()
+        self.catalog_list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.catalog_list.setIconSize(QSize(32, 32))
+        self.catalog_list.currentItemChanged.connect(self.on_catalog_item_selected)
+        self.browse_tab_layout.addWidget(self.catalog_list)
+        self.browse_progress = QProgressBar()
+        self.browse_progress.setVisible(False)
+        self.browse_tab_layout.addWidget(self.browse_progress)
+        self.browse_actions_layout = QHBoxLayout()
+        self.refresh_catalog_button = QPushButton("Refresh Catalog")
+        self.refresh_catalog_button.clicked.connect(self.on_refresh_catalog_clicked)
+        self.refresh_catalog_button.setToolTip("Fetch latest plugin catalog")
+        self.install_button = QPushButton("Install")
+        self.install_button.clicked.connect(self.on_browse_install_clicked)
+        self.install_button.setToolTip("Install selected plugin from catalog")
+        self.install_button.setEnabled(False)
+        self.update_button = QPushButton("Update")
+        self.update_button.clicked.connect(self.on_browse_update_clicked)
+        self.update_button.setToolTip("Update selected plugin to latest version")
+        self.update_button.setEnabled(False)
+        self.remove_button = QPushButton("Remove")
+        self.remove_button.clicked.connect(self.on_browse_remove_clicked)
+        self.remove_button.setToolTip("Uninstall selected plugin")
+        self.remove_button.setEnabled(False)
+        self.browse_actions_layout.addWidget(self.refresh_catalog_button)
+        self.browse_actions_layout.addWidget(self.install_button)
+        self.browse_actions_layout.addWidget(self.update_button)
+        self.browse_actions_layout.addWidget(self.remove_button)
+        self.browse_tab_layout.addLayout(self.browse_actions_layout)
+        self.mode_tabs.addTab(self.browse_page, "Browse")
+        self.mode_tabs.currentChanged.connect(self.on_mode_tab_changed)
         
-        # Group actions removed to reduce duplicate controls
+        self.plugin_list_layout.addWidget(self.mode_tabs)
         
         # Plugin details
         self.plugin_details_group = QGroupBox("Plugin Details")
@@ -375,6 +421,163 @@ class PluginManagerDialog(QDialog):
         # Apply filters and group highlighting
         self._apply_filters()
         self._update_group_controls_state()
+
+    def load_catalog_plugins(self, force_refresh=False):
+        """Load catalog plugins into the Browse list."""
+        self.browse_progress.setVisible(True)
+        self.browse_progress.setRange(0, 0)  # Indeterminate
+        self.refresh_catalog_button.setEnabled(False)
+        try:
+            client = self.plugin_manager._get_catalog_client()
+            catalog = client.get_catalog(force_refresh=force_refresh)
+            installed = {p.id: p for p in self.plugin_manager.get_plugins()}
+            updates = {c.id: c for c in client.get_updates_available_for_installed(installed)}
+            self.catalog_list.clear()
+            for c in sorted(catalog, key=lambda x: x.name):
+                status = "update_available" if c.id in updates else ("installed" if c.id in installed else "not_installed")
+                item = PluginListItem(c, catalog_status=status)
+                item.catalog_entry = c
+                self.catalog_list.addItem(item)
+            self.filter_catalog()
+        except Exception as e:
+            logger.error(f"Failed to load catalog: {e}")
+            QMessageBox.warning(self, "Catalog Error", f"Failed to load plugin catalog: {e}")
+        finally:
+            self.browse_progress.setVisible(False)
+            self.refresh_catalog_button.setEnabled(True)
+
+    def filter_catalog(self):
+        """Filter catalog list by search text."""
+        text = self.catalog_filter_input.text().lower()
+        for i in range(self.catalog_list.count()):
+            item = self.catalog_list.item(i)
+            show = not text or text in item.plugin_info.name.lower() or text in item.plugin_info.id.lower()
+            item.setHidden(not show)
+
+    @Slot(QListWidgetItem, QListWidgetItem)
+    def on_catalog_item_selected(self, current, previous):
+        """Handle catalog item selection."""
+        if current:
+            catalog_status = getattr(current, "catalog_status", None)
+            self.update_details(current.plugin_info, catalog_status=catalog_status)
+            self._update_browse_action_buttons(current)
+        else:
+            self.clear_details()
+            self.install_button.setEnabled(False)
+            self.update_button.setEnabled(False)
+            self.remove_button.setEnabled(False)
+
+    def _update_browse_action_buttons(self, item):
+        """Update Install/Update/Remove button state for catalog selection."""
+        if not item or not getattr(item, "catalog_status", None):
+            self.install_button.setEnabled(False)
+            self.update_button.setEnabled(False)
+            self.remove_button.setEnabled(False)
+            return
+        status = item.catalog_status
+        self.install_button.setEnabled(status == "not_installed")
+        self.update_button.setEnabled(status == "update_available")
+        self.remove_button.setEnabled(status in ("installed", "update_available"))
+
+    @Slot(int)
+    def on_mode_tab_changed(self, index):
+        """Handle switch between Installed and Browse tabs."""
+        if index == 1:  # Browse
+            self.load_catalog_plugins()
+            self.clear_details()
+        else:
+            self.load_plugins()
+
+    @Slot()
+    def on_refresh_catalog_clicked(self):
+        """Refresh catalog from remote."""
+        self.load_catalog_plugins(force_refresh=True)
+
+    @Slot()
+    def on_browse_install_clicked(self):
+        """Install selected plugin from catalog."""
+        item = self.catalog_list.currentItem()
+        if not item or getattr(item, "catalog_status", None) != "not_installed":
+            return
+        plugin_id = item.plugin_info.id
+        self.browse_progress.setVisible(True)
+        self.browse_progress.setRange(0, 0)
+        self.install_button.setEnabled(False)
+        try:
+            result = self.plugin_manager.install_plugin_from_catalog(plugin_id)
+            if result:
+                QMessageBox.information(self, "Install", f"Plugin {item.plugin_info.name} installed successfully.")
+                self.load_catalog_plugins(force_refresh=True)
+            else:
+                QMessageBox.warning(self, "Install Failed", f"Failed to install {item.plugin_info.name}.")
+        except Exception as e:
+            logger.error(f"Install failed: {e}")
+            QMessageBox.warning(self, "Install Failed", str(e))
+        finally:
+            self.browse_progress.setVisible(False)
+            self._update_browse_action_buttons(self.catalog_list.currentItem())
+
+    @Slot()
+    def on_browse_update_clicked(self):
+        """Update selected plugin from catalog."""
+        item = self.catalog_list.currentItem()
+        if not item or getattr(item, "catalog_status", None) != "update_available":
+            return
+        catalog_entry = getattr(item, "catalog_entry", None)
+        if not catalog_entry:
+            return
+        plugin_id = item.plugin_info.id
+        self.browse_progress.setVisible(True)
+        self.browse_progress.setRange(0, 0)
+        self.update_button.setEnabled(False)
+        try:
+            installer = self.plugin_manager._get_installer()
+            result = installer.update_plugin(plugin_id, catalog_entry)
+            if result:
+                self.plugin_manager.discover_plugins()
+                loaded = self.plugin_manager.get_plugin(plugin_id)
+                if loaded and loaded.state.is_loaded:
+                    self.plugin_manager.unload_plugin(plugin_id)
+                    self.plugin_manager.load_plugin(plugin_id)
+                QMessageBox.information(self, "Update", f"Plugin {item.plugin_info.name} updated successfully.")
+                self.load_catalog_plugins(force_refresh=True)
+            else:
+                QMessageBox.warning(self, "Update Failed", f"Failed to update {item.plugin_info.name}.")
+        except Exception as e:
+            logger.error(f"Update failed: {e}")
+            QMessageBox.warning(self, "Update Failed", str(e))
+        finally:
+            self.browse_progress.setVisible(False)
+            self._update_browse_action_buttons(self.catalog_list.currentItem())
+
+    @Slot()
+    def on_browse_remove_clicked(self):
+        """Uninstall selected plugin."""
+        item = self.catalog_list.currentItem()
+        if not item or getattr(item, "catalog_status", None) not in ("installed", "update_available"):
+            return
+        plugin_id = item.plugin_info.id
+        if QMessageBox.question(
+            self,
+            "Remove Plugin",
+            f"Remove plugin {item.plugin_info.name}? This will delete the plugin files.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        ) != QMessageBox.Yes:
+            return
+        try:
+            inst = self.plugin_manager.get_plugin(plugin_id)
+            if inst and inst.state.is_loaded:
+                self.plugin_manager.unload_plugin(plugin_id)
+            if self.plugin_manager.uninstall_plugin(plugin_id):
+                QMessageBox.information(self, "Remove", f"Plugin {item.plugin_info.name} removed.")
+                self.load_catalog_plugins(force_refresh=True)
+                self.load_plugins()
+            else:
+                QMessageBox.warning(self, "Remove Failed", f"Failed to remove {item.plugin_info.name}.")
+        except Exception as e:
+            logger.error(f"Remove failed: {e}")
+            QMessageBox.warning(self, "Remove Failed", str(e))
         
     def clear_details(self):
         """Clear the plugin details"""
@@ -401,31 +604,41 @@ class PluginManagerDialog(QDialog):
         # Disable all action buttons
         self.load_disable_button.setEnabled(False)
         self.reload_button.setEnabled(False)
+        self.repair_button.setEnabled(False)
+        self.install_button.setEnabled(False)
+        self.update_button.setEnabled(False)
+        self.remove_button.setEnabled(False)
         
         # Update save button state based on whether there are pending changes
         self._update_save_button_state()
         
-    def update_details(self, plugin_info):
-        """Update the plugin details"""
+    def update_details(self, plugin_info, catalog_status=None):
+        """Update the plugin details. For catalog items, catalog_status is passed."""
         if not plugin_info:
             self.clear_details()
             return
-            
-        # Update basic details
+
+        is_catalog = isinstance(plugin_info, CatalogPluginInfo)
         self.id_label.setText(plugin_info.id)
         self.name_label.setText(plugin_info.name)
         self.version_label.setText(plugin_info.version)
         self.author_label.setText(plugin_info.author or "Unknown")
-        self.min_version_label.setText(plugin_info.min_app_version or "")
-        self.max_version_label.setText(plugin_info.max_app_version or "")
-        self.deps_label.setText("\n".join([f"{dep['id']} ({dep['version']})" for dep in plugin_info.dependencies]) or "")
-        self.reqs_label.setText("\n".join(plugin_info.requirements["python"]) or "")
-        self.sys_reqs_label.setText("\n".join(plugin_info.requirements["system"]) or "")
-        self.entry_point_label.setText(plugin_info.entry_point or "")
-        self.path_label.setText(plugin_info.path or "")
-        
-        # Set status based on current plugin state
-        self.status_label.setText(f"Current state: {plugin_info.state.name}")
+        self.min_version_label.setText(getattr(plugin_info, "min_app_version", None) or "")
+        self.max_version_label.setText(getattr(plugin_info, "max_app_version", None) or "")
+        if is_catalog:
+            self.deps_label.setText("")
+            self.reqs_label.setText("")
+            self.sys_reqs_label.setText("")
+            self.entry_point_label.setText("")
+            self.path_label.setText("")
+            self.status_label.setText(f"Status: {catalog_status or 'Unknown'}")
+        else:
+            self.deps_label.setText("\n".join([f"{dep['id']} ({dep['version']})" for dep in plugin_info.dependencies]) or "")
+            self.reqs_label.setText("\n".join(plugin_info.requirements["python"]) or "")
+            self.sys_reqs_label.setText("\n".join(plugin_info.requirements["system"]) or "")
+            self.entry_point_label.setText(plugin_info.entry_point or "")
+            self.path_label.setText(plugin_info.path or "")
+            self.status_label.setText(f"Current state: {plugin_info.state.name}")
         
         # Load plugin log if available
         if plugin_info.id in self.plugin_logs:
@@ -437,11 +650,29 @@ class PluginManagerDialog(QDialog):
             self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
         else:
             self.log_text.clear()
-            self.log_text.setPlaceholderText("No initialization log available.")
-        
-        # Set status with appropriate color
-        status_text = plugin_info.state.name.capitalize()
-        
+            self.log_text.setPlaceholderText("No initialization log available." if not is_catalog else "Catalog plugin.")
+
+        if is_catalog:
+            self.id_label.setStyleSheet("")
+            self.name_label.setStyleSheet("")
+            self.version_label.setStyleSheet("")
+            self.author_label.setStyleSheet("")
+            self.min_version_label.setStyleSheet("")
+            self.max_version_label.setStyleSheet("")
+            self.deps_label.setStyleSheet("")
+            self.reqs_label.setStyleSheet("")
+            self.sys_reqs_label.setStyleSheet("")
+            self.entry_point_label.setStyleSheet("")
+            self.path_label.setStyleSheet("")
+            self.status_label.setStyleSheet("")
+            self.plugin_tabs.setTabEnabled(1, False)  # Settings
+            self.plugin_tabs.setTabEnabled(2, False)   # Documentation
+            return
+
+        self.plugin_tabs.setTabEnabled(1, True)
+        self.plugin_tabs.setTabEnabled(2, True)
+
+        # Set status with appropriate color (installed plugins only)
         if plugin_info.state.is_disabled:
             self.id_label.setStyleSheet("color: #888;")
             self.name_label.setStyleSheet("color: #888;")

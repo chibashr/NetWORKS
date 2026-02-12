@@ -4,7 +4,7 @@
   "version": "10.5",
   "description": "A plugin that scans the network for devices and adds them to NetWORKS",
   "icon": "resources/icons/network_scanner.svg",
-  "author": "NetWORKS Team",
+  "author": "chibashr",
   "entry_point": "network_scanner.py",
   "min_app_version": "0.8.16",
   "requirements": {
