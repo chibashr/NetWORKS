@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "min_app_version": "0.12.0",
-  "updated": "2026-02-12T03:45:19Z",
+  "updated": "2026-02-12T03:48:47Z",
   "plugins": [
     {
       "id": "command_manager",
@@ -50,7 +50,7 @@
           ]
         }
       ],
-      "sha256": "3cc4033e73d4284819416c20f743f1a6b61de13f5a6755c9d3f588701969a468"
+      "sha256": "2a34ccd228a46ba5eab1b24f380ce5163ec5568edde25ccac9ee6ec5d734fff4"
     },
     {
       "id": "device_connector",
@@ -91,7 +91,7 @@
           ]
         }
       ],
-      "sha256": "a2ca4f143dd1bb710268ad254426439149af5d198d12de6ae0313edf240f9670"
+      "sha256": "31a9a68f216b8c5e4c2ce1c50539b19a567a230fec61bd4ac0beabff7454b558"
     },
     {
       "id": "network_scanner",
@@ -280,7 +280,7 @@
           ]
         }
       ],
-      "sha256": "a16e93f01c5f9759e80dae8fcde498d687b768b45865670680985749b9c6c64e"
+      "sha256": "a255b3f439f3e63e01994928ab9646bbbb13ee56d58803c37322d0e6790cc466"
     },
     {
       "id": "report_generator",
@@ -313,7 +313,7 @@
           ]
         }
       ],
-      "sha256": "b29567752d812eef52ab4254961a9884bcc5eee5beb70d70d8b8c314ca155953"
+      "sha256": "83a5c3e286cf96ffbfb566df796b6a37f2a1e0b0112248a4cd4e2643faf8060b"
     },
     {
       "id": "sample",
@@ -420,7 +420,7 @@
           ]
         }
       ],
-      "sha256": "941534c6a87e71bf10e334a295f73705b19334f1a5709d707bd24b6d24f97d2b"
+      "sha256": "4b39c054e4f7342775f896cd60f3e54ef6cf75e151530b479c1154d818cd7210"
     },
     {
       "id": "snmp_collector",
@@ -442,7 +442,7 @@
           ]
         }
       ],
-      "sha256": "5497834c5c7c6411198bc2f4523e62a7d013a376409dc42a1e83c144981d2d79"
+      "sha256": "eb928005267e6ec116decf1b7125efe249d1bddf54be080b187d8a58d3787dba"
     },
     {
       "id": "template_manager",
@@ -465,7 +465,7 @@
           ]
         }
       ],
-      "sha256": "be542bd959a5685db6a71c65ef403c3d72849bf2766c5248864b85f9bd1c68d8"
+      "sha256": "7022b808396c0db8352681933f0141c334001c4b75f9d9719a84bc84da85e285"
     }
   ]
 }
