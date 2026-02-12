@@ -1,6 +1,6 @@
 {
   "name": "NetWORKS",
-  "version": "0.12.4",
+  "version": "0.12.5",
   "description": "Network management and monitoring tool",
   "author": "chibashr",
   "license": "MIT",
@@ -9,12 +9,12 @@
     "type": "git",
     "url": "https://github.com/networks/networks.git"
   },
-  "version_string": "0.12.4",
+  "version_string": "0.12.5",
   "version_info": {
     "major": 0,
     "minor": 12,
-    "patch": 4,
-    "build": 234
+    "patch": 5,
+    "build": 235
   },
   "app_directory": "src",
   "main_module": "main",
@@ -37,7 +37,7 @@
   "telemetry_enabled": false,
   "analytics_enabled": false,
   "build_date": "2026-02-12",
-  "release_notes": "Release 0.12.4.",
+  "release_notes": "Release 0.12.5.",
   "release_type": "stable",
   "versioning_scheme": "semver",
   "update_channel": "stable"
