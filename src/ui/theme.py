@@ -5,8 +5,78 @@
 Theme tokens and stylesheet generation for NetWORKS.
 """
 
+import base64
 from dataclasses import dataclass
+from PySide6.QtCore import Qt, QRect
 from PySide6.QtGui import QPalette, QColor
+from PySide6.QtWidgets import (
+    QProxyStyle,
+    QStyleFactory,
+    QStyle,
+    QStyleOptionGroupBox,
+    QGroupBox,
+)
+
+
+class _GroupBoxUppercaseTitle(QGroupBox):
+    """QGroupBox that displays titles in uppercase."""
+
+    def __init__(self, title=""):
+        super().__init__(title.upper() if isinstance(title, str) else title)
+
+    def setTitle(self, title):
+        super().setTitle(title.upper() if isinstance(title, str) else title)
+
+
+def _patch_groupbox_uppercase():
+    """Patch QGroupBox so all group box titles render in uppercase."""
+    import PySide6.QtWidgets as _qt
+    _qt.QGroupBox = _GroupBoxUppercaseTitle
+
+
+# Apply patch when theme loads (before other UI imports QGroupBox)
+_patch_groupbox_uppercase()
+
+
+class NetWORKSStyle(QProxyStyle):
+    """Fusion-based style for consistent cross-platform appearance."""
+
+    def __init__(self):
+        base = QStyleFactory.create("Fusion") if QStyleFactory else None
+        super().__init__(base)
+
+    def subControlRect(
+        self,
+        control,
+        option,
+        sub_control,
+        widget=None,
+    ):
+        rect = super().subControlRect(control, option, sub_control, widget)
+        if control == QStyle.ComplexControl.CC_GroupBox and sub_control == QStyle.SubControl.SC_GroupBoxLabel:
+            opt = option
+            if isinstance(opt, QStyleOptionGroupBox):
+                r = opt.rect
+                if widget is not None:
+                    r = widget.rect()
+                header_height = rect.height() if rect.isValid() else max(20, opt.fontMetrics.height() + 4)
+                return QRect(r.left(), r.top(), r.width(), header_height)
+        return rect
+
+
+def _arrow_svg_data_uri(direction, color):
+    """Create base64 data URI for arrow (up/down/right triangle)."""
+    if direction == "up":
+        path = "M4 0l4 6H0z"
+        vb = "0 0 8 6"
+    elif direction == "down":
+        path = "M0 0h8L4 6z"
+        vb = "0 0 8 6"
+    else:  # right (for collapsible panels)
+        path = "M0 0l6 4-6 4z"
+        vb = "0 0 6 8"
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vb}"><path fill="{color}" d="{path}"/></svg>'
+    return base64.b64encode(svg.encode("utf-8")).decode("ascii")
 
 
 @dataclass(frozen=True)
@@ -104,8 +174,14 @@ def _apply_accent_override(tokens, accent_override):
     )
 
 
+def _derive_header_height(font_size):
+    """Derive header height from font size for dynamic text fitting."""
+    return max(20, int(round(font_size * 2.4)))
+
+
 def get_theme_tokens(theme_name, font_size=10, row_height=22, accent_override=None):
     theme = (theme_name or "light").strip().lower()
+    header_height = _derive_header_height(font_size)
     if theme == "dark":
         tokens = ThemeTokens(
             name="dark",
@@ -133,7 +209,7 @@ def get_theme_tokens(theme_name, font_size=10, row_height=22, accent_override=No
             header_text="#E5E7EB",
             focus="#E87722",
             row_height=row_height,
-            header_height=24,
+            header_height=header_height,
             font_size=font_size,
             spacing=4,
             radius=0,
@@ -165,12 +241,37 @@ def get_theme_tokens(theme_name, font_size=10, row_height=22, accent_override=No
         header_text="#1F2937",
         focus="#E87722",
         row_height=row_height,
-        header_height=24,
+        header_height=header_height,
         font_size=font_size,
         spacing=4,
         radius=0,
     )
     return _apply_accent_override(tokens, accent_override)
+
+
+def get_current_theme_tokens(app=None):
+    """Get theme tokens for the current application configuration."""
+    if app is None:
+        return get_theme_tokens("light")
+    config = getattr(app, "config", None)
+    if not config:
+        return get_theme_tokens("light")
+    theme_name = config.get("ui.theme", "light") if config else "light"
+    font_size = config.get("ui.font_size", 10) if config else 10
+    row_height = config.get("ui.row_height", 22) if config else 22
+    accent_color = config.get("ui.accent_color", "") if config else ""
+    resolved = resolve_theme_name(theme_name, app)
+    return get_theme_tokens(
+        resolved,
+        font_size=font_size,
+        row_height=row_height,
+        accent_override=accent_color,
+    )
+
+
+def _group_header_font_size(font_size):
+    """Group header font size: 4pt smaller than base, minimum 6."""
+    return max(6, font_size - 4)
 
 
 def build_stylesheet(tokens):
@@ -179,6 +280,8 @@ def build_stylesheet(tokens):
     button_height = tokens.row_height + 6
     control_height = tokens.row_height + 2
     dock_header_height = tokens.header_height + 4
+    group_header_font_size = _group_header_font_size(tokens.font_size)
+    group_header_bar_height = group_header_font_size + 4
 
     return f"""
     QWidget {{
@@ -383,6 +486,68 @@ def build_stylesheet(tokens):
         selection-background-color: {tokens.accent};
         selection-color: {tokens.selection_text};
     }}
+    QSpinBox, QDoubleSpinBox {{
+        background-color: {tokens.surface_raised};
+        color: {tokens.text};
+        border: 1px solid {tokens.border};
+        border-radius: {tokens.radius}px;
+        padding: 4px;
+        padding-right: {control_height + 4}px;
+        min-height: {control_height}px;
+        selection-background-color: {tokens.accent};
+        selection-color: {tokens.selection_text};
+    }}
+    QSpinBox:hover, QDoubleSpinBox:hover {{
+        border-color: {tokens.accent_hover};
+    }}
+    QSpinBox:focus, QDoubleSpinBox:focus {{
+        border-color: {tokens.focus};
+    }}
+    QSpinBox::up-button, QDoubleSpinBox::up-button {{
+        background-color: {tokens.surface_raised};
+        border: 1px solid {tokens.border};
+        border-top-right-radius: {tokens.radius}px;
+        width: {control_height}px;
+        subcontrol-origin: border;
+        subcontrol-position: top right;
+    }}
+    QSpinBox::down-button, QDoubleSpinBox::down-button {{
+        background-color: {tokens.surface_raised};
+        border: 1px solid {tokens.border};
+        border-bottom-right-radius: {tokens.radius}px;
+        width: {control_height}px;
+        subcontrol-origin: border;
+        subcontrol-position: bottom right;
+    }}
+    QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+    QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+        background-color: {tokens.surface_alt};
+    }}
+    QSpinBox::up-button:pressed, QDoubleSpinBox::up-button:pressed,
+    QSpinBox::down-button:pressed, QDoubleSpinBox::down-button:pressed {{
+        background-color: {tokens.accent_soft};
+    }}
+    QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+        width: 0;
+        height: 0;
+        border-left: 4px solid transparent;
+        border-right: 4px solid transparent;
+        border-bottom: 6px solid {tokens.text};
+        margin: 0 auto;
+    }}
+    QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+        width: 0;
+        height: 0;
+        border-left: 4px solid transparent;
+        border-right: 4px solid transparent;
+        border-top: 6px solid {tokens.text};
+        margin: 0 auto;
+    }}
+    QSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:disabled,
+    QSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:disabled {{
+        border-top-color: {tokens.text_disabled};
+        border-bottom-color: {tokens.text_disabled};
+    }}
     QTabWidget::pane {{
         border: 1px solid {tokens.border};
         background-color: {tokens.surface};
@@ -460,22 +625,70 @@ def build_stylesheet(tokens):
         border-left: 1px solid {tokens.separator};
         padding: 0 6px;
     }}
+    QSplitter::handle {{
+        background-color: {tokens.separator};
+    }}
+    QSplitter::handle:horizontal {{
+        width: 3px;
+    }}
+    QSplitter::handle:vertical {{
+        height: 3px;
+    }}
+    /* Integrated header: full-width bar, centered text. Qt cannot set width on ::title;
+       large padding expands title bar; parent clips. See stackoverflow.com/questions/14049290 */
     QGroupBox {{
-        background-color: {tokens.surface_alt};
+        background-color: {tokens.surface};
         border: 1px solid {tokens.border};
         border-radius: {tokens.radius}px;
-        margin-top: 12px;
-        padding-top: 12px;
+        margin-top: 6px;
+        padding: 12px;
+        padding-top: {group_header_bar_height + 8}px;
+        font-size: {group_header_font_size}px;
+    }}
+    QGroupBox QWidget {{
+        font-size: {tokens.font_size}px;
+    }}
+    QGroupBox > QListWidget, QGroupBox > QTreeView, QGroupBox > QTableView,
+    QGroupBox > QTextEdit, QGroupBox > QPlainTextEdit, QGroupBox > QScrollArea {{
+        margin-top: 4px;
+    }}
+    QGroupBox + QGroupBox {{
+        margin-top: 4px;
     }}
     QGroupBox::title {{
-        subcontrol-origin: margin;
-        subcontrol-position: top left;
-        left: 12px;
-        padding: 0 8px;
-        margin-bottom: 12px;
-        color: {tokens.text_muted};
+        subcontrol-origin: border;
+        subcontrol-position: top center;
+        top: 0;
+        padding: 3px 10000px;
+        color: {tokens.text};
+        font-weight: 600;
         background-color: {tokens.surface_alt};
         border: 1px solid {tokens.border};
+        min-height: {group_header_font_size}px;
+        text-align: center;
+    }}
+    QGroupBox:checkable QGroupBox::title {{
+        padding-left: 10022px;
+    }}
+    QGroupBox::indicator {{
+        width: 10px;
+        height: 10px;
+        subcontrol-position: top left;
+        subcontrol-origin: border;
+        top: 2px;
+        left: 6px;
+    }}
+    QGroupBox::indicator:unchecked {{
+        image: url(data:image/svg+xml;base64,{_arrow_svg_data_uri("right", tokens.text_muted)});
+    }}
+    QGroupBox::indicator:unchecked:hover {{
+        image: url(data:image/svg+xml;base64,{_arrow_svg_data_uri("right", tokens.text)});
+    }}
+    QGroupBox::indicator:checked {{
+        image: url(data:image/svg+xml;base64,{_arrow_svg_data_uri("down", tokens.text_muted)});
+    }}
+    QGroupBox::indicator:checked:hover {{
+        image: url(data:image/svg+xml;base64,{_arrow_svg_data_uri("down", tokens.text)});
     }}
     QLabel#PluginStatusBar {{
         background-color: {tokens.surface_alt};

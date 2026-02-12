@@ -52,10 +52,9 @@ def build_snmp_panel(plugin):
     container = QWidget()
     mark_plugin_ui(container)
     layout = QVBoxLayout(container)
-    grid = PLUGIN_UI_SIZES["grid"]
     pad = PLUGIN_UI_SIZES["section_padding"]
-    layout.setContentsMargins(pad, pad, pad, pad)
-    layout.setSpacing(grid)
+    layout.setContentsMargins(pad, 0, pad, 0)
+    layout.setSpacing(PLUGIN_UI_SIZES["collapsible_stack_spacing"])
 
     # Trap Receiver section
     trap_section = CollapsibleSection("Trap Receiver", expanded=True)

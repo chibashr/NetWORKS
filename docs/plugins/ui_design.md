@@ -105,21 +105,18 @@ Follow the application icon spec in `docs/Design Considerations.md`.
 
 ## Collapsible Sections
 
-Use `CollapsibleSection` instead of a standard group box when you want compact headers and consistent padding:
+Use `CollapsibleSection` for sharp full-width blocks with centered headers and arrow far right:
 
 ```python
 from src.ui.plugin_widgets import CollapsibleSection
+from src.ui.plugin_ui_theme import PLUGIN_UI_SIZES
 
 section = CollapsibleSection("Scan Controls")
 section.content_layout.addLayout(controls_layout)
-panel_layout.addWidget(section)
+layout.addWidget(section)
 ```
 
-Sections use 24px headers and 8px content padding.
-Section headers should include 12px of bottom padding so the text does not sit
-flush against the section border.
-Group box titles should include 12px of bottom padding so the text does not sit
-flush against the border.
+**Stacking multiple sections:** Use `layout.setSpacing(PLUGIN_UI_SIZES["collapsible_stack_spacing"])` (0) and `layout.addStretch()` at the end so sections sit flush and anchor to the top.
 
 ## Plugin Dialogs
 

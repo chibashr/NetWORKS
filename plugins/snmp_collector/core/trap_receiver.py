@@ -80,8 +80,15 @@ def _run_trap_receiver_loop(host: str, port: int, on_trap: Callable, stop_event:
     dispatcher = AsyncioDispatcher()
     dispatcher.registerRecvCbFun(callback)
     try:
-        transport = udp.UdpAsyncioTransport().open_server_mode((host, port))
-        dispatcher.registerTransport(udp.DOMAIN_NAME, transport)
+        # Support both etingof pysnmp (openServerMode) and pysnmp-lextudio (open_server_mode)
+        transport_obj = udp.UdpAsyncioTransport()
+        open_server = getattr(transport_obj, "open_server_mode", None) or getattr(
+            transport_obj, "openServerMode"
+        )
+        transport = open_server((host, port))
+        # Support both domainName (etingof) and DOMAIN_NAME (pysnmp-lextudio)
+        udp_domain = getattr(udp, "DOMAIN_NAME", None) or getattr(udp, "domainName")
+        dispatcher.registerTransport(udp_domain, transport)
         dispatcher.jobStarted(1)
         logger.info(f"SNMP trap receiver listening on {host}:{port}")
         while not stop_event.is_set():

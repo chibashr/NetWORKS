@@ -22,6 +22,7 @@ import os
 from ...core.plugin_manager import PluginState
 from ...core.plugin_catalog import CatalogPluginInfo
 from .plugin_list_item import PluginListItem
+from ..theme import get_current_theme_tokens
 
 
 class PluginManagerDialog(QDialog):
@@ -860,6 +861,7 @@ class PluginManagerDialog(QDialog):
     
     def _render_markdown(self, markdown_text, base_path=None):
         """Render markdown content in the documentation view"""
+        tokens = get_current_theme_tokens(self.plugin_manager.app)
         html = markdown.markdown(
             markdown_text,
             extensions=["tables", "fenced_code", "codehilite"]
@@ -868,14 +870,14 @@ class PluginManagerDialog(QDialog):
         <html>
         <head>
             <style>
-                body {{ font-family: Arial, sans-serif; line-height: 1.6; margin: 20px; }}
-                h1, h2, h3, h4 {{ color: #2c3e50; }}
-                pre {{ background-color: #f5f5f5; padding: 10px; border-radius: 5px; }}
-                code {{ background-color: #f5f5f5; padding: 2px 4px; border-radius: 3px; }}
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; margin: 20px; color: {tokens.text}; }}
+                h1, h2, h3, h4 {{ color: {tokens.text}; }}
+                pre {{ background-color: {tokens.surface_alt}; padding: 10px; border-radius: 0; border: 1px solid {tokens.border}; }}
+                code {{ background-color: {tokens.surface_alt}; padding: 2px 4px; border-radius: 0; border: 1px solid {tokens.border}; }}
                 table {{ border-collapse: collapse; width: 100%; }}
-                th, td {{ text-align: left; padding: 8px; border: 1px solid #ddd; }}
-                th {{ background-color: #f2f2f2; }}
-                tr:nth-child(even) {{ background-color: #f9f9f9; }}
+                th, td {{ text-align: left; padding: 8px; border: 1px solid {tokens.border}; }}
+                th {{ background-color: {tokens.header_bg}; }}
+                tr:nth-child(even) {{ background-color: {tokens.table_alt}; }}
             </style>
         </head>
         <body>
@@ -1540,8 +1542,11 @@ class PluginManagerDialog(QDialog):
             self.path_label.setText(current_status + status_suffix)
             
             # Always enable the save button when there's a state change
+            tokens = get_current_theme_tokens(self.plugin_manager.app)
             self.save_changes_button.setEnabled(True)
-            self.save_changes_button.setStyleSheet("background-color: #d0e8ff; font-weight: bold;")
+            self.save_changes_button.setStyleSheet(
+                f"background-color: {tokens.accent_soft}; font-weight: bold;"
+            )
             logger.debug(f"Save Changes button enabled due to plugin state change for {plugin_id}")
         else:
             logger.debug(f"The new state {new_enabled_state} is the same as current state {current_enabled_state}")
@@ -1551,9 +1556,12 @@ class PluginManagerDialog(QDialog):
     
     def _update_status_bar(self):
         """Update the status bar with pending changes summary"""
+        tokens = get_current_theme_tokens(self.plugin_manager.app)
         if not self._are_there_pending_changes():
             self.status_bar.setText("No pending changes")
-            self.status_bar.setStyleSheet("padding: 5px; background-color: #f0f0f0;")
+            self.status_bar.setStyleSheet(
+                f"padding: 5px; background-color: {tokens.surface_alt};"
+            )
             return
             
         # Get counts
@@ -2135,22 +2143,26 @@ class PluginManagerDialog(QDialog):
                 
     def _update_save_button_state(self):
         """Update the Save Changes button state based on pending changes"""
+        tokens = get_current_theme_tokens(self.plugin_manager.app)
         has_changes = self._are_there_pending_changes()
         self.save_changes_button.setEnabled(has_changes)
-        
+
         if has_changes:
             # Highlight the button to make it more obvious
             self.save_changes_button.setStyleSheet(
-                "background-color: #d0e8ff; font-weight: bold; padding: 4px; border-radius: 4px;"
+                f"background-color: {tokens.accent_soft}; font-weight: bold;"
+                f" padding: 4px; border-radius: 0;"
             )
-            
+
             # Also update status bar to show pending changes
             self._update_status_bar()
         else:
             # Reset style when no changes
             self.save_changes_button.setStyleSheet("font-weight: bold;")
             self.status_bar.setText("No pending changes")
-            self.status_bar.setStyleSheet("padding: 5px; background-color: #f0f0f0;")
+            self.status_bar.setStyleSheet(
+                f"padding: 5px; background-color: {tokens.surface_alt};"
+            )
     
     @Slot()
     def on_reload_clicked(self):

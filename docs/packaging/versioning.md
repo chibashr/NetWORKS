@@ -43,6 +43,17 @@ To bump minor or major:
 | `build_date` | Set at release time |
 | `release_notes` | Extracted from CHANGELOG or default |
 
+### Dynamic Version References
+
+All version references in the core codebase must read from `manifest.json`:
+
+- **Splash screen**: Receives version via `SplashScreen(version)` from `app.manifest`.
+- **Main window title / About dialog**: Use `app.get_version()` which reads from manifest.
+- **Plugin catalog**: Uses `app.manifest.get("version")` or `app.get_version()`.
+- **Update checker**: Reads directly from `manifest.json` via `_get_current_version()`.
+
+Do not hardcode version strings; use manifest or `app.get_version()`.
+
 ## Plugin Versioning
 
 See [docs/plugins/publishing.md](../plugins/publishing.md) for plugin release flow.

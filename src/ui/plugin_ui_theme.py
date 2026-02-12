@@ -22,6 +22,8 @@ PLUGIN_UI_SIZES = {
     "dock_header_height": 28,
     "tab_height": 32,
     "icon_button_size": 24,
+    # Use 0 when stacking CollapsibleSections so they sit flush and anchor to top.
+    "collapsible_stack_spacing": 0,
 }
 
 
@@ -86,25 +88,51 @@ def plugin_ui_stylesheet(tokens=None) -> str:
         color: {theme.text};
         font-weight: 600;
     }}
-    QFrame[plugin_ui_section="true"] {{
-        border: 1px solid {theme.border};
-        background-color: {theme.surface};
+    /* CollapsibleSection: sharp full-width blocks, arrow far right, text centered */
+    QWidget#CollapsibleSection {{
+        min-width: 100%;
     }}
-    QToolButton[plugin_ui_section="true"] {{
+    QFrame#CollapsibleSectionHeader {{
         min-height: {section_header_height}px;
-        padding: 2px 8px 4px 8px;
-        margin-bottom: 12px;
-        text-align: left;
-        color: {theme.text};
+        padding: 8px 12px;
         background-color: {theme.surface_alt};
         border: 1px solid {theme.border};
+        border-bottom: none;
+        border-radius: 0;
     }}
-    QToolButton[plugin_ui_section="true"]:hover {{
+    QFrame#CollapsibleSectionHeader:hover {{
         background-color: {theme.surface_raised};
     }}
-    QToolButton[plugin_ui_section="true"]:checked {{
+    QWidget#CollapsibleSection[collapsed="true"] QFrame#CollapsibleSectionHeader,
+    QFrame#CollapsibleSectionHeader[collapsed="true"] {{
+        border-bottom: 1px solid {theme.border};
+        border-radius: 0;
+    }}
+    QWidget#CollapsibleSection QFrame#CollapsibleSectionContent {{
+        border: 1px solid {theme.border};
+        border-top: none;
+        border-radius: 0;
         background-color: {theme.surface};
-        border-bottom: none;
+    }}
+    QLabel#CollapsibleSectionTitle {{
+        color: {theme.text};
+        font-weight: 600;
+        text-align: center;
+    }}
+    QWidget#CollapsibleSection QToolButton[plugin_ui_section="true"] {{
+        min-width: {section_header_height}px;
+        min-height: {section_header_height}px;
+        max-width: {section_header_height}px;
+        max-height: {section_header_height}px;
+        padding: 0;
+        margin: 0;
+        color: {theme.text};
+        background-color: transparent;
+        border: none;
+    }}
+    QWidget#CollapsibleSection QToolButton[plugin_ui_section="true"]:hover {{
+        background-color: {theme.surface_alt};
+        border-radius: 0;
     }}
     QDialog[plugin_ui="true"] {{
         background-color: {theme.surface};

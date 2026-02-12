@@ -22,7 +22,7 @@ class DeviceDetailsPanel(QTabWidget):
     def __init__(self, parent=None):
         """Initialize the device details panel"""
         super().__init__(parent)
-        self.setTabPosition(QTabWidget.South)
+        self.setTabPosition(QTabWidget.North)
         self.setDocumentMode(True)
         
         # Track panels added by plugins

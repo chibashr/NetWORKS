@@ -8,6 +8,9 @@ Documentation dialog for NetWORKS
 import os
 import markdown
 from loguru import logger
+from PySide6.QtWidgets import QApplication
+
+from .theme import get_current_theme_tokens
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QTreeWidget,
     QTreeWidgetItem, QSplitter, QTextBrowser, QWidget, QComboBox
@@ -18,10 +21,14 @@ from PySide6.QtGui import QFont, QIcon
 
 class DocumentationDialog(QDialog):
     """Dialog showing program documentation"""
-    
+
     def __init__(self, parent=None):
         """Initialize the dialog"""
         super().__init__(parent)
+        app = getattr(parent, "app", None) if parent else None
+        if app is None:
+            app = QApplication.instance()
+        self._app = app
         
         # Set dialog properties
         self.setWindowTitle("NetWORKS Documentation")
@@ -207,30 +214,28 @@ class DocumentationDialog(QDialog):
         try:
             with open(filepath, 'r', encoding='utf-8') as f:
                 markdown_text = f.read()
-                
-            # Convert relative paths in images to absolute paths
-            # This is needed for correctly displaying images in the documentation
-            doc_dir = os.path.dirname(filepath)
-            
+
+            tokens = get_current_theme_tokens(self._app)
+
             # Convert markdown to HTML
             html = markdown.markdown(
                 markdown_text,
                 extensions=['tables', 'fenced_code', 'codehilite']
             )
-            
-            # Apply custom styling
+
+            # Apply custom styling with theme tokens
             styled_html = f"""
             <html>
             <head>
                 <style>
-                    body {{ font-family: Arial, sans-serif; line-height: 1.6; margin: 20px; }}
-                    h1, h2, h3, h4 {{ color: #2c3e50; }}
-                    pre {{ background-color: #f5f5f5; padding: 10px; border-radius: 5px; }}
-                    code {{ background-color: #f5f5f5; padding: 2px 4px; border-radius: 3px; }}
+                    body {{ font-family: Arial, sans-serif; line-height: 1.6; margin: 20px; color: {tokens.text}; }}
+                    h1, h2, h3, h4 {{ color: {tokens.text}; }}
+                    pre {{ background-color: {tokens.surface_alt}; padding: 10px; border-radius: 0; border: 1px solid {tokens.border}; }}
+                    code {{ background-color: {tokens.surface_alt}; padding: 2px 4px; border-radius: 0; border: 1px solid {tokens.border}; }}
                     table {{ border-collapse: collapse; width: 100%; }}
-                    th, td {{ text-align: left; padding: 8px; border: 1px solid #ddd; }}
-                    th {{ background-color: #f2f2f2; }}
-                    tr:nth-child(even) {{ background-color: #f9f9f9; }}
+                    th, td {{ text-align: left; padding: 8px; border: 1px solid {tokens.border}; }}
+                    th {{ background-color: {tokens.header_bg}; }}
+                    tr:nth-child(even) {{ background-color: {tokens.table_alt}; }}
                 </style>
             </head>
             <body>

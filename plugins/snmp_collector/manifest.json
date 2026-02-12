@@ -1,7 +1,7 @@
 {
   "id": "snmp_collector",
   "name": "SNMP Collector",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Collects SNMP traps and supports SNMP polling for testing and monitoring",
   "icon": "resources/icons/snmp_collector.svg",
   "author": "chibashr",
@@ -13,6 +13,13 @@
   },
   "dependencies": [],
   "changelog": [
+    {
+      "version": "1.0.1",
+      "date": "2026-02-12",
+      "changes": [
+        "Trap receiver: compatibility with both etingof pysnmp and pysnmp-lextudio"
+      ]
+    },
     {
       "version": "1.0.0",
       "date": "2025-02-11",

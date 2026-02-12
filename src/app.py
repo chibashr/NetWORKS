@@ -13,10 +13,10 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import QTimer
 
 from .config import Config
+from .ui.theme import apply_theme, NetWORKSStyle  # Before main_window so group box patch applies
 from .ui.splash_screen import SplashScreen
 from .ui.main_window import MainWindow
 from .ui.plugin_ui_theme import plugin_ui_stylesheet
-from .ui.theme import apply_theme
 from .core.plugin_manager import PluginManager
 from .core.device_manager import DeviceManager
 from .core import LoggingManager
@@ -48,8 +48,8 @@ class Application(QApplication):
         self.setOrganizationName("NetWORKS")
         self.setOrganizationDomain("networks.app")
         
-        # Use Fusion so custom styles are consistent across platforms
-        self.setStyle("Fusion")
+        # Use Fusion-based custom style with theme-consistent group box titles
+        self.setStyle(NetWORKSStyle())
 
         # Initialize configuration and apply theme defaults early
         self.config = Config(self)
@@ -67,8 +67,8 @@ class Application(QApplication):
         # Create plugin manager
         self.plugin_manager = PluginManager(self)
         
-        # Initialize splash screen
-        self.splash = SplashScreen()
+        # Initialize splash screen (version from manifest)
+        self.splash = SplashScreen(self.manifest.get("version", "0.1.0"), app=self)
         self.splash.show()
         # Remember which screen we started on so other windows
         # (workspace manager, main window) can be positioned there.

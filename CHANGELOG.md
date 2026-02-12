@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- CollapsibleSection: sharp full-width blocks, centered headers, arrow far right; extends to vertical panel limits; use `PLUGIN_UI_SIZES["collapsible_stack_spacing"]` and `addStretch()` when stacking sections.
+
+### Changed
+- QGroupBox: integrated header layout (Option E)—full-width header bar, no left notch, symmetric padding; header height derived from font_size for dynamic text fitting.
+- QGroupBox titles: full-width bar, centered text, 4pt smaller font (min 6pt), uppercase; extra padding-top prevents content overlap; compact bar height derived from font size.
+- Section headers now scale with configured font size; `_derive_header_height(font_size)` in theme.py.
+
+### Fixed
+- QGroupBox full-width titles: large padding workaround (Qt cannot set ::title width); titles centered, uppercase. Reverted StyledGroupBox custom widget due to layout/setLayout compatibility issues with QVBoxLayout(group) pattern.
+- Theme consistency: QSplitter handles and QGroupBox titles now use theme border colors; workspace selector and panels have complete side borders.
+- CollapsibleSection: bottom border now correctly appears when collapsed (header repolish on toggle).
+- Dark/light mode: replaced hardcoded colors in device details panel, splash screen, plugin manager, and documentation dialog with theme tokens for consistent appearance.
+- Spin box styling: QSpinBox/QDoubleSpinBox input field now uses theme background (surface_raised) instead of black; arrow buttons use theme colors with proper contrast; arrows visible in both light and dark modes.
+- QGroupBox styling modernized: full-width header bars, continuous vertical stacking with collapsed borders, optional expand/collapse indicator for checkable group boxes.
+- Tab controls for stacked/tabbed dock panels now appear at the top instead of the bottom.
+- Version references now dynamic from manifest: splash screen, plugin catalog client fallback, and update dialog test block no longer hardcode version strings.
+- **SNMP Collector plugin**: Trap receiver now compatible with both etingof pysnmp (camelCase API) and pysnmp-lextudio (snake_case API); fixes `'UdpAsyncioTransport' object has no attribute 'open_server_mode'` when using etingof pysnmp.
+
 ## [0.12.5] - 2026-02-12
 
 ### Changed

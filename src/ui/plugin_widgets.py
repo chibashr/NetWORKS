@@ -88,27 +88,57 @@ class PluginDockHeader(QWidget):
 
 
 class CollapsibleSection(QWidget):
-    """Collapsible content section with a compact header."""
+    """
+    Collapsible content section with a full-width, centered header (folder-style).
+    Use layout spacing 0 and addStretch when stacking multiple sections so they
+    sit flush and anchor to the top.
+    """
 
     def __init__(self, title: str, parent: QWidget | None = None, expanded: bool = True):
         super().__init__(parent)
+        self.setObjectName("CollapsibleSection")
         mark_plugin_ui(self)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.toggle_button = QToolButton(self)
-        self.toggle_button.setText(title)
+        self.header_widget = QFrame(self)
+        self.header_widget.setObjectName("CollapsibleSectionHeader")
+        self.header_widget.setProperty("plugin_ui_section", "true")
+        header_layout = QHBoxLayout(self.header_widget)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(0)
+
+        header_layout.addStretch(1)
+        self.title_label = QLabel(title, self.header_widget)
+        self.title_label.setObjectName("CollapsibleSectionTitle")
+        header_layout.addWidget(self.title_label)
+        header_layout.addStretch(1)
+
+        self.toggle_button = QToolButton(self.header_widget)
+        self.toggle_button.setText("")
         self.toggle_button.setCheckable(True)
         self.toggle_button.setChecked(expanded)
-        self.toggle_button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.toggle_button.setToolButtonStyle(Qt.ToolButtonIconOnly)
         self.toggle_button.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
         self.toggle_button.setProperty("plugin_ui_section", "true")
-        layout.addWidget(self.toggle_button)
+        self.toggle_button.setCursor(Qt.PointingHandCursor)
+        header_layout.addWidget(self.toggle_button)
+
+        def _header_click(widget, e):
+            self.toggle_button.click()
+            e.accept()
+        self.header_widget.mousePressEvent = lambda e: _header_click(self.header_widget, e)
+        self.title_label.mousePressEvent = lambda e: _header_click(self.title_label, e)
+        self.title_label.setCursor(Qt.PointingHandCursor)
+
+        layout.addWidget(self.header_widget)
 
         self.content_frame = QFrame(self)
         self.content_frame.setProperty("plugin_ui_section", "true")
+        self.content_frame.setObjectName("CollapsibleSectionContent")
         self.content_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         self.content_layout = QVBoxLayout(self.content_frame)
         apply_plugin_ui_layout(self.content_layout, PLUGIN_UI_SIZES["section_padding"])
@@ -116,10 +146,26 @@ class CollapsibleSection(QWidget):
 
         self.toggle_button.toggled.connect(self._on_toggled)
         self.content_frame.setVisible(expanded)
+        self._update_collapsed_property(expanded)
 
     def _on_toggled(self, checked: bool) -> None:
         self.toggle_button.setArrowType(Qt.DownArrow if checked else Qt.RightArrow)
         self.content_frame.setVisible(checked)
+        self._update_collapsed_property(checked)
+
+    def _update_collapsed_property(self, expanded: bool) -> None:
+        """Update property for styling when collapsed (bottom border on header)."""
+        collapsed = "true" if not expanded else "false"
+        self.setProperty("collapsed", collapsed)
+        self.header_widget.setProperty("collapsed", collapsed)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.header_widget.style().unpolish(self.header_widget)
+        self.header_widget.style().polish(self.header_widget)
+
+    def set_title(self, title: str) -> None:
+        """Update the section header title."""
+        self.title_label.setText(title)
 
 
 class PluginDialogBase(QDialog):

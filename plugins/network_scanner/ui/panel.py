@@ -33,13 +33,13 @@ def build_scan_panel(plugin):
     plugin.main_layout = QVBoxLayout(plugin.main_widget)
     grid = PLUGIN_UI_SIZES["grid"]
     pad = PLUGIN_UI_SIZES["section_padding"]
-    plugin.main_layout.setContentsMargins(pad, pad, pad, pad)
+    plugin.main_layout.setContentsMargins(pad, 0, pad, 0)
     plugin.main_layout.setSpacing(grid)
 
     top_section = QWidget()
     top_layout = QVBoxLayout(top_section)
     top_layout.setContentsMargins(0, 0, 0, 0)
-    top_layout.setSpacing(grid)
+    top_layout.setSpacing(PLUGIN_UI_SIZES["collapsible_stack_spacing"])
 
     quick_scan_section = CollapsibleSection("Quick Scan", expanded=True)
     plugin.control_group = quick_scan_section.content_frame
@@ -145,7 +145,7 @@ def build_scan_panel(plugin):
     plugin.advanced_scan_button.setToolTip("Open the advanced scan configuration dialog")
     button_grid.addWidget(plugin.advanced_scan_button, 0, 1)
     control_layout.addLayout(button_grid)
-    top_layout.addWidget(plugin.control_group)
+    top_layout.addWidget(quick_scan_section)
 
     progress_widget = QWidget()
     plugin.progress_layout = QVBoxLayout(progress_widget)

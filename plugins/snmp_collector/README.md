@@ -10,7 +10,7 @@ Collects SNMP traps and supports SNMP polling (GET, GETNEXT) for testing and mon
 
 ## Requirements
 
-- **Python**: pysnmp>=6.2.0,<7.0.0
+- **Python**: pysnmp>=6.2.0,<7.0.0 (compatible with both etingof/pysnmp and pysnmp-lextudio)
 - **System**: Python 3.8+, Qt 6.5+
 
 Install dependencies:

@@ -380,11 +380,20 @@ class UpdateDialog(QDialog):
 
 # For testing
 if __name__ == "__main__":
+    import json
+    manifest_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+        "manifest.json"
+    )
+    current_version = "0.0.0"
+    if os.path.exists(manifest_path):
+        with open(manifest_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            current_version = data.get("version_string", data.get("version", "0.0.0"))
     app = QApplication(sys.argv)
     dialog = UpdateDialog(
-        "0.8.44", 
-        "0.8.45",
-        "Added comprehensive settings dialog with multiple configurable options and implemented "
-        "autosave functionality with backup support."
+        current_version,
+        "X.Y.Z",  # Simulated new version for testing
+        "Sample release notes for testing the update dialog."
     )
     dialog.exec() 

@@ -9,15 +9,23 @@ from PySide6.QtWidgets import QSplashScreen, QProgressBar, QLabel, QVBoxLayout, 
 from PySide6.QtGui import QPixmap, QColor, QPainter, QFont
 from PySide6.QtCore import Qt, QSize, QRect
 from loguru import logger
-import os
+
+from .theme import get_current_theme_tokens
 
 
 class SplashScreen(QSplashScreen):
     """Splash screen shown during application startup"""
-    
-    def __init__(self):
-        """Initialize the splash screen"""
+
+    def __init__(self, version="0.0.0", app=None):
+        """Initialize the splash screen.
+
+        Args:
+            version: Application version string (from manifest). Defaults to "0.0.0" if not provided.
+            app: Optional QApplication instance for theme-aware styling.
+        """
         logger.debug("Initializing splash screen")
+        self.version = version
+        tokens = get_current_theme_tokens(app)
         
         # Create a pixmap for the splash screen
         splash_size = QSize(600, 400)
@@ -46,7 +54,7 @@ class SplashScreen(QSplashScreen):
         version_font = QFont("Arial", 10)
         painter.setFont(version_font)
         painter.setPen(QColor(100, 100, 100))
-        painter.drawText(QRect(0, splash_size.height() - 30, splash_size.width(), 20), Qt.AlignCenter, "Version 0.1.0")
+        painter.drawText(QRect(0, splash_size.height() - 30, splash_size.width(), 20), Qt.AlignCenter, f"Version {self.version}")
         
         # Finish painting
         painter.end()
@@ -61,24 +69,24 @@ class SplashScreen(QSplashScreen):
         # Create status label
         self.status_label = QLabel("Starting...")
         self.status_label.setAlignment(Qt.AlignCenter)
-        self.status_label.setStyleSheet("color: #333333; font-size: 12px;")
-        
+        self.status_label.setStyleSheet(f"color: {tokens.text}; font-size: 12px;")
+
         # Create progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setTextVisible(False)
         self.progress_bar.setMaximum(100)
         self.progress_bar.setValue(0)
-        self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                background-color: #f0f0f0;
-                border: 1px solid #e0e0e0;
-                border-radius: 3px;
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                background-color: {tokens.surface_alt};
+                border: 1px solid {tokens.border};
+                border-radius: 0;
                 height: 6px;
-            }
-            QProgressBar::chunk {
-                background-color: #0078d7;
-                border-radius: 3px;
-            }
+            }}
+            QProgressBar::chunk {{
+                background-color: {tokens.accent};
+                border-radius: 0;
+            }}
         """)
         
         # Add widgets to layout

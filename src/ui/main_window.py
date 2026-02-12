@@ -26,6 +26,7 @@ from .device_tree import DeviceTreeModel, DeviceTreeView, DeviceTreePanel
 from .main_window_actions import create_actions
 from .plugin_manager_dialog import PluginManagerDialog
 from .plugin_ui_theme import mark_plugin_ui
+from .theme import get_current_theme_tokens
 from .log_panel import LogPanel
 from .scalable_toolbar import ScalableToolbar
 from .material_icons import material_icon
@@ -424,6 +425,11 @@ class MainWindow(QMainWindow):
         # Connect signals to save layout when dock widget changes
         self.dock_log.topLevelChanged.connect(self._on_dock_widget_changed)
         self.dock_log.dockLocationChanged.connect(self._on_dock_widget_changed)
+        
+        # Place tab bar at top when panels are stacked/tabbed (default is bottom)
+        for area in (Qt.LeftDockWidgetArea, Qt.RightDockWidgetArea,
+                     Qt.TopDockWidgetArea, Qt.BottomDockWidgetArea):
+            self.setTabPosition(area, QTabWidget.North)
         
     def _connect_signals(self):
         """Connect signals from device manager and plugin manager"""
@@ -2412,6 +2418,7 @@ class MainWindow(QMainWindow):
             key: The property key
             value: The property value
         """
+        tokens = get_current_theme_tokens(self.app)
         dialog = QDialog(self)
         dialog.setWindowTitle(f"Property Details: {key}")
         dialog.resize(600, 450)
@@ -2429,7 +2436,7 @@ class MainWindow(QMainWindow):
         
         # Type information
         type_label = QLabel(f"Type: <code>{type(value).__name__}</code>")
-        type_label.setStyleSheet("color: #606060;")
+        type_label.setStyleSheet(f"color: {tokens.text_muted};")
         header_layout.addWidget(type_label, alignment=Qt.AlignRight)
         
         layout.addLayout(header_layout)
@@ -2473,15 +2480,15 @@ class MainWindow(QMainWindow):
         # JSON View with syntax highlighting for structured data
         json_view = QTextBrowser()
         json_view.setOpenExternalLinks(True)
-        json_view.setStyleSheet("""
-            QTextBrowser {
+        json_view.setStyleSheet(f"""
+            QTextBrowser {{
                 font-family: "Consolas", "Monaco", monospace;
                 font-size: 12px;
-                background-color: #FAFAFA;
-                border: 1px solid #E0E0E0;
-                border-radius: 4px;
+                background-color: {tokens.surface_raised};
+                border: 1px solid {tokens.border};
+                border-radius: 0;
                 padding: 8px;
-            }
+            }}
         """)
         
         # Format content based on the type and create JSON view
@@ -2492,23 +2499,23 @@ class MainWindow(QMainWindow):
         table_view = QTableWidget()
         table_view.setAlternatingRowColors(True)
         table_view.horizontalHeader().setStretchLastSection(True)
-        table_view.setStyleSheet("""
-            QTableWidget {
-                background-color: white;
-                gridline-color: #E0E0E0;
-                border: 1px solid #E0E0E0;
-                border-radius: 4px;
-            }
-            QHeaderView::section {
-                background-color: #F5F5F5;
+        table_view.setStyleSheet(f"""
+            QTableWidget {{
+                background-color: {tokens.surface};
+                gridline-color: {tokens.border};
+                border: 1px solid {tokens.border};
+                border-radius: 0;
+            }}
+            QHeaderView::section {{
+                background-color: {tokens.header_bg};
                 padding: 6px;
                 border: none;
-                border-bottom: 1px solid #D0D0D0;
+                border-bottom: 1px solid {tokens.border};
                 font-weight: bold;
-            }
-            QTableWidget::item {
+            }}
+            QTableWidget::item {{
                 padding: 4px;
-            }
+            }}
         """)
         
         # Populate table view if possible
@@ -2517,15 +2524,15 @@ class MainWindow(QMainWindow):
         
         # Raw View
         raw_view = QTextBrowser()
-        raw_view.setStyleSheet("""
-            QTextBrowser {
+        raw_view.setStyleSheet(f"""
+            QTextBrowser {{
                 font-family: "Consolas", "Monaco", monospace;
                 font-size: 12px;
-                background-color: #FAFAFA;
-                border: 1px solid #E0E0E0;
-                border-radius: 4px;
+                background-color: {tokens.surface_raised};
+                border: 1px solid {tokens.border};
+                border-radius: 0;
                 padding: 8px;
-            }
+            }}
         """)
         raw_view.setPlainText(str(value))
         stacked_widget.addWidget(raw_view)

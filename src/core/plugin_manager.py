@@ -142,9 +142,11 @@ class PluginManager(QObject):
     def _get_catalog_client(self):
         """Lazy-init PluginCatalogClient."""
         if self._catalog_client is None:
-            app_version = "0.12.0"
+            app_version = "0.0.0"
             if hasattr(self.app, "manifest"):
                 app_version = self.app.manifest.get("version", app_version)
+            elif hasattr(self.app, "get_version"):
+                app_version = self.app.get_version() or app_version
             config = getattr(self.app, "config", None)
             if config:
                 self._catalog_client = PluginCatalogClient(config, app_version)
