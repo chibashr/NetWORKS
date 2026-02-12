@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "min_app_version": "0.12.0",
-  "updated": "2026-02-12T03:33:53Z",
+  "updated": "2026-02-12T03:45:19Z",
   "plugins": [
     {
       "id": "command_manager",
@@ -50,7 +50,7 @@
           ]
         }
       ],
-      "sha256": "e82836e9e44ceed5a6f4fbe7c7055c4fb2371664d41f6c95612dfcd2c50b9422"
+      "sha256": "3cc4033e73d4284819416c20f743f1a6b61de13f5a6755c9d3f588701969a468"
     },
     {
       "id": "device_connector",
@@ -91,7 +91,7 @@
           ]
         }
       ],
-      "sha256": "704472ba614699b3d9d270d63992914e1a6d9396a56b1c539f0a0d1e0759a406"
+      "sha256": "a2ca4f143dd1bb710268ad254426439149af5d198d12de6ae0313edf240f9670"
     },
     {
       "id": "network_scanner",
@@ -280,7 +280,7 @@
           ]
         }
       ],
-      "sha256": "8da1edbf189680bf4463fc8ceb69ec7ee7d1315ca8df2b04093e988b24735091"
+      "sha256": "a16e93f01c5f9759e80dae8fcde498d687b768b45865670680985749b9c6c64e"
     },
     {
       "id": "report_generator",
@@ -313,7 +313,7 @@
           ]
         }
       ],
-      "sha256": "f69e7610be5d13f52472a51acca6633b0abf2da253016a728878cbdd0603b165"
+      "sha256": "b29567752d812eef52ab4254961a9884bcc5eee5beb70d70d8b8c314ca155953"
     },
     {
       "id": "sample",
@@ -420,7 +420,29 @@
           ]
         }
       ],
-      "sha256": "35ef8f340739e1623a7766d0e00809bb31d1d584655a5db26d0375b20cfa2b42"
+      "sha256": "941534c6a87e71bf10e334a295f73705b19334f1a5709d707bd24b6d24f97d2b"
+    },
+    {
+      "id": "snmp_collector",
+      "name": "SNMP Collector",
+      "version": "1.0.0",
+      "description": "Collects SNMP traps and supports SNMP polling for testing and monitoring",
+      "author": "chibashr",
+      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/snmp_collector-1.0.0.zip",
+      "min_app_version": "0.8.16",
+      "changelog": [
+        {
+          "version": "1.0.0",
+          "date": "2025-02-11",
+          "changes": [
+            "Initial release",
+            "SNMP trap collection on configurable port",
+            "SNMP polling (GET, GETNEXT) for testing",
+            "Ingestion mode for testing with pasted/simulated traps"
+          ]
+        }
+      ],
+      "sha256": "5497834c5c7c6411198bc2f4523e62a7d013a376409dc42a1e83c144981d2d79"
     },
     {
       "id": "template_manager",
@@ -443,7 +465,7 @@
           ]
         }
       ],
-      "sha256": "90ff6030e7749fcd7c87bfb63d7d273d526e320a4897c6344ac1b1b20daacd60"
+      "sha256": "be542bd959a5685db6a71c65ef403c3d72849bf2766c5248864b85f9bd1c68d8"
     }
   ]
 }
