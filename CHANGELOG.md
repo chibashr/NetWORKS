@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.4] - 2026-02-11
+
+### Added
+- **SNMP Collector plugin**: Collects SNMP traps, supports SNMP polling (GET/GETNEXT), and ingestion for testing. Trap receiver on configurable port (default 1162), SNMP poll for device testing, and JSON ingestion to simulate traps.
+
 ## [0.12.3] - 2026-02-12
 
 ### Added

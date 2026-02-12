@@ -14,6 +14,15 @@ _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 if _root not in sys.path:
     sys.path.insert(0, _root)
 
-from plugins.snmp_collector.core.snmp_collector_plugin import SnmpCollectorPlugin
+from plugins.snmp_collector.core.snmp_collector_plugin import (
+    SnmpCollectorPlugin as _CoreSnmpCollectorPlugin,
+)
+
+
+class SnmpCollectorPlugin(_CoreSnmpCollectorPlugin):
+    """Thin shim so PluginManager finds the plugin class in this module."""
+
+    pass
+
 
 __all__ = ["SnmpCollectorPlugin"]
