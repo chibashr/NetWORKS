@@ -230,6 +230,14 @@ When developing:
 
 ## Git Workflow
 
+### Versioning and Releases
+
+Core program versioning is automatic when pushing to `stable`. See [Versioning Guide](packaging/versioning.md) for:
+
+- Auto-release on push to stable (core paths)
+- Manual minor/major bumps via Actions
+- CHANGELOG and manifest updates
+
 ### Tagging Releases
 
 When creating or updating tags, note that tags are not remote refs like branches. After fetching tags:

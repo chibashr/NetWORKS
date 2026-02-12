@@ -34,3 +34,5 @@ You can also run the workflow manually from the Actions tab to create a release:
 
 - If you provide a version input, that version is used.
 - If you leave it blank, the workflow uses `manifest.json` version.
+
+For auto-release on push to stable, see [versioning.md](versioning.md).

@@ -7,7 +7,7 @@
       "description": "Run and manage commands on network devices",
       "author": "chibashr",
       "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/command_manager-1.0.3.zip",
-      "sha256": "e82836e9e44ceed5a6f4fbe7c7055c4fb2371664d41f6c95612dfcd2c50b9422",
+      "sha256": "2a34ccd228a46ba5eab1b24f380ce5163ec5568edde25ccac9ee6ec5d734fff4",
       "min_app_version": "0.8.16",
       "changelog": [
         {
@@ -56,7 +56,7 @@
       "description": "Adds a Connect submenu to open SSH, Telnet, VNC, RDP, HTTP, HTTPS, or FTP as links; the system decides how to open them (like FTP).",
       "author": "chibashr",
       "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/device_connector-1.2.0.zip",
-      "sha256": "704472ba614699b3d9d270d63992914e1a6d9396a56b1c539f0a0d1e0759a406",
+      "sha256": "31a9a68f216b8c5e4c2ce1c50539b19a567a230fec61bd4ac0beabff7454b558",
       "min_app_version": "0.8.16",
       "changelog": [
         {
@@ -97,7 +97,7 @@
       "description": "A plugin that scans the network for devices and adds them to NetWORKS",
       "author": "chibashr",
       "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/network_scanner-10.5.zip",
-      "sha256": "8da1edbf189680bf4463fc8ceb69ec7ee7d1315ca8df2b04093e988b24735091",
+      "sha256": "a255b3f439f3e63e01994928ab9646bbbb13ee56d58803c37322d0e6790cc466",
       "min_app_version": "0.8.16",
       "changelog": [
         {
@@ -286,7 +286,7 @@
       "description": "Build tabular and template-based reports from devices and export to common formats",
       "author": "chibashr",
       "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/report_generator-1.0.1.zip",
-      "sha256": "f69e7610be5d13f52472a51acca6633b0abf2da253016a728878cbdd0603b165",
+      "sha256": "83a5c3e286cf96ffbfb566df796b6a37f2a1e0b0112248a4cd4e2643faf8060b",
       "min_app_version": "0.8.16",
       "changelog": [
         {
@@ -319,7 +319,7 @@
       "description": "A comprehensive sample plugin that demonstrates the plugin system and provides testing capabilities",
       "author": "chibashr",
       "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/sample-1.0.9.zip",
-      "sha256": "35ef8f340739e1623a7766d0e00809bb31d1d584655a5db26d0375b20cfa2b42",
+      "sha256": "4b39c054e4f7342775f896cd60f3e54ef6cf75e151530b479c1154d818cd7210",
       "min_app_version": "0.8.16",
       "changelog": [
         {
@@ -420,13 +420,35 @@
       ]
     },
     {
+      "id": "snmp_collector",
+      "name": "SNMP Collector",
+      "version": "1.0.0",
+      "description": "Collects SNMP traps and supports SNMP polling for testing and monitoring",
+      "author": "chibashr",
+      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/snmp_collector-1.0.0.zip",
+      "sha256": "eb928005267e6ec116decf1b7125efe249d1bddf54be080b187d8a58d3787dba",
+      "min_app_version": "0.8.16",
+      "changelog": [
+        {
+          "version": "1.0.0",
+          "date": "2025-02-11",
+          "changes": [
+            "Initial release",
+            "SNMP trap collection on configurable port",
+            "SNMP polling (GET, GETNEXT) for testing",
+            "Ingestion mode for testing with pasted/simulated traps"
+          ]
+        }
+      ]
+    },
+    {
       "id": "template_manager",
       "name": "Template Manager",
       "version": "1.0.0",
       "description": "Create reusable command templates from device outputs using Report Generator-style variable binding; export or send to Command Manager for execution.",
       "author": "chibashr",
       "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/template_manager-1.0.0.zip",
-      "sha256": "90ff6030e7749fcd7c87bfb63d7d273d526e320a4897c6344ac1b1b20daacd60",
+      "sha256": "7022b808396c0db8352681933f0141c334001c4b75f9d9719a84bc84da85e285",
       "min_app_version": "0.8.16",
       "changelog": [
         {

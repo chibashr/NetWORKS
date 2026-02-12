@@ -48,9 +48,7 @@ def _format_trap_for_display(trap: dict) -> str:
 
 
 def build_snmp_panel(plugin):
-    """Build the SNMP Collector dock panel."""
-    from PySide6.QtWidgets import QDockWidget
-
+    """Build the SNMP Collector dock panel. Returns widget only; main window creates dock."""
     container = QWidget()
     mark_plugin_ui(container)
     layout = QVBoxLayout(container)
@@ -156,11 +154,7 @@ def build_snmp_panel(plugin):
 
     layout.addStretch()
 
-    # Dock widget
-    dock = QDockWidget()
-    dock.setWidget(container)
-    dock.setObjectName("SnmpCollectorDock")
-    return container, dock
+    return container
 
 
 def _add_trap_to_table(plugin, trap: dict):

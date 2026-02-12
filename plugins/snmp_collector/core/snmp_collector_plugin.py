@@ -285,7 +285,7 @@ class SnmpCollectorPlugin(PluginInterface):
 
     def get_dock_widgets(self):
         """Provide the SNMP Collector dock panel."""
-        widget, dock = build_snmp_panel(self)
+        widget = build_snmp_panel(self)
         self.trap_received.connect(self._on_trap_received_ui)
         return [("SNMP Collector", widget, Qt.RightDockWidgetArea)]
 

@@ -29,6 +29,12 @@
     "path": "plugins\\sample",
     "version": "1.0.9"
   },
+  "snmp_collector": {
+    "state": "DISCOVERED",
+    "last_loaded": "",
+    "path": "plugins\\snmp_collector",
+    "version": "1.0.0"
+  },
   "template_manager": {
     "state": "DISABLED",
     "last_loaded": "",
