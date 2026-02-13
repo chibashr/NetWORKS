@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "min_app_version": "0.12.0",
-  "updated": "2026-02-13T15:45:09Z",
+  "updated": "2026-02-13T16:03:43Z",
   "plugins": [
     {
       "id": "command_manager",
@@ -50,7 +50,7 @@
           ]
         }
       ],
-      "sha256": "9ecfe72df795f7085a2219cad0c901a50a50e048b6476956305d74defe9b30e4"
+      "sha256": "c6493f288b51f27364be28b08c5db6f5b2d2543c4f495d80f78c48cd39b59c6e"
     },
     {
       "id": "device_connector",
@@ -91,7 +91,7 @@
           ]
         }
       ],
-      "sha256": "13755ab9476901323ab91e843a3177f4479efba5297fb392c448bddb24d56594"
+      "sha256": "2da0f87864a95718edaca7c077b439998beba0e0b905bb96c571eb3216044481"
     },
     {
       "id": "network_scanner",
@@ -280,7 +280,7 @@
           ]
         }
       ],
-      "sha256": "4ec31a62ae7e7ff1b346f399bace90ec71d998830baf025ea90c9fa120f0fbb1"
+      "sha256": "9d5250632b56d9447403665215295727e9c0755fd353849da813d851cd5b1532"
     },
     {
       "id": "report_generator",
@@ -313,7 +313,7 @@
           ]
         }
       ],
-      "sha256": "162c2aa69f0601d615717ba76ac2481300ff30955bf666c8b27c04e1641aaa68"
+      "sha256": "036d67e928d76372f6832809d5b3a6b4daa35bf9deaa74ccd74b94d827368ed7"
     },
     {
       "id": "sample",
@@ -420,17 +420,26 @@
           ]
         }
       ],
-      "sha256": "0256b24ce0d6ae626263169a1063c57e83431af352b7e8d864ca4f40e20ad792"
+      "sha256": "af121fef81145432ffb45673b0d1ced4a56d89768ad21baea41450c78bd7fe52"
     },
     {
       "id": "snmp_collector",
       "name": "SNMP",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "description": "Collects SNMP traps and supports SNMP polling for testing and monitoring",
       "author": "chibashr",
-      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/snmp_collector-1.0.2.zip",
+      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/snmp_collector-1.0.3.zip",
       "min_app_version": "0.8.16",
       "changelog": [
+        {
+          "version": "1.0.3",
+          "date": "2026-02-13",
+          "changes": [
+            "SNMP Poll: v1/v2c/v3 version dropdown",
+            "Community field visible (no longer hidden)",
+            "v3 options: user, auth/priv protocol and passwords (shown only when v3 selected)"
+          ]
+        },
         {
           "version": "1.0.2",
           "date": "2026-02-13",
@@ -459,7 +468,7 @@
           ]
         }
       ],
-      "sha256": "b84e3d236ac0157c2ec046e6ffaa153c2b539e3a31669a30322f43217a426f18"
+      "sha256": "3beac919d0590a3de00863f848562326012e598b2ebd3a9f381f7eaab635a0d5"
     },
     {
       "id": "template_manager",
@@ -482,7 +491,7 @@
           ]
         }
       ],
-      "sha256": "36fe72f30f8eabdf269c11fdea075c4bde1053053cb686cfbe20bd2164458c39"
+      "sha256": "39a79a38ce66cf237121630eac09f8c112d58cb4bf4256414ca312bb47842774"
     }
   ]
 }
