@@ -19,7 +19,8 @@
       "changes": [
         "UI refactor: toolbar with dialogs for each function",
         "SNMP ribbon tab with Trap Receiver, SNMP Poll, Ingestion, View Traps",
-        "Tabbed panel with Trap Receiver, SNMP Poll, Ingestion, Collected Traps"
+        "Tabbed panel with Trap Receiver, SNMP Poll, Ingestion, Collected Traps",
+        "Panel scaling: max height 420px, content anchored to top, traps table expands"
       ]
     },
     {

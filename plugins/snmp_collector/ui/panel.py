@@ -36,4 +36,7 @@ def build_snmp_panel(plugin):
     tab_widget.addTab(TrapsTableWidget(plugin), "Collected Traps")
     layout.addWidget(tab_widget)
 
+    container.setMinimumHeight(200)
+    container.setMaximumHeight(420)
+
     return container

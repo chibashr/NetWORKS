@@ -62,6 +62,7 @@ class TrapReceiverWidget(QWidget):
         self.trap_status_label = QLabel("Stopped")
         self.trap_status_label.setProperty("plugin_ui_muted", "true")
         layout.addWidget(self.trap_status_label)
+        layout.addStretch()
 
         plugin.trap_receiver_started.connect(self._on_receiver_started)
         plugin.trap_receiver_stopped.connect(self._on_receiver_stopped)

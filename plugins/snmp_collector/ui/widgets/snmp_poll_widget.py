@@ -58,6 +58,7 @@ class SnmpPollWidget(QWidget):
 
         self.poll_result_edit = QTextEdit()
         self.poll_result_edit.setReadOnly(True)
-        self.poll_result_edit.setMaximumHeight(100)
+        self.poll_result_edit.setMaximumHeight(120)
         self.poll_result_edit.setPlaceholderText("Poll results appear here")
         layout.addWidget(self.poll_result_edit)
+        layout.addStretch()

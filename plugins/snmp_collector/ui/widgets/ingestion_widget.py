@@ -40,3 +40,4 @@ class IngestionWidget(QWidget):
         self.ingest_btn.setToolTip("Add pasted JSON as simulated trap(s)")
         self.ingest_btn.clicked.connect(lambda: plugin._on_ingest_clicked(self))
         layout.addWidget(self.ingest_btn)
+        layout.addStretch()

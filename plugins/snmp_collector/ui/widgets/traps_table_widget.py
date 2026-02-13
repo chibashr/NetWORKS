@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QHeaderView,
+    QSizePolicy,
 )
 from PySide6.QtCore import Qt
 
@@ -46,12 +47,14 @@ class TrapsTableWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
 
         self.traps_table = QTableWidget()
+        self.traps_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         plugin.trap_received.connect(self._on_trap_received)
+        plugin.traps_cleared.connect(self._on_traps_cleared)
         self.traps_table.setColumnCount(4)
         self.traps_table.setHorizontalHeaderLabels(["Time", "Source", "OID/Type", "Value"])
         self.traps_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.traps_table.setAlternatingRowColors(True)
-        self.traps_table.setMaximumHeight(200)
+        self.traps_table.setMinimumHeight(120)
         layout.addWidget(self.traps_table)
 
         clear_btn = QPushButton("Clear")
