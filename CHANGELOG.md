@@ -12,6 +12,7 @@ All notable changes to this project will be documented in this file.
 - **Release separation**: Core releases (v* tags) now contain only the core zip; plugin zips are published exclusively to the standalone "plugins" release. Users install plugins via Plugin Manager → Browse.
 - Repository URL casing: Fixed netWORKS → NetWORKS in settings defaults, update checker, update manager, issue reporter, and documentation for correct GitHub API/release URLs.
 - Docs: Updated versioning guide to clarify core vs. plugins release structure.
+- Release: release-core now explicitly triggers release-windows via `gh workflow run` after pushing the tag (GitHub prevents GITHUB_TOKEN tag pushes from auto-triggering workflows).
 - Buttons: height derived from font size (text height + 4px); matches QLineEdit/QComboBox when adjacent; apply_compact_button/apply_icon_button use get_control_height().
 - Panels: clearer 2px borders on QDockWidget (core and plugin).
 - Table headers: thinner—min-height row_height−2, padding 1px; applies to core and plugin themes.

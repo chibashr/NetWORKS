@@ -71,11 +71,19 @@ jobs:
           git push origin ${{ github.ref_name }}
 
       - name: Create and push tag
+        id: tag
         run: |
           TAG="${{ steps.version.outputs.tag }}"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists, skipping"
-            exit 0
+            echo "Tag $TAG already exists, skipping push"
+          else
+            git tag "$TAG"
+            git push origin "$TAG"
           fi
-          git tag "$TAG"
-          git push origin "$TAG"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Trigger release build
+        run: |
+          gh workflow run "Release Windows Zip" --ref ${{ steps.tag.outputs.tag }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
