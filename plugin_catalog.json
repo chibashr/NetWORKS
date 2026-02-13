@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "min_app_version": "0.12.0",
-  "updated": "2026-02-13T15:40:57Z",
+  "updated": "2026-02-13T15:45:09Z",
   "plugins": [
     {
       "id": "command_manager",
@@ -50,7 +50,7 @@
           ]
         }
       ],
-      "sha256": "c71b02ed5d35a770cae659fc3353753f8916805f4dd87ef3420dba66a9287efb"
+      "sha256": "9ecfe72df795f7085a2219cad0c901a50a50e048b6476956305d74defe9b30e4"
     },
     {
       "id": "device_connector",
@@ -91,7 +91,7 @@
           ]
         }
       ],
-      "sha256": "a7bdb0b0d6c1d84540c59afce378393cb06123e71674ad2a405b57779f0c294a"
+      "sha256": "13755ab9476901323ab91e843a3177f4479efba5297fb392c448bddb24d56594"
     },
     {
       "id": "network_scanner",
@@ -280,7 +280,7 @@
           ]
         }
       ],
-      "sha256": "299ac3445d79035969b9177ea7c920aaec2965998f9628930cd6ecb7f6af2d15"
+      "sha256": "4ec31a62ae7e7ff1b346f399bace90ec71d998830baf025ea90c9fa120f0fbb1"
     },
     {
       "id": "report_generator",
@@ -313,7 +313,7 @@
           ]
         }
       ],
-      "sha256": "e136eb8360f4ce5f28415092307e936c6e46bc47eb726152a6881afcf4689851"
+      "sha256": "162c2aa69f0601d615717ba76ac2481300ff30955bf666c8b27c04e1641aaa68"
     },
     {
       "id": "sample",
@@ -420,7 +420,7 @@
           ]
         }
       ],
-      "sha256": "e5d01e62ca4841f76df80bf12bba0a51edca829d96cce3bfbc238db1db2bdae3"
+      "sha256": "0256b24ce0d6ae626263169a1063c57e83431af352b7e8d864ca4f40e20ad792"
     },
     {
       "id": "snmp_collector",
@@ -437,7 +437,8 @@
           "changes": [
             "UI refactor: toolbar with dialogs for each function",
             "SNMP ribbon tab with Trap Receiver, SNMP Poll, Ingestion, View Traps",
-            "Tabbed panel with Trap Receiver, SNMP Poll, Ingestion, Collected Traps"
+            "Tabbed panel with Trap Receiver, SNMP Poll, Ingestion, Collected Traps",
+            "Panel scaling: max height 420px, content anchored to top, traps table expands"
           ]
         },
         {
@@ -458,7 +459,7 @@
           ]
         }
       ],
-      "sha256": "a47b088c9bf2ba76d280287628cd9223fb02b41836769f7008391c0d9269d96f"
+      "sha256": "b84e3d236ac0157c2ec046e6ffaa153c2b539e3a31669a30322f43217a426f18"
     },
     {
       "id": "template_manager",
@@ -481,7 +482,7 @@
           ]
         }
       ],
-      "sha256": "c62320746acd04c20782024cff4b41432111a08d08ea414f259b5b9fdf33874c"
+      "sha256": "36fe72f30f8eabdf269c11fdea075c4bde1053053cb686cfbe20bd2164458c39"
     }
   ]
 }
