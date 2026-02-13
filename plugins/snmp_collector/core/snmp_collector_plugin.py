@@ -16,38 +16,23 @@ from typing import List, Optional
 
 from loguru import logger
 
-from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QTextEdit,
-    QTableWidget,
-    QTableWidgetItem,
-    QGroupBox,
-    QFormLayout,
-    QSpinBox,
-    QComboBox,
-    QMessageBox,
-    QTabWidget,
-    QSplitter,
-    QSizePolicy,
-)
+from PySide6.QtWidgets import QMessageBox, QStyle
 from PySide6.QtCore import Qt, Signal, Slot, QThread
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QAction
 
 _root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 if _root not in sys.path:
     sys.path.insert(0, _root)
 from src.core.plugin_interface import PluginInterface
-from src.ui.plugin_ui_theme import mark_plugin_ui, PLUGIN_UI_SIZES
-from src.ui.plugin_widgets import CollapsibleSection
+from src.ui.material_icons import material_icon
 
 from .trap_receiver import TrapReceiverThread, HAS_PYSNMP as HAS_TRAP
 from .snmp_poller import snmp_get, snmp_getnext, _init_pysnmp
 from ..ui.panel import build_snmp_panel
+from ..ui.dialogs.trap_receiver_dialog import TrapReceiverDialog
+from ..ui.dialogs.snmp_poll_dialog import SnmpPollDialog
+from ..ui.dialogs.ingestion_dialog import IngestionDialog
+from ..ui.dialogs.collected_traps_dialog import CollectedTrapsDialog
 
 
 class PollerWorker(QThread):
@@ -84,11 +69,14 @@ class SnmpCollectorPlugin(PluginInterface):
     """
 
     trap_received = Signal(dict)  # parsed trap data
+    traps_cleared = Signal()
+    trap_receiver_started = Signal(int)  # port
+    trap_receiver_stopped = Signal()
 
     def __init__(self):
         super().__init__()
-        self.name = "SNMP Collector"
-        self.version = "1.0.0"
+        self.name = "SNMP"
+        self.version = "1.0.2"
         self._trap_receiver: Optional[TrapReceiverThread] = None
         self._traps: List[dict] = []
         self._max_traps = 500
@@ -154,6 +142,10 @@ class SnmpCollectorPlugin(PluginInterface):
             self._trap_receiver.stop()
             self._trap_receiver = None
 
+    def is_trap_receiver_running(self) -> bool:
+        """Return True if trap receiver is running."""
+        return bool(self._trap_receiver and self._trap_receiver.is_running)
+
     def get_traps(self) -> List[dict]:
         """Return collected traps."""
         return list(self._traps)
@@ -181,20 +173,16 @@ class SnmpCollectorPlugin(PluginInterface):
             return str(e)
 
     @Slot()
-    def _on_start_trap_clicked(self):
+    def _on_start_trap_clicked(self, widget=None):
         """Start trap receiver from UI."""
-        if hasattr(self, "trap_port_spin"):
-            self.settings["trap_port"]["value"] = self.trap_port_spin.value()
-        if hasattr(self, "trap_host_edit"):
-            self.settings["trap_host"]["value"] = self.trap_host_edit.text().strip() or "0.0.0.0"
+        if widget:
+            self.settings["trap_port"]["value"] = widget.trap_port_spin.value()
+            self.settings["trap_host"]["value"] = (
+                widget.trap_host_edit.text().strip() or "0.0.0.0"
+            )
         if self.start_trap_receiver():
-            if hasattr(self, "start_trap_btn"):
-                self.start_trap_btn.setEnabled(False)
-            if hasattr(self, "stop_trap_btn"):
-                self.stop_trap_btn.setEnabled(True)
-            if hasattr(self, "trap_status_label"):
-                port = self.settings["trap_port"]["value"]
-                self.trap_status_label.setText(f"Listening on :{port}")
+            port = self.settings["trap_port"]["value"]
+            self.trap_receiver_started.emit(port)
         else:
             QMessageBox.warning(
                 self.main_window,
@@ -203,47 +191,47 @@ class SnmpCollectorPlugin(PluginInterface):
             )
 
     @Slot()
-    def _on_stop_trap_clicked(self):
+    def _on_stop_trap_clicked(self, widget=None):
         """Stop trap receiver from UI."""
         self.stop_trap_receiver()
-        if hasattr(self, "start_trap_btn"):
-            self.start_trap_btn.setEnabled(True)
-        if hasattr(self, "stop_trap_btn"):
-            self.stop_trap_btn.setEnabled(False)
-        if hasattr(self, "trap_status_label"):
-            self.trap_status_label.setText("Stopped")
+        self.trap_receiver_stopped.emit()
 
     @Slot()
-    def _on_poll_get_clicked(self):
+    def _on_poll_get_clicked(self, widget=None):
         """Run SNMP GET from UI."""
-        host = self.poll_host_edit.text().strip() if hasattr(self, "poll_host_edit") else ""
-        oid_text = self.poll_oid_edit.text().strip() if hasattr(self, "poll_oid_edit") else ""
-        community = self.poll_community_edit.text() or "public" if hasattr(self, "poll_community_edit") else "public"
+        if not widget:
+            return
+        host = widget.poll_host_edit.text().strip()
+        oid_text = widget.poll_oid_edit.text().strip()
+        community = widget.poll_community_edit.text() or "public"
         if not host:
-            self.poll_result_edit.setPlainText("Enter host")
+            widget.poll_result_edit.setPlainText("Enter host")
             return
         oids = [o.strip() for o in oid_text.split(",") if o.strip()]
         if not oids:
-            self.poll_result_edit.setPlainText("Enter at least one OID")
+            widget.poll_result_edit.setPlainText("Enter at least one OID")
             return
-        self.poll_result_edit.setPlainText("Polling...")
+        widget.poll_result_edit.setPlainText("Polling...")
+        self._poll_widget = widget
         worker = PollerWorker(host, oids, mode="get", community=community)
         worker.finished.connect(self._on_poll_finished)
-        worker.setProperty("_worker", worker)
         self._poll_worker = worker
         worker.start()
 
     @Slot()
-    def _on_poll_getnext_clicked(self):
+    def _on_poll_getnext_clicked(self, widget=None):
         """Run SNMP GETNEXT from UI."""
-        host = self.poll_host_edit.text().strip() if hasattr(self, "poll_host_edit") else ""
-        oid_text = self.poll_oid_edit.text().strip() if hasattr(self, "poll_oid_edit") else ""
-        community = self.poll_community_edit.text() or "public" if hasattr(self, "poll_community_edit") else "public"
+        if not widget:
+            return
+        host = widget.poll_host_edit.text().strip()
+        oid_text = widget.poll_oid_edit.text().strip()
+        community = widget.poll_community_edit.text() or "public"
         if not host:
-            self.poll_result_edit.setPlainText("Enter host")
+            widget.poll_result_edit.setPlainText("Enter host")
             return
         oids = [o.strip() for o in oid_text.split(",") if o.strip()] or ["1.3.6.1.2.1.1"]
-        self.poll_result_edit.setPlainText("Polling...")
+        widget.poll_result_edit.setPlainText("Polling...")
+        self._poll_widget = widget
         worker = PollerWorker(host, oids, mode="getnext", community=community)
         worker.finished.connect(self._on_poll_finished)
         self._poll_worker = worker
@@ -252,17 +240,20 @@ class SnmpCollectorPlugin(PluginInterface):
     @Slot(bool, list, str)
     def _on_poll_finished(self, success: bool, results: list, error: str):
         """Handle poll worker completion."""
-        if hasattr(self, "poll_result_edit"):
+        widget = getattr(self, "_poll_widget", None)
+        if widget:
             if success:
                 lines = [f"{oid} = {val}" for oid, val in results]
-                self.poll_result_edit.setPlainText("\n".join(lines))
+                widget.poll_result_edit.setPlainText("\n".join(lines))
             else:
-                self.poll_result_edit.setPlainText(f"Error: {error}")
+                widget.poll_result_edit.setPlainText(f"Error: {error}")
 
     @Slot()
-    def _on_ingest_clicked(self):
+    def _on_ingest_clicked(self, widget=None):
         """Ingest pasted JSON as simulated trap(s)."""
-        text = self.ingest_edit.toPlainText().strip() if hasattr(self, "ingest_edit") else ""
+        if not widget:
+            return
+        text = widget.ingest_edit.toPlainText().strip()
         if not text:
             return
         err = self.ingest_trap_json(text)
@@ -273,28 +264,58 @@ class SnmpCollectorPlugin(PluginInterface):
                 f"Invalid JSON: {err}",
             )
         else:
-            if hasattr(self, "ingest_edit"):
-                self.ingest_edit.clear()
+            widget.ingest_edit.clear()
 
     @Slot()
-    def _on_clear_traps_clicked(self):
+    def _on_clear_traps_clicked(self, widget=None):
         """Clear collected traps."""
         self.clear_traps()
-        if hasattr(self, "traps_table"):
-            self.traps_table.setRowCount(0)
+
+    def get_toolbar_actions(self):
+        """Provide toolbar actions that open dialogs for each SNMP function."""
+        mw = self.main_window
+        icon = material_icon("dns", mw, QStyle.SP_ComputerIcon) if mw else None
+
+        trap_action = QAction("Trap Receiver", mw or self)
+        trap_action.setToolTip("Open Trap Receiver dialog")
+        trap_action.triggered.connect(self._show_trap_receiver_dialog)
+        if icon and not icon.isNull():
+            trap_action.setIcon(icon)
+
+        poll_action = QAction("SNMP Poll", mw or self)
+        poll_action.setToolTip("Open SNMP Poll dialog")
+        poll_action.triggered.connect(self._show_snmp_poll_dialog)
+
+        ingest_action = QAction("Ingestion", mw or self)
+        ingest_action.setToolTip("Open Ingestion dialog (testing)")
+        ingest_action.triggered.connect(self._show_ingestion_dialog)
+
+        traps_action = QAction("View Traps", mw or self)
+        traps_action.setToolTip("Open Collected Traps dialog")
+        traps_action.triggered.connect(self._show_collected_traps_dialog)
+
+        return [trap_action, poll_action, ingest_action, traps_action]
+
+    def _show_trap_receiver_dialog(self):
+        dlg = TrapReceiverDialog(self, self.main_window)
+        dlg.exec()
+
+    def _show_snmp_poll_dialog(self):
+        dlg = SnmpPollDialog(self, self.main_window)
+        dlg.exec()
+
+    def _show_ingestion_dialog(self):
+        dlg = IngestionDialog(self, self.main_window)
+        dlg.exec()
+
+    def _show_collected_traps_dialog(self):
+        dlg = CollectedTrapsDialog(self, self.main_window)
+        dlg.exec()
 
     def get_dock_widgets(self):
-        """Provide the SNMP Collector dock panel."""
+        """Provide the SNMP dock panel with tabbed layout."""
         widget = build_snmp_panel(self)
-        self.trap_received.connect(self._on_trap_received_ui)
-        return [("SNMP Collector", widget, Qt.RightDockWidgetArea)]
-
-    @Slot(dict)
-    def _on_trap_received_ui(self, trap: dict):
-        """Update UI when trap is received."""
-        if hasattr(self, "traps_table"):
-            from ..ui.panel import _add_trap_to_table
-            _add_trap_to_table(self, trap)
+        return [("SNMP", widget, Qt.RightDockWidgetArea)]
 
     def cleanup(self):
         """Clean up when plugin is unloaded."""

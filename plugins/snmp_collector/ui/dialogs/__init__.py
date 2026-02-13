@@ -1,0 +1,1 @@
+# SNMP Collector UI dialogs

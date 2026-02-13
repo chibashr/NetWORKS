@@ -8,6 +8,11 @@ Collects SNMP traps and supports SNMP polling (GET, GETNEXT) for testing and mon
 - **SNMP Polling**: Perform GET and GETNEXT operations to test device connectivity and retrieve OID values
 - **Ingestion**: Paste JSON trap data to simulate traps for testing workflows
 
+## UI
+
+- **SNMP ribbon tab**: Toolbar buttons open dialogs for Trap Receiver, SNMP Poll, Ingestion, and View Traps
+- **SNMP panel**: Tabbed dock with Trap Receiver, SNMP Poll, Ingestion, and Collected Traps
+
 ## Requirements
 
 - **Python**: pysnmp>=6.2.0,<7.0.0 (compatible with both etingof/pysnmp and pysnmp-lextudio)

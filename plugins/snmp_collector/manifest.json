@@ -1,7 +1,7 @@
 {
   "id": "snmp_collector",
-  "name": "SNMP Collector",
-  "version": "1.0.1",
+  "name": "SNMP",
+  "version": "1.0.2",
   "description": "Collects SNMP traps and supports SNMP polling for testing and monitoring",
   "icon": "resources/icons/snmp_collector.svg",
   "author": "chibashr",
@@ -13,6 +13,15 @@
   },
   "dependencies": [],
   "changelog": [
+    {
+      "version": "1.0.2",
+      "date": "2026-02-13",
+      "changes": [
+        "UI refactor: toolbar with dialogs for each function",
+        "SNMP ribbon tab with Trap Receiver, SNMP Poll, Ingestion, View Traps",
+        "Tabbed panel with Trap Receiver, SNMP Poll, Ingestion, Collected Traps"
+      ]
+    },
     {
       "version": "1.0.1",
       "date": "2026-02-12",
