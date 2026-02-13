@@ -3,6 +3,12 @@
 All notable changes to this project will be documented in this file.
 
 <<<<<<< HEAD
+## [0.12.11] - 2026-02-13
+
+### Changed
+- Version bump to 0.12.11
+
+
 ## [0.12.10] - 2026-02-13
 ### Changed
 - Core release zip renamed to `NetWORKS-Core-<version>.zip` (was NetWORKS-Repo).

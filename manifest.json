@@ -1,6 +1,6 @@
 {
   "name": "NetWORKS",
-  "version": "0.12.10",
+  "version": "0.12.11",
   "description": "Network management and monitoring tool",
   "author": "chibashr",
   "license": "MIT",
@@ -9,12 +9,12 @@
     "type": "git",
     "url": "https://github.com/networks/networks.git"
   },
-  "version_string": "0.12.10",
+  "version_string": "0.12.11",
   "version_info": {
     "major": 0,
     "minor": 12,
-    "patch": 10,
-    "build": 240
+    "patch": 11,
+    "build": 241
   },
   "app_directory": "src",
   "main_module": "main",
@@ -37,7 +37,7 @@
   "telemetry_enabled": false,
   "analytics_enabled": false,
   "build_date": "2026-02-13",
-  "release_notes": "### Changed\n- Core release zip renamed to `NetWORKS-Core-<version>.zip` (was NetWORKS-Repo).\n- Release Windows Zip: added `tag` input for manual runs on existing tags; explicit checkout ref for correct build source.\n- Release-core: added `actions: write` permission so `gh workflow run` can trigger Release Windows Zip (fixes HTTP 403).",
+  "release_notes": "Release 0.12.11.",
   "release_type": "stable",
   "versioning_scheme": "semver",
   "update_channel": "stable"
