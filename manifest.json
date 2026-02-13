@@ -1,6 +1,6 @@
 {
   "name": "NetWORKS",
-  "version": "0.12.7",
+  "version": "0.12.8",
   "description": "Network management and monitoring tool",
   "author": "chibashr",
   "license": "MIT",
@@ -9,12 +9,12 @@
     "type": "git",
     "url": "https://github.com/networks/networks.git"
   },
-  "version_string": "0.12.7",
+  "version_string": "0.12.8",
   "version_info": {
     "major": 0,
     "minor": 12,
-    "patch": 7,
-    "build": 237
+    "patch": 8,
+    "build": 238
   },
   "app_directory": "src",
   "main_module": "main",
@@ -36,8 +36,8 @@
   "update_url": "https://api.networks.dev/updates",
   "telemetry_enabled": false,
   "analytics_enabled": false,
-  "build_date": "2026-02-12",
-  "release_notes": "Release 0.12.7.",
+  "build_date": "2026-02-13",
+  "release_notes": "### Added\n- Plugin Manager: Install and Update dialogs now show the actual error message (e.g. HTTP 404, SHA-256 mismatch) instead of a generic \"Failed to install\" when plugin installation fails.\n- Plugin installer: Detailed logging for download URL, HTTP status, SHA verification, extraction, and validation steps to aid troubleshooting.",
   "release_type": "stable",
   "versioning_scheme": "semver",
   "update_channel": "stable"
