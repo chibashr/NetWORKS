@@ -37,7 +37,10 @@ pip install -r plugins/snmp_collector/requirements.txt
 
 1. Enter the target host IP or hostname.
 2. Enter one or more OIDs (comma-separated for GET).
-3. Click **GET** or **GETNEXT** to poll.
+3. Select version: **v1**, **v2c**, or **v3**.
+4. For v1/v2c: enter community string (default `public`, visible).
+5. For v3: enter user; optionally set auth protocol/password and priv protocol/password.
+6. Click **GET** or **GETNEXT** to poll.
 
 Common OIDs:
 

@@ -27,7 +27,7 @@ from src.core.plugin_interface import PluginInterface
 from src.ui.material_icons import material_icon
 
 from .trap_receiver import TrapReceiverThread, HAS_PYSNMP as HAS_TRAP
-from .snmp_poller import snmp_get, snmp_getnext, _init_pysnmp
+from .snmp_poller import snmp_get, snmp_getnext, build_auth_data, _init_pysnmp
 from ..ui.panel import build_snmp_panel
 from ..ui.dialogs.trap_receiver_dialog import TrapReceiverDialog
 from ..ui.dialogs.snmp_poll_dialog import SnmpPollDialog
@@ -41,24 +41,27 @@ class PollerWorker(QThread):
     finished = Signal(bool, list, str)  # success, results, error
 
     def __init__(self, host: str, oids: List[str], mode: str = "get",
-                 community: str = "public", port: int = 161):
+                 auth_data=None, port: int = 161):
         super().__init__()
         self.host = host
         self.oids = oids
         self.mode = mode
-        self.community = community
+        self.auth_data = auth_data
         self.port = port
 
     def run(self):
+        if not self.auth_data:
+            self.finished.emit(False, [], "Invalid auth configuration")
+            return
         if self.mode == "getnext" and len(self.oids) >= 1:
             ok, results, err = snmp_getnext(
                 self.host, self.oids[0],
-                community=self.community, port=self.port,
+                auth_data=self.auth_data, port=self.port,
             )
         else:
             ok, results, err = snmp_get(
                 self.host, self.oids,
-                community=self.community, port=self.port,
+                auth_data=self.auth_data, port=self.port,
             )
         self.finished.emit(ok, results, err or "")
 
@@ -76,7 +79,7 @@ class SnmpCollectorPlugin(PluginInterface):
     def __init__(self):
         super().__init__()
         self.name = "SNMP"
-        self.version = "1.0.2"
+        self.version = "1.0.3"
         self._trap_receiver: Optional[TrapReceiverThread] = None
         self._traps: List[dict] = []
         self._max_traps = 500
@@ -196,6 +199,28 @@ class SnmpCollectorPlugin(PluginInterface):
         self.stop_trap_receiver()
         self.trap_receiver_stopped.emit()
 
+    def _build_auth_from_widget(self, widget):
+        """Build auth_data from widget fields."""
+        version = widget.poll_version_combo.currentText()
+        if version in ("v1", "v2c"):
+            community = widget.poll_community_edit.text().strip() or "public"
+            return build_auth_data(version=version, community=community)
+        user = widget.poll_user_edit.text().strip() or "initial"
+        auth_proto = widget.poll_auth_proto_combo.currentText().lower() if widget.poll_auth_pass_edit.text() else ""
+        auth_pass = widget.poll_auth_pass_edit.text()
+        priv_proto = widget.poll_priv_proto_combo.currentText().lower() if widget.poll_priv_pass_edit.text() else ""
+        if priv_proto == "none":
+            priv_proto = ""
+        priv_pass = widget.poll_priv_pass_edit.text()
+        return build_auth_data(
+            version="v3",
+            user=user,
+            auth_protocol=auth_proto,
+            auth_password=auth_pass,
+            priv_protocol=priv_proto,
+            priv_password=priv_pass,
+        )
+
     @Slot()
     def _on_poll_get_clicked(self, widget=None):
         """Run SNMP GET from UI."""
@@ -203,7 +228,6 @@ class SnmpCollectorPlugin(PluginInterface):
             return
         host = widget.poll_host_edit.text().strip()
         oid_text = widget.poll_oid_edit.text().strip()
-        community = widget.poll_community_edit.text() or "public"
         if not host:
             widget.poll_result_edit.setPlainText("Enter host")
             return
@@ -211,9 +235,13 @@ class SnmpCollectorPlugin(PluginInterface):
         if not oids:
             widget.poll_result_edit.setPlainText("Enter at least one OID")
             return
+        auth_data = self._build_auth_from_widget(widget)
+        if not auth_data:
+            widget.poll_result_edit.setPlainText("Invalid auth configuration")
+            return
         widget.poll_result_edit.setPlainText("Polling...")
         self._poll_widget = widget
-        worker = PollerWorker(host, oids, mode="get", community=community)
+        worker = PollerWorker(host, oids, mode="get", auth_data=auth_data)
         worker.finished.connect(self._on_poll_finished)
         self._poll_worker = worker
         worker.start()
@@ -225,14 +253,17 @@ class SnmpCollectorPlugin(PluginInterface):
             return
         host = widget.poll_host_edit.text().strip()
         oid_text = widget.poll_oid_edit.text().strip()
-        community = widget.poll_community_edit.text() or "public"
         if not host:
             widget.poll_result_edit.setPlainText("Enter host")
             return
         oids = [o.strip() for o in oid_text.split(",") if o.strip()] or ["1.3.6.1.2.1.1"]
+        auth_data = self._build_auth_from_widget(widget)
+        if not auth_data:
+            widget.poll_result_edit.setPlainText("Invalid auth configuration")
+            return
         widget.poll_result_edit.setPlainText("Polling...")
         self._poll_widget = widget
-        worker = PollerWorker(host, oids, mode="getnext", community=community)
+        worker = PollerWorker(host, oids, mode="getnext", auth_data=auth_data)
         worker.finished.connect(self._on_poll_finished)
         self._poll_worker = worker
         worker.start()

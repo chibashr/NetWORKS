@@ -4,10 +4,11 @@
 """
 SNMP poller (GET, GETNEXT) for testing and data collection.
 Uses pysnmp hlapi asyncio; runs in thread via asyncio.run().
+Supports SNMPv1, v2c, and v3.
 """
 
 import asyncio
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Any
 
 from loguru import logger
 
@@ -15,22 +16,36 @@ HAS_PYSNMP = False
 _GET_CMD = None
 _NEXT_CMD = None
 _ENGINE = None
-_AUTH = None
+_CommunityData = None
+_UsmUserData = None
 _TARGET = None
 _CONTEXT = None
 _OBJECT_TYPE = None
 _OBJECT_IDENTITY = None
+_usmHMACMD5 = None
+_usmHMACSHA = None
+_usmDES = None
+_usmAes128 = None
 
 
 def _init_pysnmp():
-    global HAS_PYSNMP, _GET_CMD, _NEXT_CMD, _ENGINE, _AUTH, _TARGET, _CONTEXT
+    global HAS_PYSNMP, _GET_CMD, _NEXT_CMD, _ENGINE
+    global _CommunityData, _UsmUserData, _TARGET, _CONTEXT
     global _OBJECT_TYPE, _OBJECT_IDENTITY
+    global _usmHMACMD5, _usmHMACSHA, _usmDES, _usmAes128
     if HAS_PYSNMP:
         return
     try:
         from pysnmp.hlapi.asyncio import getCmd, nextCmd
         from pysnmp.entity.engine import SnmpEngine
-        from pysnmp.hlapi.asyncio.auth import CommunityData
+        from pysnmp.hlapi.asyncio.auth import (
+            CommunityData,
+            UsmUserData,
+            usmHMACMD5AuthProtocol,
+            usmHMACSHAAuthProtocol,
+            usmDESPrivProtocol,
+            usmAesCfb128Protocol,
+        )
         from pysnmp.hlapi.asyncio.transport import UdpTransportTarget
         from pysnmp.hlapi.asyncio.context import ContextData
         from pysnmp.smi.rfc1902 import ObjectType, ObjectIdentity
@@ -39,13 +54,62 @@ def _init_pysnmp():
         _GET_CMD = getCmd
         _NEXT_CMD = nextCmd
         _ENGINE = SnmpEngine
-        _AUTH = CommunityData
+        _CommunityData = CommunityData
+        _UsmUserData = UsmUserData
         _TARGET = UdpTransportTarget
         _CONTEXT = ContextData
         _OBJECT_TYPE = ObjectType
         _OBJECT_IDENTITY = ObjectIdentity
+        _usmHMACMD5 = usmHMACMD5AuthProtocol
+        _usmHMACSHA = usmHMACSHAAuthProtocol
+        _usmDES = usmDESPrivProtocol
+        _usmAes128 = usmAesCfb128Protocol
     except ImportError as e:
         logger.warning(f"pysnmp not available for polling: {e}")
+
+
+def build_auth_data(
+    version: str,
+    community: str = "public",
+    user: str = "",
+    auth_protocol: str = "",
+    auth_password: str = "",
+    priv_protocol: str = "",
+    priv_password: str = "",
+) -> Any:
+    """
+    Build auth object for SNMP polling.
+    version: "v1" | "v2c" | "v3"
+    For v3: user required; auth_protocol/auth_password and priv_protocol/priv_password optional.
+    """
+    _init_pysnmp()
+    if not HAS_PYSNMP or not _CommunityData or not _UsmUserData:
+        return None
+
+    if version == "v1":
+        return _CommunityData(community, mpModel=0)
+    if version == "v2c":
+        return _CommunityData(community, mpModel=1)
+
+    # v3
+    auth_proto = None
+    priv_proto = None
+    if auth_protocol and auth_password:
+        auth_proto = {"md5": _usmHMACMD5, "sha": _usmHMACSHA}.get(
+            auth_protocol.lower(), _usmHMACMD5
+        )
+    if priv_protocol and priv_password and priv_protocol not in ("none", ""):
+        priv_proto = {"des": _usmDES, "aes128": _usmAes128}.get(
+            priv_protocol.lower(), _usmDES
+        )
+
+    return _UsmUserData(
+        user or "initial",
+        authKey=auth_password or None,
+        privKey=priv_password or None,
+        authProtocol=auth_proto,
+        privProtocol=priv_proto,
+    )
 
 
 def _make_var_binds(oid_strs: List[str]):
@@ -55,17 +119,16 @@ def _make_var_binds(oid_strs: List[str]):
     return [_OBJECT_TYPE(_OBJECT_IDENTITY(oid.strip())) for oid in oid_strs if oid.strip()]
 
 
-async def _do_get(host: str, oids: List[str], community: str, port: int, timeout: int):
+async def _do_get(host: str, oids: List[str], auth_data: Any, port: int, timeout: int):
     """Async GET implementation."""
     target = _TARGET((host, port), timeout=timeout)
-    auth = _AUTH(community)
     engine = _ENGINE()
     ctx = _CONTEXT()
     var_binds = _make_var_binds(oids)
     if not var_binds:
         return False, [], "No valid OIDs provided"
     err_ind, err_status, err_idx, var_bind_table = await _GET_CMD(
-        engine, auth, target, ctx, *var_binds, lookupMib=False
+        engine, auth_data, target, ctx, *var_binds, lookupMib=False
     )
     if err_ind:
         return False, [], str(err_ind)
@@ -78,12 +141,11 @@ async def _do_get(host: str, oids: List[str], community: str, port: int, timeout
     return True, results, None
 
 
-async def _do_getnext(host: str, oid: str, community: str, port: int, timeout: int, max_rep: int):
+async def _do_getnext(host: str, oid: str, auth_data: Any, port: int, timeout: int, max_rep: int):
     """Async GETNEXT implementation - fetches next OID(s) up to max_rep."""
     from pysnmp.proto.rfc1905 import Null, endOfMibView
 
     target = _TARGET((host, port), timeout=timeout)
-    auth = _AUTH(community)
     engine = _ENGINE()
     ctx = _CONTEXT()
     var_binds = _make_var_binds([oid])
@@ -91,10 +153,9 @@ async def _do_getnext(host: str, oid: str, community: str, port: int, timeout: i
         return False, [], "No valid OID provided"
     results = []
     for _ in range(max_rep):
-        # Build (oid, Null) for nextCmd request
         next_req = [_OBJECT_TYPE(vb[0], Null("")) for vb in var_binds]
         err_ind, err_status, err_idx, var_bind_table = await _NEXT_CMD(
-            engine, auth, target, ctx, *next_req, lookupMib=False
+            engine, auth_data, target, ctx, *next_req, lookupMib=False
         )
         if err_ind:
             return False, results, str(err_ind)
@@ -117,12 +178,13 @@ async def _do_getnext(host: str, oid: str, community: str, port: int, timeout: i
 def snmp_get(
     host: str,
     oids: List[str],
-    community: str = "public",
+    auth_data: Any,
     port: int = 161,
     timeout: int = 5,
 ) -> Tuple[bool, List[Tuple[str, str]], Optional[str]]:
     """
     Perform SNMP GET on host for given OIDs.
+    auth_data: CommunityData or UsmUserData from build_auth_data().
 
     Returns:
         (success, list of (oid, value) tuples, error_message)
@@ -130,8 +192,10 @@ def snmp_get(
     _init_pysnmp()
     if not HAS_PYSNMP:
         return False, [], "pysnmp not available"
+    if not auth_data:
+        return False, [], "Invalid auth configuration"
     try:
-        return asyncio.run(_do_get(host, oids, community, port, timeout))
+        return asyncio.run(_do_get(host, oids, auth_data, port, timeout))
     except Exception as e:
         return False, [], str(e)
 
@@ -139,14 +203,14 @@ def snmp_get(
 def snmp_getnext(
     host: str,
     oid: str,
-    community: str = "public",
+    auth_data: Any,
     port: int = 161,
     timeout: int = 5,
     max_repetitions: int = 25,
 ) -> Tuple[bool, List[Tuple[str, str]], Optional[str]]:
     """
     Perform SNMP GETNEXT on host starting from OID.
-    Returns up to max_repetitions var-binds.
+    auth_data: CommunityData or UsmUserData from build_auth_data().
 
     Returns:
         (success, list of (oid, value) tuples, error_message)
@@ -154,7 +218,9 @@ def snmp_getnext(
     _init_pysnmp()
     if not HAS_PYSNMP:
         return False, [], "pysnmp not available"
+    if not auth_data:
+        return False, [], "Invalid auth configuration"
     try:
-        return asyncio.run(_do_getnext(host, oid, community, port, timeout, max_repetitions))
+        return asyncio.run(_do_getnext(host, oid, auth_data, port, timeout, max_repetitions))
     except Exception as e:
         return False, [], str(e)
