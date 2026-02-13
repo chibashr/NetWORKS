@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.9] - 2026-02-13
+
+### Changed
+- Version bump to 0.12.9
+
+
 ## [0.12.8] - 2026-02-13
 ### Added
 - Plugin Manager: Install and Update dialogs now show the actual error message (e.g. HTTP 404, SHA-256 mismatch) instead of a generic "Failed to install" when plugin installation fails.
