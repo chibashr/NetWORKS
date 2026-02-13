@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "min_app_version": "0.12.0",
-  "updated": "2026-02-12T03:48:47Z",
+  "updated": "2026-02-13T15:40:57Z",
   "plugins": [
     {
       "id": "command_manager",
@@ -50,7 +50,7 @@
           ]
         }
       ],
-      "sha256": "2a34ccd228a46ba5eab1b24f380ce5163ec5568edde25ccac9ee6ec5d734fff4"
+      "sha256": "c71b02ed5d35a770cae659fc3353753f8916805f4dd87ef3420dba66a9287efb"
     },
     {
       "id": "device_connector",
@@ -91,7 +91,7 @@
           ]
         }
       ],
-      "sha256": "31a9a68f216b8c5e4c2ce1c50539b19a567a230fec61bd4ac0beabff7454b558"
+      "sha256": "a7bdb0b0d6c1d84540c59afce378393cb06123e71674ad2a405b57779f0c294a"
     },
     {
       "id": "network_scanner",
@@ -280,7 +280,7 @@
           ]
         }
       ],
-      "sha256": "a255b3f439f3e63e01994928ab9646bbbb13ee56d58803c37322d0e6790cc466"
+      "sha256": "299ac3445d79035969b9177ea7c920aaec2965998f9628930cd6ecb7f6af2d15"
     },
     {
       "id": "report_generator",
@@ -313,7 +313,7 @@
           ]
         }
       ],
-      "sha256": "83a5c3e286cf96ffbfb566df796b6a37f2a1e0b0112248a4cd4e2643faf8060b"
+      "sha256": "e136eb8360f4ce5f28415092307e936c6e46bc47eb726152a6881afcf4689851"
     },
     {
       "id": "sample",
@@ -420,17 +420,33 @@
           ]
         }
       ],
-      "sha256": "4b39c054e4f7342775f896cd60f3e54ef6cf75e151530b479c1154d818cd7210"
+      "sha256": "e5d01e62ca4841f76df80bf12bba0a51edca829d96cce3bfbc238db1db2bdae3"
     },
     {
       "id": "snmp_collector",
-      "name": "SNMP Collector",
-      "version": "1.0.0",
+      "name": "SNMP",
+      "version": "1.0.2",
       "description": "Collects SNMP traps and supports SNMP polling for testing and monitoring",
       "author": "chibashr",
-      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/snmp_collector-1.0.0.zip",
+      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/snmp_collector-1.0.2.zip",
       "min_app_version": "0.8.16",
       "changelog": [
+        {
+          "version": "1.0.2",
+          "date": "2026-02-13",
+          "changes": [
+            "UI refactor: toolbar with dialogs for each function",
+            "SNMP ribbon tab with Trap Receiver, SNMP Poll, Ingestion, View Traps",
+            "Tabbed panel with Trap Receiver, SNMP Poll, Ingestion, Collected Traps"
+          ]
+        },
+        {
+          "version": "1.0.1",
+          "date": "2026-02-12",
+          "changes": [
+            "Trap receiver: compatibility with both etingof pysnmp and pysnmp-lextudio"
+          ]
+        },
         {
           "version": "1.0.0",
           "date": "2025-02-11",
@@ -442,7 +458,7 @@
           ]
         }
       ],
-      "sha256": "eb928005267e6ec116decf1b7125efe249d1bddf54be080b187d8a58d3787dba"
+      "sha256": "a47b088c9bf2ba76d280287628cd9223fb02b41836769f7008391c0d9269d96f"
     },
     {
       "id": "template_manager",
@@ -465,7 +481,7 @@
           ]
         }
       ],
-      "sha256": "7022b808396c0db8352681933f0141c334001c4b75f9d9719a84bc84da85e285"
+      "sha256": "c62320746acd04c20782024cff4b41432111a08d08ea414f259b5b9fdf33874c"
     }
   ]
 }
