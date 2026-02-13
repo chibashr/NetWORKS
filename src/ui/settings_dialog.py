@@ -120,7 +120,7 @@ class SettingsDialog(QDialog):
         # Repository URL
         repo_url_layout = QHBoxLayout()
         self.repo_url_edit = QLineEdit()
-        self.repo_url_edit.setPlaceholderText("e.g., https://github.com/chibashr/netWORKS")
+        self.repo_url_edit.setPlaceholderText("e.g., https://github.com/chibashr/NetWORKS")
         repo_reset_btn = QPushButton("Reset")
         repo_reset_btn.clicked.connect(self._on_reset_repo_url)
         repo_url_layout.addWidget(self.repo_url_edit)
@@ -512,7 +512,7 @@ class SettingsDialog(QDialog):
         # Update settings
         self.check_updates_check.setChecked(self.config.get("general.check_for_updates", True))
         self.update_channel_combo.setCurrentText(self.config.get("general.update_channel", "Stable"))
-        self.repo_url_edit.setText(self.config.get("general.repository_url", "https://github.com/chibashr/netWORKS"))
+        self.repo_url_edit.setText(self.config.get("general.repository_url", "https://github.com/chibashr/NetWORKS"))
         
         # UI settings
         self.font_size_spin.setValue(self.config.get("ui.font_size", 10))
@@ -634,7 +634,7 @@ class SettingsDialog(QDialog):
         
     def _on_reset_repo_url(self):
         """Reset repository URL to default"""
-        self.repo_url_edit.setText("https://github.com/chibashr/netWORKS") 
+        self.repo_url_edit.setText("https://github.com/chibashr/NetWORKS") 
 
     def _on_pick_accent_color(self):
         """Pick an accent color for the UI theme."""

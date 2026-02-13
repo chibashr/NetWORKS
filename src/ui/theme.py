@@ -175,8 +175,19 @@ def _apply_accent_override(tokens, accent_override):
 
 
 def _derive_header_height(font_size):
-    """Derive header height from font size for dynamic text fitting."""
-    return max(20, int(round(font_size * 2.4)))
+    """Derive header height from font size for compact text fitting."""
+    return max(18, int(round(font_size * 2.0)))
+
+
+def _derive_control_height(font_size):
+    """Derive control/button height from font size (text height + padding)."""
+    return max(20, int(round(font_size * 2.0)) + 4)
+
+
+def get_control_height(app=None):
+    """Return control/button height for current theme (matches line edits, combos)."""
+    tokens = get_current_theme_tokens(app)
+    return _derive_control_height(tokens.font_size)
 
 
 def get_theme_tokens(theme_name, font_size=10, row_height=22, accent_override=None):
@@ -277,9 +288,11 @@ def _group_header_font_size(font_size):
 def build_stylesheet(tokens):
     # Derive compact control sizes from theme tokens so sizing follows
     # configured row height / header height instead of hardcoded pixels.
-    button_height = tokens.row_height + 6
-    control_height = tokens.row_height + 2
-    dock_header_height = tokens.header_height + 4
+    # Control/button height from font size so buttons align with line edits, combos.
+    control_height = _derive_control_height(tokens.font_size)
+    button_height = control_height
+    table_header_height = tokens.row_height - 2
+    dock_header_height = tokens.header_height + 2
     group_header_font_size = _group_header_font_size(tokens.font_size)
     group_header_bar_height = group_header_font_size + 4
 
@@ -555,7 +568,7 @@ def build_stylesheet(tokens):
     QTabBar::tab {{
         background-color: {tokens.surface_alt};
         color: {tokens.text};
-        padding: 5px 10px;
+        padding: 2px 8px;
         border: 1px solid {tokens.border};
         border-bottom: none;
         border-top-left-radius: {tokens.radius}px;
@@ -591,9 +604,9 @@ def build_stylesheet(tokens):
     QHeaderView::section {{
         background-color: {tokens.header_bg};
         color: {tokens.header_text};
-        padding: 4px 6px;
+        padding: 1px 4px;
         border: 1px solid {tokens.border};
-        min-height: {tokens.header_height}px;
+        min-height: {table_header_height}px;
     }}
     QListWidget, QListView {{
         background-color: {tokens.surface_raised};
@@ -603,17 +616,17 @@ def build_stylesheet(tokens):
         selection-color: {tokens.selection_text};
     }}
     QDockWidget {{
-        border: 1px solid {tokens.border};
+        border: 2px solid {tokens.border};
     }}
     QDockWidget::title {{
         background-color: {tokens.dock_title_bg};
         color: {tokens.dock_title_text};
-        padding: 6px 8px;
+        padding: 2px 8px;
         font-weight: bold;
         min-height: {dock_header_height}px;
     }}
     QDockWidget > QWidget {{
-        border-top: 1px solid {tokens.border};
+        border-top: 2px solid {tokens.border};
         padding-top: 12px;
     }}
     QStatusBar {{

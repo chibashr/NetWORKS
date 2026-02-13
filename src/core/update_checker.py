@@ -19,7 +19,7 @@ from PySide6.QtCore import QObject, Signal
 from .update_manager import UpdateManager
 
 # Default repo (generalized for docs/packaging)
-_DEFAULT_REPO = "https://github.com/chibashr/netWORKS"
+_DEFAULT_REPO = "https://github.com/chibashr/NetWORKS"
 
 
 class UpdateChecker(QObject):
@@ -172,7 +172,7 @@ class UpdateChecker(QObject):
             return False, self.current_version, "0.0.0", "Error checking for updates"
     
     def _api_to_repo_path(self):
-        """Return owner/repo from github_api_url (e.g. chibashr/netWORKS)."""
+        """Return owner/repo from github_api_url (e.g. chibashr/NetWORKS)."""
         if not self.github_api_url or "api.github.com/repos/" not in self.github_api_url:
             return ""
         prefix = "https://api.github.com/repos/"

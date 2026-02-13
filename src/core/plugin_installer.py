@@ -32,6 +32,7 @@ class PluginInstaller(QObject):
     def __init__(self, external_plugins_dir: str):
         super().__init__()
         self.external_plugins_dir = external_plugins_dir
+        self._last_error: Optional[str] = None
         os.makedirs(external_plugins_dir, exist_ok=True)
 
     def _verify_sha256(self, path: str, expected: Optional[str]) -> bool:
@@ -66,22 +67,45 @@ class PluginInstaller(QObject):
         Download ZIP from URL, verify optional SHA-256, extract to external_plugins_dir/{plugin_id}/.
         Returns PluginInfo if successful, None otherwise.
         """
+        import urllib.error
         import urllib.request
 
         target_dir = os.path.join(self.external_plugins_dir, plugin_id)
         tmp_zip = os.path.join(self.external_plugins_dir, f".{plugin_id}.tmp.zip")
 
+        logger.info(f"Installing plugin {plugin_id} from {url}")
         try:
             req = urllib.request.Request(url)
             req.add_header("User-Agent", "NetWORKS-Plugin-Manager/1.0")
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                content = resp.read()
+            try:
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    content = resp.read()
+                logger.debug(f"Downloaded {len(content)} bytes for {plugin_id} (status={getattr(resp, 'status', 'N/A')})")
+            except urllib.error.HTTPError as e:
+                msg = f"Download failed: HTTP {e.code} {e.reason}"
+                self._last_error = msg
+                self.install_error.emit(msg)
+                return None
+            except urllib.error.URLError as e:
+                msg = f"Download failed: {e.reason}"
+                self._last_error = msg
+                self.install_error.emit(msg)
+                return None
+
             with open(tmp_zip, "wb") as f:
                 f.write(content)
 
-            if not self._verify_sha256(tmp_zip, sha256):
-                self.install_error.emit(f"SHA-256 verification failed for {plugin_id}")
-                return None
+            if sha256:
+                actual = hashlib.sha256(content).hexdigest().lower()
+                if actual != sha256.lower():
+                    logger.error(f"SHA-256 mismatch for {plugin_id}: expected {sha256[:16]}..., got {actual[:16]}...")
+                    msg = f"SHA-256 verification failed for {plugin_id}"
+                    self._last_error = msg
+                    self.install_error.emit(msg)
+                    return None
+                logger.debug(f"SHA-256 verified for {plugin_id}")
+            else:
+                logger.debug(f"No SHA-256 in catalog for {plugin_id}, skipping verification")
 
             if os.path.isdir(target_dir):
                 shutil.rmtree(target_dir)
@@ -89,6 +113,7 @@ class PluginInstaller(QObject):
 
             with zipfile.ZipFile(tmp_zip, "r") as zf:
                 zf.extractall(target_dir)
+            logger.debug(f"Extracted {plugin_id} to {target_dir}")
 
             # Read manifest to get entry_point and validate
             manifest_path = os.path.join(target_dir, "manifest.json")
@@ -108,18 +133,28 @@ class PluginInstaller(QObject):
                     data = yaml.safe_load(f)
 
             if not data:
-                self.install_error.emit(f"Manifest not found in {plugin_id}")
+                logger.error(f"Manifest not found in extracted {plugin_id} (expected manifest.json, plugin.json, or plugin.yaml)")
+                msg = f"Manifest not found in {plugin_id}"
+                self._last_error = msg
+                self.install_error.emit(msg)
                 return None
 
             entry_point = data.get("entry_point")
             if not entry_point:
-                self.install_error.emit(f"Manifest missing entry_point for {plugin_id}")
+                logger.error(f"Manifest for {plugin_id} missing required 'entry_point' field")
+                msg = f"Manifest missing entry_point for {plugin_id}"
+                self._last_error = msg
+                self.install_error.emit(msg)
                 return None
 
             if not self._validate_installed(target_dir, plugin_id, entry_point):
-                self.install_error.emit(f"Validation failed: entry point {entry_point} not found")
+                logger.error(f"Validation failed for {plugin_id}: entry point '{entry_point}' not found in {target_dir}")
+                msg = f"Validation failed: entry point {entry_point} not found"
+                self._last_error = msg
+                self.install_error.emit(msg)
                 return None
 
+            logger.info(f"Plugin {plugin_id} v{data.get('version', '?')} installed successfully to {target_dir}")
             plugin_info = PluginInfo(
                 data["id"],
                 data["name"],
@@ -141,12 +176,26 @@ class PluginInstaller(QObject):
                 data.get("icon"), target_dir, plugin_id
             )
 
+            self._last_error = None
             self.install_complete.emit(plugin_info)
             return plugin_info
 
+        except zipfile.BadZipFile as e:
+            logger.error(f"Invalid ZIP for {plugin_id}: {e}")
+            msg = f"Invalid plugin package: {e}"
+            self._last_error = msg
+            self.install_error.emit(msg)
+            if os.path.isdir(target_dir):
+                try:
+                    shutil.rmtree(target_dir)
+                except OSError:
+                    pass
+            return None
         except Exception as e:
-            logger.error(f"Install failed for {plugin_id}: {e}")
-            self.install_error.emit(str(e))
+            logger.exception(f"Install failed for {plugin_id} from {url}: {e}")
+            msg = str(e)
+            self._last_error = msg
+            self.install_error.emit(msg)
             if os.path.isdir(target_dir):
                 try:
                     shutil.rmtree(target_dir)

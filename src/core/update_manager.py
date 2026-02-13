@@ -46,9 +46,9 @@ class UpdateManager(QObject):
                 if custom_repo:
                     self.repository_url = custom_repo
                 else:
-                    self.repository_url = "https://github.com/chibashr/netWORKS"
+                    self.repository_url = "https://github.com/chibashr/NetWORKS"
         else:
-            self.repository_url = "https://github.com/chibashr/netWORKS"
+            self.repository_url = "https://github.com/chibashr/NetWORKS"
     
     def _get_app_directory(self):
         """Get the application root directory"""

@@ -141,7 +141,7 @@ class CollapsibleSection(QWidget):
         self.content_frame.setObjectName("CollapsibleSectionContent")
         self.content_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
         self.content_layout = QVBoxLayout(self.content_frame)
-        apply_plugin_ui_layout(self.content_layout, PLUGIN_UI_SIZES["section_padding"])
+        apply_plugin_ui_layout(self.content_layout, PLUGIN_UI_SIZES["collapsible_content_padding"])
         layout.addWidget(self.content_frame)
 
         self.toggle_button.toggled.connect(self._on_toggled)

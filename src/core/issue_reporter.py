@@ -38,8 +38,8 @@ class IssueReporter(QObject):
         self.app = app
         
         # GitHub repository information
-        self.github_repo = "https://github.com/chibashr/netWORKS"
-        self.github_api_url = "https://api.github.com/repos/chibashr/netWORKS/issues"
+        self.github_repo = "https://github.com/chibashr/NetWORKS"
+        self.github_api_url = "https://api.github.com/repos/chibashr/NetWORKS/issues"
         
         # Set custom repository URL if configured
         if self.config:

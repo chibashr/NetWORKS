@@ -352,7 +352,7 @@ class UpdateDialog(QDialog):
         """Return the GitHub URL for the current channel (releases or tree/branch)."""
         repo_url = (self.update_manager.repository_url or "").rstrip("/")
         if not repo_url or "github.com" not in repo_url:
-            return "https://github.com/chibashr/netWORKS/releases/latest"
+            return "https://github.com/chibashr/NetWORKS/releases/latest"
         branch = "stable"
         if self.config:
             ch = self.config.get("general.update_channel", "Stable")

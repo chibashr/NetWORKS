@@ -84,7 +84,7 @@ When an update is available:
 
 If you prefer not to use automatic updates or Git is not available:
 
-1. Visit the [GitHub Releases page](https://github.com/chibashr/netWORKS/releases)
+1. Visit the [GitHub Releases page](https://github.com/chibashr/NetWORKS/releases)
 2. Download the latest release zip file
 3. Extract and replace the application files
 4. Restart NetWORKS

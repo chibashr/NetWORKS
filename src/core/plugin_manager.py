@@ -173,6 +173,8 @@ class PluginManager(QObject):
         entry = client.get_plugin_from_catalog(plugin_id)
         if not entry:
             logger.warning(f"Plugin {plugin_id} not found in catalog")
+            installer = self._get_installer()
+            installer._last_error = f"Plugin {plugin_id} not found in catalog"
             return None
         installer = self._get_installer()
         plugin_info = installer.install_from_url(
@@ -182,6 +184,11 @@ class PluginManager(QObject):
             self.discover_plugins()
             return self.get_plugin(plugin_id)
         return None
+
+    def get_last_install_error(self) -> Optional[str]:
+        """Return the last error message from a failed install/update, or None."""
+        installer = self._get_installer()
+        return getattr(installer, "_last_error", None)
 
     def uninstall_plugin(self, plugin_id: str) -> bool:
         """

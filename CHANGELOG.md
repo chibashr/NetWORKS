@@ -4,7 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Plugin Manager: Install and Update dialogs now show the actual error message (e.g. HTTP 404, SHA-256 mismatch) instead of a generic "Failed to install" when plugin installation fails.
+- Plugin installer: Detailed logging for download URL, HTTP status, SHA verification, extraction, and validation steps to aid troubleshooting.
+
 ### Changed
+- **Release separation**: Core releases (v* tags) now contain only the core zip; plugin zips are published exclusively to the standalone "plugins" release. Users install plugins via Plugin Manager → Browse.
+- Repository URL casing: Fixed netWORKS → NetWORKS in settings defaults, update checker, update manager, issue reporter, and documentation for correct GitHub API/release URLs.
+- Docs: Updated versioning guide to clarify core vs. plugins release structure.
+- Buttons: height derived from font size (text height + 4px); matches QLineEdit/QComboBox when adjacent; apply_compact_button/apply_icon_button use get_control_height().
+- Panels: clearer 2px borders on QDockWidget (core and plugin).
+- Table headers: thinner—min-height row_height−2, padding 1px; applies to core and plugin themes.
+- Buttons: vertically shrunk—min-height row_height+2 (was +6); plugin button_height 24.
+- CollapsibleSection, tabs, table headers: much thinner—header derivation 2.4→2.0×font; tab/header padding 5→2px; collapsible header row_height-based; dock title padding reduced.
 - CollapsibleSection: sharp full-width blocks, centered headers, arrow far right; extends to vertical panel limits; use `PLUGIN_UI_SIZES["collapsible_stack_spacing"]` and `addStretch()` when stacking sections.
 
 ### Changed

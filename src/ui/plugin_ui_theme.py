@@ -7,7 +7,7 @@ Plugin UI theme helpers for NetWORKS.
 
 from PySide6.QtWidgets import QLayout, QWidget, QAbstractButton
 
-from .theme import get_theme_tokens
+from .theme import get_theme_tokens, _derive_control_height, get_control_height
 
 
 PLUGIN_UI_PROPERTY = "plugin_ui"
@@ -15,12 +15,13 @@ PLUGIN_UI_PROPERTY = "plugin_ui"
 PLUGIN_UI_SIZES = {
     "grid": 4,
     "section_padding": 8,
+    "collapsible_content_padding": 2,
     "dialog_padding": 16,
-    "button_height": 28,
+    # button_height: use get_control_height() for dynamic sizing
     "button_bar_height": 40,
-    "section_header_height": 24,
-    "dock_header_height": 28,
-    "tab_height": 32,
+    "section_header_height": 22,
+    "dock_header_height": 24,
+    "tab_height": 24,
     "icon_button_size": 24,
     # Use 0 when stacking CollapsibleSections so they sit flush and anchor to top.
     "collapsible_stack_spacing": 0,
@@ -48,17 +49,21 @@ def apply_plugin_ui_layout(layout: QLayout, padding: int = None) -> None:
 
 
 def apply_compact_button(button: QAbstractButton) -> None:
-    """Apply compact sizing to buttons in plugin UI."""
+    """Apply compact sizing to buttons; height matches line edits, combos."""
     if button is None:
         return
-    button.setMinimumHeight(PLUGIN_UI_SIZES["button_height"])
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance()
+    button.setMinimumHeight(get_control_height(app))
 
 
 def apply_icon_button(button: QAbstractButton) -> None:
-    """Apply square icon button sizing using the shared button height."""
+    """Apply square icon button sizing; height matches line edits, combos."""
     if button is None:
         return
-    height = PLUGIN_UI_SIZES["button_height"]
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance()
+    height = get_control_height(app)
     button.setMinimumSize(height, height)
     button.setMaximumSize(height, height)
 
@@ -69,15 +74,18 @@ def plugin_ui_stylesheet(tokens=None) -> str:
 
     # Derive compact control sizes from theme tokens so plugin UI follows
     # configured row/header heights instead of hardcoded pixels.
-    button_height = theme.row_height + 6
-    section_header_height = theme.header_height
-    dock_header_height = theme.header_height + 4
-    tab_height = theme.header_height + 8
+    # Button height = control height so buttons align with line edits, combos.
+    control_height = _derive_control_height(theme.font_size)
+    button_height = control_height
+    table_header_height = theme.row_height - 2
+    section_header_height = theme.row_height
+    dock_header_height = theme.header_height + 2
+    tab_height = theme.header_height + 2
     button_bar_height = button_height + 12
 
     return f"""
     QDockWidget[plugin_ui="true"] {{
-        border: 1px solid {theme.border};
+        border: 2px solid {theme.border};
         background-color: {theme.surface};
     }}
     QWidget#PluginDockHeader {{
@@ -94,7 +102,7 @@ def plugin_ui_stylesheet(tokens=None) -> str:
     }}
     QFrame#CollapsibleSectionHeader {{
         min-height: {section_header_height}px;
-        padding: 8px 12px;
+        padding: 2px 6px;
         background-color: {theme.surface_alt};
         border: 1px solid {theme.border};
         border-bottom: none;
@@ -154,7 +162,7 @@ def plugin_ui_stylesheet(tokens=None) -> str:
     }}
     QTabBar[plugin_ui="true"]::tab {{
         min-height: {tab_height}px;
-        padding: 0 12px;
+        padding: 0 8px;
         background-color: {theme.surface_alt};
         border: 1px solid {theme.border};
         border-bottom: none;
@@ -176,7 +184,9 @@ def plugin_ui_stylesheet(tokens=None) -> str:
     QDialog[plugin_ui="true"] QHeaderView::section {{
         background-color: {theme.header_bg};
         color: {theme.header_text};
+        padding: 1px 4px;
         border: 1px solid {theme.border};
+        min-height: {table_header_height}px;
     }}
     QDialog[plugin_ui="true"] QLabel[plugin_ui_muted="true"],
     QWidget[plugin_ui="true"] QLabel[plugin_ui_muted="true"] {{

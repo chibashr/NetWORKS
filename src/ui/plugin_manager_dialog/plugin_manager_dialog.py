@@ -510,7 +510,11 @@ class PluginManagerDialog(QDialog):
                 QMessageBox.information(self, "Install", f"Plugin {item.plugin_info.name} installed successfully.")
                 self.load_catalog_plugins(force_refresh=True)
             else:
-                QMessageBox.warning(self, "Install Failed", f"Failed to install {item.plugin_info.name}.")
+                err = self.plugin_manager.get_last_install_error() or "Unknown error"
+                QMessageBox.warning(
+                    self, "Install Failed",
+                    f"Failed to install {item.plugin_info.name}.\n\n{err}",
+                )
         except Exception as e:
             logger.error(f"Install failed: {e}")
             QMessageBox.warning(self, "Install Failed", str(e))
@@ -543,7 +547,11 @@ class PluginManagerDialog(QDialog):
                 QMessageBox.information(self, "Update", f"Plugin {item.plugin_info.name} updated successfully.")
                 self.load_catalog_plugins(force_refresh=True)
             else:
-                QMessageBox.warning(self, "Update Failed", f"Failed to update {item.plugin_info.name}.")
+                err = self.plugin_manager.get_last_install_error() or "Unknown error"
+                QMessageBox.warning(
+                    self, "Update Failed",
+                    f"Failed to update {item.plugin_info.name}.\n\n{err}",
+                )
         except Exception as e:
             logger.error(f"Update failed: {e}")
             QMessageBox.warning(self, "Update Failed", str(e))
