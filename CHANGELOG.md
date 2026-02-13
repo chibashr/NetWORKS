@@ -3,8 +3,7 @@
 All notable changes to this project will be documented in this file.
 
 <<<<<<< HEAD
-## [Unreleased]
-
+## [0.12.10] - 2026-02-13
 ### Changed
 - Core release zip renamed to `NetWORKS-Core-<version>.zip` (was NetWORKS-Repo).
 - Release Windows Zip: added `tag` input for manual runs on existing tags; explicit checkout ref for correct build source.
