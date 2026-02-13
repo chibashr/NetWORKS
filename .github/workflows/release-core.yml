@@ -24,6 +24,7 @@ on:
 
 permissions:
   contents: write
+  actions: write   # Required for gh workflow run to trigger Release Windows Zip
 
 jobs:
   bump-and-tag:

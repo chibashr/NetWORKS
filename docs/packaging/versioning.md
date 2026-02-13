@@ -71,7 +71,7 @@ See [docs/plugins/publishing.md](../plugins/publishing.md) for plugin release fl
 
 ### Troubleshooting
 
-- **Tag exists but no release**: GitHub prevents tag pushes from `GITHUB_TOKEN` from triggering other workflows. Release-core explicitly invokes release-windows via `gh workflow run` after pushing the tag. If the release still doesn't appear (no downloadable zip), manually run **Actions → Release Windows Zip → Run workflow**, set **tag** to the tag name (e.g. `v0.12.8`), and run. This builds the zip and creates the GitHub Release with the asset.
+- **Tag exists but no release**: Release-core triggers release-windows via `gh workflow run` after pushing the tag (requires `actions: write` permission). If you get HTTP 403 "Resource not accessible by integration", ensure the repo allows workflow permissions (Settings → Actions → General → Workflow permissions). As a fallback, manually run **Actions → Release Windows Zip → Run workflow**, set **tag** to the tag name (e.g. `v0.12.9`), and run.
 - **Plugins release not updated**: Expected when only core files changed. Push changes under `plugins/**` to trigger release-plugins.
 - **Update checker doesn't prompt**: The app uses the GitHub Releases API (`/releases/latest`). If no release exists for the new tag, the checker won't see it. Ensure release-windows completes successfully.
 
