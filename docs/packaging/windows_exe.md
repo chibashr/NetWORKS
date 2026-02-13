@@ -26,13 +26,13 @@ The release zip contains the top-level `NetWORKS` folder.
 
 The workflow `Release Windows Zip` builds and publishes when you push a tag:
 
-1. Create a tag like `v1.0.0` and push it to GitHub.
-2. The workflow builds the core zip (`NetWORKS-Repo-<version>.zip`) and plugin zips.
-3. Both are attached to the same GitHub Release as separate downloadable assets.
+1. Push to `stable` (core changes) — release-core bumps version, creates tag, and triggers this workflow.
+2. The workflow builds the core zip (`NetWORKS-Core-<version>.zip`) and attaches it to the GitHub Release.
+3. Plugins are published separately via the `plugins` release (see [versioning.md](versioning.md)).
 
-You can also run the workflow manually from the Actions tab to create a release:
+You can also run the workflow manually from the Actions tab:
 
-- If you provide a version input, that version is used.
-- If you leave it blank, the workflow uses `manifest.json` version.
+- **tag**: Set to an existing tag (e.g. `v0.12.9`) to build and publish a release for that tag.
+- **version**: Optional; defaults to manifest or derived from tag.
 
 For auto-release on push to stable, see [versioning.md](versioning.md).

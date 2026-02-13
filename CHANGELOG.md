@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- Core release zip renamed to `NetWORKS-Core-<version>.zip` (was NetWORKS-Repo).
+- Release Windows Zip: added `tag` input for manual runs on existing tags; explicit checkout ref for correct build source.
+
 ## [0.12.8] - 2026-02-13
 ### Added
 - Plugin Manager: Install and Update dialogs now show the actual error message (e.g. HTTP 404, SHA-256 mismatch) instead of a generic "Failed to install" when plugin installation fails.

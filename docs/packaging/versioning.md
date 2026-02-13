@@ -66,12 +66,12 @@ See [docs/plugins/publishing.md](../plugins/publishing.md) for plugin release fl
 | release-windows.yml | Push tag v* | Build core zip only, create versioned GitHub Release (e.g. v0.12.5) |
 | release-plugins.yml | Push to stable (plugins/**) | Build and publish plugin packages to standalone "plugins" release |
 
-- **Core releases** (e.g. v0.12.5): Contain only the core zip (`NetWORKS-Repo-X.Y.Z.zip`). Users install plugins separately via Plugin Manager → Browse.
+- **Core releases** (e.g. v0.12.5): Contain only the core zip (`NetWORKS-Core-X.Y.Z.zip`). Users install plugins separately via Plugin Manager → Browse.
 - **Plugins release** (tag `plugins`): Contains all plugin zips. Updated when `plugins/**` changes. Users download plugins through the in-app catalog.
 
 ### Troubleshooting
 
-- **Tag exists but no release**: GitHub prevents tag pushes from `GITHUB_TOKEN` from triggering other workflows. Release-core explicitly invokes release-windows via `gh workflow run` after pushing the tag. If the release still doesn't appear, manually run **Actions → Release Windows Zip → Run workflow** and enter the version (e.g. `0.12.8`).
+- **Tag exists but no release**: GitHub prevents tag pushes from `GITHUB_TOKEN` from triggering other workflows. Release-core explicitly invokes release-windows via `gh workflow run` after pushing the tag. If the release still doesn't appear (no downloadable zip), manually run **Actions → Release Windows Zip → Run workflow**, set **tag** to the tag name (e.g. `v0.12.8`), and run. This builds the zip and creates the GitHub Release with the asset.
 - **Plugins release not updated**: Expected when only core files changed. Push changes under `plugins/**` to trigger release-plugins.
 - **Update checker doesn't prompt**: The app uses the GitHub Releases API (`/releases/latest`). If no release exists for the new tag, the checker won't see it. Ensure release-windows completes successfully.
 

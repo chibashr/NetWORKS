@@ -10,6 +10,10 @@ on:
         description: "Release version (defaults to manifest.json)"
         required: false
         type: string
+      tag:
+        description: "Tag to build (e.g. v0.12.8). If set, checks out this tag."
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -20,6 +24,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -31,9 +37,14 @@ jobs:
         shell: pwsh
         run: |
           $inputVersion = "${{ github.event.inputs.version }}"
+          $inputTag = "${{ github.event.inputs.tag }}"
           if ([string]::IsNullOrWhiteSpace($inputVersion)) {
-            $manifest = Get-Content -Raw -Path "manifest.json" | ConvertFrom-Json
-            $inputVersion = $manifest.version
+            if (-not [string]::IsNullOrWhiteSpace($inputTag)) {
+              $inputVersion = $inputTag.TrimStart('v')
+            } else {
+              $manifest = Get-Content -Raw -Path "manifest.json" | ConvertFrom-Json
+              $inputVersion = $manifest.version
+            }
           }
           $version = $inputVersion.Trim()
           if ($version.StartsWith("v")) {
@@ -62,7 +73,7 @@ jobs:
         env:
           RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          $zip = "dist\NetWORKS-Repo-$env:RELEASE_VERSION.zip"
+          $zip = "dist\NetWORKS-Core-$env:RELEASE_VERSION.zip"
           $staging = "dist\NetWORKS"
           $exclude = @(".git", "dist", ".venv", ".venv_test", "__pycache__", "build")
           if (Test-Path "dist") { Remove-Item "dist" -Recurse -Force }
@@ -77,14 +88,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: NetWORKS-windows
-          path: dist/NetWORKS-Repo-${{ steps.version.outputs.version }}.zip
+          path: dist/NetWORKS-Core-${{ steps.version.outputs.version }}.zip
           if-no-files-found: error
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.RELEASE_TOKEN != '' && secrets.RELEASE_TOKEN || github.token }}
-          files: dist/NetWORKS-Repo-${{ steps.version.outputs.version }}.zip
+          files: dist/NetWORKS-Core-${{ steps.version.outputs.version }}.zip
           fail_on_unmatched_files: true
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || steps.version.outputs.tag }}
           name: NetWORKS ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || steps.version.outputs.tag }}
