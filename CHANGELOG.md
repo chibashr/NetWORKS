@@ -2,11 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+<<<<<<< HEAD
 ## [Unreleased]
 
 ### Changed
 - Core release zip renamed to `NetWORKS-Core-<version>.zip` (was NetWORKS-Repo).
 - Release Windows Zip: added `tag` input for manual runs on existing tags; explicit checkout ref for correct build source.
+- Release-core: added `actions: write` permission so `gh workflow run` can trigger Release Windows Zip (fixes HTTP 403).
+=======
+## [0.12.9] - 2026-02-13
+
+### Changed
+- Version bump to 0.12.9
+
+>>>>>>> a2ab52160ba2fad5e8a0324136923f9b4d42d520
 
 ## [0.12.8] - 2026-02-13
 ### Added
