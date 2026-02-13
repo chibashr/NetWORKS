@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QPushButton,
     QDialog,
+    QScrollArea,
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QFont
@@ -27,6 +28,20 @@ from .plugin_ui_theme import (
     apply_icon_button,
     apply_plugin_ui_layout,
 )
+
+
+def wrap_in_scroll_area(widget: QWidget) -> QScrollArea:
+    """
+    Wrap a widget in a QScrollArea for overflow handling.
+    Use when tab content, forms, or panels may exceed available height.
+    """
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    scroll.setFrameShape(QFrame.NoFrame)
+    scroll.setWidget(widget)
+    mark_plugin_ui(scroll)
+    return scroll
 
 
 class PluginDockHeader(QWidget):

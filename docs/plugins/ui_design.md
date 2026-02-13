@@ -103,6 +103,25 @@ Follow the application icon spec in `docs/Design Considerations.md`.
 **Behavior:**
 - Icon-only actions must include tooltips and aria-labels
 
+## Overflow and Scrollable Sections
+
+When tab content, form sections, or panels can overflow (e.g. many fields, conditional v3 options), wrap the content in a scroll area so users can access all controls without clipping:
+
+```python
+from src.ui.plugin_widgets import wrap_in_scroll_area
+
+content = MyFormWidget()
+scroll = wrap_in_scroll_area(content)
+tab_widget.addTab(scroll, "Tab Name")
+```
+
+Use `wrap_in_scroll_area` for:
+- Tab content that may exceed the available height
+- Form sections with variable or many fields
+- Dialogs with conditional sections (e.g. v3 options that expand)
+
+The helper applies: `setWidgetResizable(True)`, `setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)`, and `setFrameShape(QFrame.NoFrame)` for a clean appearance.
+
 ## Collapsible Sections
 
 Use `CollapsibleSection` for sharp full-width blocks with centered headers and arrow far right:

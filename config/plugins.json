@@ -33,7 +33,7 @@
     "state": "DISCOVERED",
     "last_loaded": "",
     "path": "plugins\\snmp_collector",
-    "version": "1.0.2"
+    "version": "1.0.3"
   },
   "template_manager": {
     "state": "DISCOVERED",

@@ -79,7 +79,7 @@ class SnmpCollectorPlugin(PluginInterface):
     def __init__(self):
         super().__init__()
         self.name = "SNMP"
-        self.version = "1.0.3"
+        self.version = "1.0.4"
         self._trap_receiver: Optional[TrapReceiverThread] = None
         self._traps: List[dict] = []
         self._max_traps = 500
