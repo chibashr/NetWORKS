@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.12.12] - 2026-02-14
 ### Changed
 - **Network Scanner plugin** (v10.8): Removed splitter from dock; top group renamed to Scan Settings.
 - **Network Scanner plugin** (v10.7): Results panel renamed to Logs; reduced margins and smaller text in logs area; removed separator between progress bar and logs.
