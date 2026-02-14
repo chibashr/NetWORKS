@@ -1,7 +1,7 @@
 {
   "id": "network_scanner",
   "name": "Network Scanner",
-  "version": "10.5",
+  "version": "10.8",
   "description": "A plugin that scans the network for devices and adds them to NetWORKS",
   "icon": "resources/icons/network_scanner.svg",
   "author": "chibashr",
@@ -20,6 +20,27 @@
   },
   "dependencies": [],
   "changelog": [
+    {
+      "version": "10.8",
+      "date": "2026-02-14",
+      "changes": [
+        "Removed splitter from dock; top group renamed to Scan Settings"
+      ]
+    },
+    {
+      "version": "10.7",
+      "date": "2026-02-14",
+      "changes": [
+        "Results panel renamed to Logs; reduced margins and smaller text in logs area; removed separator between progress bar and logs"
+      ]
+    },
+    {
+      "version": "10.6",
+      "date": "2026-02-13",
+      "changes": [
+        "Scan and Results panels use QGroupBox instead of CollapsibleSection"
+      ]
+    },
     {
       "version": "10.5",
       "date": "2026-01-27",

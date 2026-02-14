@@ -5,13 +5,12 @@ Collects SNMP traps and supports SNMP polling (GET, GETNEXT) for testing and mon
 ## Features
 
 - **Trap Receiver**: Listens for SNMP traps on a configurable UDP port (default 1162 for non-root use; use 162 for standard trap port with elevated privileges)
-- **SNMP Polling**: Perform GET and GETNEXT operations to test device connectivity and retrieve OID values
-- **Ingestion**: Paste JSON trap data to simulate traps for testing workflows
+- **SNMP Polling**: Perform GET and GETNEXT operations to test device connectivity and retrieve OID values; preset OID dropdown for common MIB-II objects
 
 ## UI
 
-- **SNMP ribbon tab**: Toolbar buttons open dialogs for Trap Receiver, SNMP Poll, Ingestion, and View Traps
-- **SNMP panel**: Tabbed dock with Trap Receiver, SNMP Poll, Ingestion, and Collected Traps
+- **SNMP ribbon tab**: Toolbar buttons open dialogs for Trap Receiver, SNMP Poll, and View Traps
+- **SNMP panel**: Tabbed dock with Trap Receiver, SNMP Poll, and Collected Traps
 
 ## Requirements
 
@@ -36,32 +35,13 @@ pip install -r plugins/snmp_collector/requirements.txt
 ### SNMP Poll
 
 1. Enter the target host IP or hostname.
-2. Enter one or more OIDs (comma-separated for GET).
+2. Select a preset OID from the dropdown (sysDescr, sysUpTime, sysName, etc.) or choose **Custom (manual)** and enter OID(s) (comma-separated for GET).
 3. Select version: **v1**, **v2c**, or **v3**.
 4. For v1/v2c: enter community string (default `public`, visible).
 5. For v3: enter user; optionally set auth protocol/password and priv protocol/password.
 6. Click **GET** or **GETNEXT** to poll.
 
-Common OIDs:
-
-- `1.3.6.1.2.1.1.1.0` - sysDescr
-- `1.3.6.1.2.1.1.5.0` - sysName
-- `1.3.6.1.2.1.1.3.0` - sysUpTime
-
-### Ingestion (Testing)
-
-Paste JSON in the format:
-
-```json
-{
-  "agent_address": "192.168.1.1",
-  "varbinds": [
-    {"oid": "1.3.6.1.6.3.1.1.5.1", "value": "linkDown"}
-  ]
-}
-```
-
-Or an array of trap objects. Click **Ingest** to add them as simulated traps.
+Preset OIDs include: sysDescr, sysUpTime, sysName, sysObjectID, sysContact, sysLocation, sysServices, interfaces (ifTable), ipAddrTable.
 
 ## Author
 

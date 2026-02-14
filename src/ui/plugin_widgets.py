@@ -6,6 +6,7 @@ Reusable UI components for plugin surfaces.
 """
 
 from PySide6.QtWidgets import (
+    QApplication,
     QWidget,
     QHBoxLayout,
     QVBoxLayout,
@@ -18,9 +19,10 @@ from PySide6.QtWidgets import (
     QDialog,
     QScrollArea,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QIcon, QFont
 
+from .theme import arrow_icon, get_arrow_color
 from .plugin_ui_theme import (
     PLUGIN_UI_SIZES,
     mark_plugin_ui,
@@ -28,6 +30,18 @@ from .plugin_ui_theme import (
     apply_icon_button,
     apply_plugin_ui_layout,
 )
+
+
+def create_plugin_tab_widget() -> QTabWidget:
+    """
+    Create a QTabWidget with plugin_ui styling.
+    Tab content is automatically inset 8px from pane edges via stylesheet.
+    Use for plugin docks, dialogs, or panels with tabs.
+    """
+    tab = QTabWidget()
+    mark_plugin_ui(tab)
+    mark_plugin_ui(tab.tabBar())
+    return tab
 
 
 def wrap_in_scroll_area(widget: QWidget) -> QScrollArea:
@@ -137,9 +151,14 @@ class CollapsibleSection(QWidget):
         self.toggle_button.setCheckable(True)
         self.toggle_button.setChecked(expanded)
         self.toggle_button.setToolButtonStyle(Qt.ToolButtonIconOnly)
-        self.toggle_button.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
         self.toggle_button.setProperty("plugin_ui_section", "true")
         self.toggle_button.setCursor(Qt.PointingHandCursor)
+        self._arrow_color = self._resolve_arrow_color()
+        self._icon_size = 8  # Compact arrow in section header
+        self._icon_down = arrow_icon("down", self._arrow_color, self._icon_size)
+        self._icon_right = arrow_icon("right", self._arrow_color, self._icon_size)
+        self.toggle_button.setIconSize(QSize(self._icon_size, self._icon_size))
+        self.toggle_button.setIcon(self._icon_down if expanded else self._icon_right)
         header_layout.addWidget(self.toggle_button)
 
         def _header_click(widget, e):
@@ -163,10 +182,27 @@ class CollapsibleSection(QWidget):
         self.content_frame.setVisible(expanded)
         self._update_collapsed_property(expanded)
 
+        app = QApplication.instance()
+        if hasattr(app, "theme_changed"):
+            app.theme_changed.connect(self._on_theme_changed)
+
+    def _on_theme_changed(self) -> None:
+        """Refresh arrow icons when theme changes dynamically."""
+        self._arrow_color = self._resolve_arrow_color()
+        self._icon_down = arrow_icon("down", self._arrow_color, self._icon_size)
+        self._icon_right = arrow_icon("right", self._arrow_color, self._icon_size)
+        self.toggle_button.setIcon(
+            self._icon_down if self.toggle_button.isChecked() else self._icon_right
+        )
+
     def _on_toggled(self, checked: bool) -> None:
-        self.toggle_button.setArrowType(Qt.DownArrow if checked else Qt.RightArrow)
+        self.toggle_button.setIcon(self._icon_down if checked else self._icon_right)
         self.content_frame.setVisible(checked)
         self._update_collapsed_property(checked)
+
+    def _resolve_arrow_color(self) -> str:
+        """Arrow color for expand/collapse icons; matches dropdown/spin box arrows."""
+        return get_arrow_color()
 
     def _update_collapsed_property(self, expanded: bool) -> None:
         """Update property for styling when collapsed (bottom border on header)."""

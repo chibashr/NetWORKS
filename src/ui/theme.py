@@ -6,15 +6,30 @@ Theme tokens and stylesheet generation for NetWORKS.
 """
 
 import base64
+import os
+
+ARROW_DEBUG = os.environ.get("NETWORKS_ARROW_DEBUG", "").lower() in ("1", "true", "yes")
 from dataclasses import dataclass
 from PySide6.QtCore import Qt, QRect
-from PySide6.QtGui import QPalette, QColor
+from PySide6.QtGui import QIcon, QPalette, QColor, QPainter
 from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QRadioButton,
     QProxyStyle,
     QStyleFactory,
     QStyle,
+    QStyleOptionButton,
+    QStyleOptionComboBox,
     QStyleOptionGroupBox,
+    QStyleOptionSpinBox,
+    QStyleOptionTab,
     QGroupBox,
+    QSpinBox,
+    QDoubleSpinBox,
+    QSplitter,
+    QSplitterHandle,
 )
 
 
@@ -36,6 +51,321 @@ def _patch_groupbox_uppercase():
 
 # Apply patch when theme loads (before other UI imports QGroupBox)
 _patch_groupbox_uppercase()
+
+
+CHECKMARK_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <path fill="none" stroke="{color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="M5 12l5 5 9-13"/>
+</svg>'''
+
+RADIO_DOT_SVG = '''<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <circle cx="12" cy="12" r="6" fill="{color}"/>
+</svg>'''
+
+ARROW_SVG = {
+    "up": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 6"><path fill="{color}" d="M4 0l4 6H0z"/></svg>',
+    "down": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 6"><path fill="{color}" d="M0 0h8L4 6z"/></svg>',
+    "right": '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 6 8"><path fill="{color}" d="M0 0l6 4-6 4z"/></svg>',
+}
+
+
+def _render_svg(svg_str, size):
+    """Render SVG string to QPixmap. Returns None on failure."""
+    try:
+        from PySide6.QtSvg import QSvgRenderer
+        from PySide6.QtCore import QByteArray
+        from PySide6.QtGui import QImage, QPixmap
+        renderer = QSvgRenderer(QByteArray(svg_str.encode("utf-8")))
+        if not renderer.isValid():
+            return None
+        image = QImage(size, size, QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(Qt.transparent)
+        painter = QPainter(image)
+        renderer.render(painter)
+        painter.end()
+        return QPixmap.fromImage(image)
+    except ImportError:
+        return None
+
+
+def _draw_checkbox_symbol(painter, rect):
+    """Draw checkmark SVG icon in accent color when checked."""
+    app = QApplication.instance()
+    tokens = get_current_theme_tokens(app) if app else None
+    if not tokens:
+        return
+    pixmap = _render_svg(CHECKMARK_SVG.format(color=tokens.accent), min(rect.width(), rect.height()))
+    if pixmap:
+        size = pixmap.width()
+        x = rect.x() + (rect.width() - size) // 2
+        y = rect.y() + (rect.height() - size) // 2
+        painter.drawPixmap(x, y, pixmap)
+
+
+def _draw_radio_symbol(painter, rect):
+    """Draw dot SVG icon in accent color when checked."""
+    app = QApplication.instance()
+    tokens = get_current_theme_tokens(app) if app else None
+    if not tokens:
+        return
+    size = min(rect.width(), rect.height())
+    pixmap = _render_svg(RADIO_DOT_SVG.format(color=tokens.accent), size)
+    if pixmap:
+        x = rect.x() + (rect.width() - size) // 2
+        y = rect.y() + (rect.height() - size) // 2
+        painter.drawPixmap(x, y, pixmap)
+
+
+class _CheckBoxWithSymbol(QCheckBox):
+    """Draws checkmark symbol when checked (no solid fill)."""
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.isChecked() and self.isEnabled():
+            opt = QStyleOptionButton()
+            self.initStyleOption(opt)
+            ind = self.style().subElementRect(QStyle.SubElement.SE_CheckBoxIndicator, opt, self)
+            if ind.isValid():
+                _draw_checkbox_symbol(QPainter(self), ind)
+
+
+class _RadioButtonWithSymbol(QRadioButton):
+    """Draws filled dot when checked (no solid fill)."""
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.isChecked() and self.isEnabled():
+            opt = QStyleOptionButton()
+            self.initStyleOption(opt)
+            ind = self.style().subElementRect(QStyle.SubElement.SE_RadioButtonIndicator, opt, self)
+            if ind.isValid():
+                _draw_radio_symbol(QPainter(self), ind)
+
+
+def _patch_checkbox_radio():
+    import PySide6.QtWidgets as _qt
+    _qt.QCheckBox = _CheckBoxWithSymbol
+    _qt.QRadioButton = _RadioButtonWithSymbol
+
+
+_patch_checkbox_radio()
+
+
+def _spinbox_button_rects(opt, widget):
+    """Compute up/down button rects for spinbox. Fallback when subControlRect fails."""
+    r = opt.rect if opt else (widget.rect() if widget else QRect())
+    if not r.isValid() or r.width() < 20 or r.height() < 10:
+        return None, None
+    btn_w = 18
+    x = r.x() + max(0, r.width() - btn_w - 2)
+    half = max(4, r.height() // 2)
+    up_rect = QRect(x, r.y() + 2, btn_w, half - 2)
+    down_rect = QRect(x, r.y() + half, btn_w, r.height() - half - 2)
+    return up_rect, down_rect
+
+
+def _combobox_arrow_rect(opt, widget):
+    """Compute ComboBox dropdown arrow rect. Fallback when subControlRect fails."""
+    r = opt.rect if opt else (widget.rect() if widget else QRect())
+    if not r.isValid() or r.width() < 24 or r.height() < 8:
+        return None
+    arrow_w = 18
+    arrow_h = max(8, r.height() - 4)
+    x = r.x() + max(0, r.width() - arrow_w - 2)
+    y = r.y() + (r.height() - arrow_h) // 2
+    return QRect(x, y, arrow_w, arrow_h)
+
+
+def _spinbox_button_rects_widget(widget):
+    """Button rects for SpinBox (widget coords)."""
+    r = widget.rect()
+    if not r.isValid() or r.width() < 20:
+        return None, None
+    btn_w = 18
+    x = max(0, r.width() - btn_w - 2)
+    half = max(4, r.height() // 2)
+    return QRect(x, 2, btn_w, half - 2), QRect(x, half, btn_w, r.height() - half - 2)
+
+
+def _combobox_arrow_rect_widget(widget):
+    """Arrow rect for ComboBox (widget coords)."""
+    r = widget.rect()
+    if not r.isValid() or r.width() < 24:
+        return None
+    return QRect(r.width() - 20, 2, 18, r.height() - 4)
+
+
+ARROW_SCALE = 0.4  # Arrow icon uses 40% of available rect
+
+
+def _draw_arrow_standalone(painter, rect, direction, enabled=True):
+    """Draw arrow SVG. Standalone—does not require NetWORKSStyle."""
+    if not rect.isValid() or direction not in ARROW_SVG:
+        return
+    app = QApplication.instance()
+    color = "#6B7280"  # fallback: medium gray, works on light and dark
+    if app:
+        try:
+            tokens = get_current_theme_tokens(app)
+            color = tokens.text_disabled if not enabled else get_arrow_color(app)
+        except Exception:
+            pass
+    rect_size = min(rect.width(), rect.height())
+    size = max(4, int(rect_size * ARROW_SCALE))
+    pixmap = _render_svg(ARROW_SVG[direction].format(color=color), size)
+    if pixmap:
+        x = rect.x() + (rect.width() - size) // 2
+        y = rect.y() + (rect.height() - size) // 2
+        painter.drawPixmap(x, y, pixmap)
+
+
+class _SpinBoxWithArrows(QSpinBox):
+    """QSpinBox that draws arrows in paintEvent. No overlay—no blocking."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        if ARROW_DEBUG:
+            print("[ARROW] _SpinBoxWithArrows created")
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        opt = QStyleOptionSpinBox()
+        self.initStyleOption(opt)
+        style = self.style()
+        up = style.subControlRect(
+            QStyle.ComplexControl.CC_SpinBox, opt, QStyle.SubControl.SC_SpinBoxUp, self
+        )
+        down = style.subControlRect(
+            QStyle.ComplexControl.CC_SpinBox, opt, QStyle.SubControl.SC_SpinBoxDown, self
+        )
+        if not up.isValid() or not down.isValid():
+            up, down = _spinbox_button_rects_widget(self)
+            up = up or QRect()
+            down = down or QRect()
+        if ARROW_DEBUG:
+            print(f"[ARROW] SpinBox rects: up={up.getRect() if up.isValid() else None}, down={down.getRect() if down.isValid() else None}")
+        if up.isValid() and down.isValid():
+            painter = QPainter(self)
+            _draw_arrow_standalone(painter, up, "up", self.isEnabled())
+            _draw_arrow_standalone(painter, down, "down", self.isEnabled())
+            painter.end()
+
+
+class _DoubleSpinBoxWithArrows(QDoubleSpinBox):
+    """QDoubleSpinBox that draws arrows in paintEvent."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        if ARROW_DEBUG:
+            print("[ARROW] _DoubleSpinBoxWithArrows created")
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        opt = QStyleOptionSpinBox()
+        self.initStyleOption(opt)
+        style = self.style()
+        up = style.subControlRect(
+            QStyle.ComplexControl.CC_SpinBox, opt, QStyle.SubControl.SC_SpinBoxUp, self
+        )
+        down = style.subControlRect(
+            QStyle.ComplexControl.CC_SpinBox, opt, QStyle.SubControl.SC_SpinBoxDown, self
+        )
+        if not up.isValid() or not down.isValid():
+            up, down = _spinbox_button_rects_widget(self)
+            up = up or QRect()
+            down = down or QRect()
+        if up.isValid() and down.isValid():
+            painter = QPainter(self)
+            _draw_arrow_standalone(painter, up, "up", self.isEnabled())
+            _draw_arrow_standalone(painter, down, "down", self.isEnabled())
+            painter.end()
+
+
+class _ComboBoxWithArrow(QComboBox):
+    """QComboBox that draws dropdown arrow in paintEvent."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        if ARROW_DEBUG:
+            print("[ARROW] _ComboBoxWithArrow created")
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        opt = QStyleOptionComboBox()
+        self.initStyleOption(opt)
+        style = self.style()
+        r = style.subControlRect(
+            QStyle.ComplexControl.CC_ComboBox, opt, QStyle.SubControl.SC_ComboBoxArrow, self
+        )
+        if not r.isValid():
+            r = _combobox_arrow_rect_widget(self)
+        if ARROW_DEBUG:
+            print(f"[ARROW] ComboBox rect: {r.getRect() if r and r.isValid() else None}")
+        if r is not None and r.isValid():
+            painter = QPainter(self)
+            _draw_arrow_standalone(painter, r, "down", self.isEnabled())
+            painter.end()
+
+
+def _patch_arrow_widgets():
+    import PySide6.QtWidgets as _qt
+    _qt.QSpinBox = _SpinBoxWithArrows
+    _qt.QDoubleSpinBox = _DoubleSpinBoxWithArrows
+    _qt.QComboBox = _ComboBoxWithArrow
+    if ARROW_DEBUG:
+        print("[ARROW] Patched QSpinBox, QDoubleSpinBox, QComboBox")
+
+
+_patch_arrow_widgets()
+
+
+def _splitter_dots_color():
+    """Color for splitter handle dots; darker than separator."""
+    tokens = get_current_theme_tokens(QApplication.instance())
+    return _shade_hex(tokens.separator, 0.7)
+
+
+class _DotSplitterHandle(QSplitterHandle):
+    """Splitter handle that draws dots in the center only."""
+
+    def paintEvent(self, event):
+        r = self.rect()
+        if not r.isValid():
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        color = QColor(_splitter_dots_color())
+        painter.setBrush(color)
+        painter.setPen(Qt.PenStyle.NoPen)
+        dot_r = 1.5
+        gap = 4
+        # orientation(): Horizontal = splitter divides left/right, handle is vertical bar
+        # Vertical = splitter divides top/bottom, handle is horizontal bar
+        if self.orientation() == Qt.Orientation.Horizontal:
+            # Vertical bar: 3 dots stacked
+            cx = r.center().x()
+            for dy in (-gap, 0, gap):
+                painter.drawEllipse(int(cx - dot_r), int(r.center().y() + dy - dot_r), int(dot_r * 2), int(dot_r * 2))
+        else:
+            # Horizontal bar: 3 dots in a row
+            cy = r.center().y()
+            for dx in (-gap, 0, gap):
+                painter.drawEllipse(int(r.center().x() + dx - dot_r), int(cy - dot_r), int(dot_r * 2), int(dot_r * 2))
+        painter.end()
+
+
+class _DotSplitter(QSplitter):
+    """QSplitter that uses dot-style handles."""
+
+    def createHandle(self):
+        return _DotSplitterHandle(self.orientation(), self)
+
+
+def _patch_splitter():
+    import PySide6.QtWidgets as _qt
+    _qt.QSplitter = _DotSplitter
+
+
+_patch_splitter()
 
 
 class NetWORKSStyle(QProxyStyle):
@@ -63,6 +393,54 @@ class NetWORKSStyle(QProxyStyle):
                 return QRect(r.left(), r.top(), r.width(), header_height)
         return rect
 
+    def _draw_arrow(self, painter, rect, direction, enabled=True):
+        """Draw arrow SVG (delegates to _draw_arrow_standalone)."""
+        _draw_arrow_standalone(painter, rect, direction, enabled)
+
+    def drawControl(self, element, option, painter, widget=None):
+        """Tab bar tab label: center and bottom-align text."""
+        if element == QStyle.ControlElement.CE_TabBarTabLabel:
+            opt = option
+            if isinstance(opt, QStyleOptionTab) and opt.rect.isValid():
+                rect = opt.rect
+                text = opt.text or ""
+                has_icon = opt.icon is not None and not opt.icon.isNull()
+                if text or has_icon:
+                    painter.save()
+                    if not (opt.state & QStyle.StateFlag.State_Enabled):
+                        painter.setOpacity(0.5)
+                    if has_icon:
+                        icon_rect = QRect(rect.x(), rect.y(), opt.iconSize.width(), opt.iconSize.height())
+                        icon_rect.moveCenter(QRect(rect.x(), rect.y(), rect.width(), rect.height() // 2).center())
+                        opt.icon.paint(painter, icon_rect, Qt.AlignmentFlag.AlignCenter)
+                    if text:
+                        text_rect = rect
+                        if has_icon:
+                            text_rect = QRect(rect.x(), rect.y() + opt.iconSize.height() + 2, rect.width(), rect.height() - opt.iconSize.height() - 2)
+                        painter.drawText(
+                            text_rect,
+                            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom,
+                            text,
+                        )
+                    painter.restore()
+                return
+        super().drawControl(element, option, painter, widget)
+
+    def drawPrimitive(self, element, option, painter, widget=None):
+        """Skip spinbox arrows. Suppress checkable QGroupBox indicator (use CollapsibleSection instead)."""
+        if element in (QStyle.PE_IndicatorSpinUp, QStyle.PE_IndicatorSpinPlus,
+                      QStyle.PE_IndicatorSpinDown, QStyle.PE_IndicatorSpinMinus):
+            return
+        if element == QStyle.PE_IndicatorCheckBox and widget is not None and isinstance(widget, QGroupBox):
+            return  # No expand/collapse on QGroupBox; use CollapsibleSection
+        super().drawPrimitive(element, option, painter, widget)
+
+
+def _hex_to_rgb(hex_color):
+    """Convert #RRGGBB to rgb(r,g,b) for SVG (avoids # in data URI)."""
+    c = QColor(hex_color)
+    return f"rgb({c.red()},{c.green()},{c.blue()})"
+
 
 def _arrow_svg_data_uri(direction, color):
     """Create base64 data URI for arrow (up/down/right triangle)."""
@@ -75,8 +453,35 @@ def _arrow_svg_data_uri(direction, color):
     else:  # right (for collapsible panels)
         path = "M0 0l6 4-6 4z"
         vb = "0 0 6 8"
-    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vb}"><path fill="{color}" d="{path}"/></svg>'
+    fill = _hex_to_rgb(color) if str(color).startswith("#") else color
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vb}"><path fill="{fill}" d="{path}"/></svg>'
     return base64.b64encode(svg.encode("utf-8")).decode("ascii")
+
+
+def _grip_svg_data_uri(color):
+    """Create base64 data URI for 3-dot vertical grip (drag affordance)."""
+    fill = _hex_to_rgb(color) if str(color).startswith("#") else color
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 8 14">'
+        f'<circle cx="4" cy="2" r="1.2" fill="{fill}"/>'
+        f'<circle cx="4" cy="7" r="1.2" fill="{fill}"/>'
+        f'<circle cx="4" cy="12" r="1.2" fill="{fill}"/>'
+        "</svg>"
+    )
+    return base64.b64encode(svg.encode("utf-8")).decode("ascii")
+
+
+def arrow_icon(direction, color, size=10):
+    """Create QIcon for arrow (up/down/right) from SVG."""
+    if direction not in ARROW_SVG:
+        return QIcon()
+    hex_color = color.name() if hasattr(color, "name") else str(color)
+    pixmap = _render_svg(ARROW_SVG[direction].format(color=hex_color), size)
+    if not pixmap:
+        return QIcon()
+    icon = QIcon()
+    icon.addPixmap(pixmap)
+    return icon
 
 
 @dataclass(frozen=True)
@@ -180,14 +585,20 @@ def _derive_header_height(font_size):
 
 
 def _derive_control_height(font_size):
-    """Derive control/button height from font size (text height + padding)."""
-    return max(20, int(round(font_size * 2.0)) + 4)
+    """Derive control/button height from font size; compact like tab headers."""
+    return max(16, font_size + 6)
 
 
 def get_control_height(app=None):
     """Return control/button height for current theme (matches line edits, combos)."""
     tokens = get_current_theme_tokens(app)
     return _derive_control_height(tokens.font_size)
+
+
+def get_arrow_color(app=None):
+    """Return arrow color for dropdown, spin box, CollapsibleSection. Consistent across light/dark themes."""
+    tokens = get_current_theme_tokens(app)
+    return tokens.text_muted
 
 
 def get_theme_tokens(theme_name, font_size=10, row_height=22, accent_override=None):
@@ -295,7 +706,10 @@ def build_stylesheet(tokens):
     dock_header_height = tokens.header_height + 2
     group_header_font_size = _group_header_font_size(tokens.font_size)
     group_header_bar_height = group_header_font_size + 4
-
+    tab_bar_height = max(16, tokens.font_size + 4)
+    up_arrow_uri = _arrow_svg_data_uri("up", tokens.text_muted)
+    down_arrow_uri = _arrow_svg_data_uri("down", tokens.text_muted)
+    grip_uri = _grip_svg_data_uri(tokens.dock_title_text)
     return f"""
     QWidget {{
         background-color: transparent;
@@ -307,11 +721,11 @@ def build_stylesheet(tokens):
     }}
     QMenuBar {{
         background-color: {tokens.menu_bg};
-        padding: 2px;
+        padding: {tokens.spacing}px;
     }}
     QMenuBar::item {{
         background-color: transparent;
-        padding: 4px 8px;
+        padding: {tokens.spacing}px 8px;
         border-radius: {tokens.radius}px;
         margin: 1px;
     }}
@@ -319,16 +733,16 @@ def build_stylesheet(tokens):
         background-color: {tokens.surface_alt};
     }}
     QMenuBar::item:pressed {{
-        background-color: {tokens.accent};
+        background-color: {tokens.accent_soft};
         color: {tokens.selection_text};
     }}
     QMenu {{
         background-color: {tokens.surface};
         border: 1px solid {tokens.border};
-        padding: 4px;
+        padding: {tokens.spacing}px;
     }}
     QMenu::item {{
-        padding: 4px 24px 4px 20px;
+        padding: {tokens.spacing}px 24px {tokens.spacing}px 20px;
         border-radius: {tokens.radius}px;
     }}
     QMenu::item:selected {{
@@ -340,14 +754,14 @@ def build_stylesheet(tokens):
     }}
     QToolBar {{
         background-color: {tokens.toolbar_bg};
-        spacing: 4px;
-        padding: 2px;
+        spacing: {tokens.spacing}px;
+        padding: {tokens.spacing}px;
         border-bottom: 1px solid {tokens.separator};
     }}
     QToolBar::separator {{
         background-color: {tokens.separator};
         width: 1px;
-        margin: 0 4px;
+        margin: 0 {tokens.spacing}px;
     }}
     QWidget#RibbonContainer,
     QWidget#RibbonContent {{
@@ -356,15 +770,15 @@ def build_stylesheet(tokens):
     QToolBar#RibbonToolbar {{
         background-color: {tokens.toolbar_bg};
         border-bottom: 1px solid {tokens.separator};
-        padding: 0 4px;
+        padding: 0 {tokens.spacing}px;
     }}
     QTabBar#RibbonTabBar {{
         background-color: {tokens.toolbar_bg};
         border: none;
     }}
     QTabBar#RibbonTabBar::tab {{
-        min-height: 24px;
-        padding: 0 8px;
+        min-height: {dock_header_height}px;
+        padding: {tokens.spacing}px 8px;
         background-color: {tokens.surface_alt};
         border: 1px solid {tokens.border};
         border-bottom: none;
@@ -374,26 +788,29 @@ def build_stylesheet(tokens):
     }}
     QTabBar#RibbonTabBar::tab:selected {{
         background-color: {tokens.surface};
-        border-bottom: 3px solid {tokens.accent};
+        border-bottom: 2px solid {tokens.accent};
     }}
     QTabBar#RibbonTabBar::tab:hover {{
-        background-color: {tokens.surface_raised};
+        background-color: {tokens.accent_soft};
     }}
     QToolButton {{
         background-color: {tokens.surface_raised};
         border: 1px solid {tokens.border};
         border-radius: {tokens.radius}px;
-        padding: 3px 6px;
+        padding: 2px 6px;
         min-width: 64px;
         min-height: {button_height}px;
     }}
     QToolButton:hover {{
-        background-color: {tokens.surface_alt};
+        background-color: {tokens.accent_soft};
         border-color: {tokens.border};
     }}
     QToolButton:pressed {{
         background-color: {tokens.accent_soft};
         border-color: {tokens.accent};
+    }}
+    QToolButton:focus {{
+        border-color: {tokens.focus};
     }}
     QToolButton:checked {{
         background-color: {tokens.accent};
@@ -416,16 +833,19 @@ def build_stylesheet(tokens):
         background-color: {tokens.surface_raised};
         border: 1px solid {tokens.border};
         border-radius: {tokens.radius}px;
-        padding: 4px 10px;
+        padding: 2px 10px;
         min-height: {button_height}px;
     }}
     QPushButton:hover {{
-        background-color: {tokens.surface_alt};
+        background-color: {tokens.accent_soft};
         border-color: {tokens.accent_hover};
     }}
     QPushButton:pressed {{
         background-color: {tokens.accent_soft};
         border-color: {tokens.accent};
+    }}
+    QPushButton:focus {{
+        border-color: {tokens.focus};
     }}
     QPushButton:disabled {{
         color: {tokens.text_disabled};
@@ -437,7 +857,7 @@ def build_stylesheet(tokens):
         color: {tokens.text};
         border: 1px solid {tokens.border};
         border-radius: {tokens.radius}px;
-        padding: 4px;
+        padding: 2px 6px;
         min-height: {control_height}px;
     }}
     QTextEdit, QPlainTextEdit {{
@@ -445,7 +865,7 @@ def build_stylesheet(tokens):
         color: {tokens.text};
         border: 1px solid {tokens.border};
         border-radius: {tokens.radius}px;
-        padding: 4px;
+        padding: 2px 6px;
     }}
     QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {{
         border-color: {tokens.focus};
@@ -455,7 +875,7 @@ def build_stylesheet(tokens):
         color: {tokens.text};
         border: 1px solid {tokens.border};
         border-radius: {tokens.radius}px;
-        padding: 3px 18px 3px 6px;
+        padding: 2px 18px 2px 6px;
         min-height: {control_height}px;
     }}
     QCheckBox, QRadioButton {{
@@ -470,7 +890,7 @@ def build_stylesheet(tokens):
         border: 1px solid {tokens.border};
     }}
     QCheckBox::indicator:checked {{
-        background-color: {tokens.accent};
+        background-color: transparent;
         border: 1px solid {tokens.accent};
     }}
     QRadioButton::indicator {{
@@ -481,8 +901,9 @@ def build_stylesheet(tokens):
         border: 1px solid {tokens.border};
     }}
     QRadioButton::indicator:checked {{
-        background-color: {tokens.accent};
+        background-color: transparent;
         border: 1px solid {tokens.accent};
+        border-radius: 7px;
     }}
     QLabel {{
         background-color: transparent;
@@ -499,13 +920,33 @@ def build_stylesheet(tokens):
         selection-background-color: {tokens.accent};
         selection-color: {tokens.selection_text};
     }}
+    QComboBox::drop-down {{
+        background-color: {tokens.surface_alt};
+        border: 1px solid {tokens.border};
+        border-top-right-radius: {tokens.radius}px;
+        border-bottom-right-radius: {tokens.radius}px;
+        width: 18px;
+        subcontrol-origin: border;
+        subcontrol-position: top right;
+    }}
+    QComboBox::drop-down:hover {{
+        background-color: {tokens.accent_soft};
+    }}
+    QComboBox::drop-down:pressed {{
+        background-color: {tokens.accent_soft};
+    }}
+    QComboBox::down-arrow {{
+        image: url(data:image/svg+xml;base64,{down_arrow_uri});
+        width: 10px;
+        height: 8px;
+    }}
     QSpinBox, QDoubleSpinBox {{
         background-color: {tokens.surface_raised};
         color: {tokens.text};
         border: 1px solid {tokens.border};
-        border-radius: {tokens.radius}px;
-        padding: 4px;
-        padding-right: {control_height + 4}px;
+        border-radius: 0;
+        padding: 2px 6px;
+        padding-right: 24px;
         min-height: {control_height}px;
         selection-background-color: {tokens.accent};
         selection-color: {tokens.selection_text};
@@ -517,70 +958,65 @@ def build_stylesheet(tokens):
         border-color: {tokens.focus};
     }}
     QSpinBox::up-button, QDoubleSpinBox::up-button {{
-        background-color: {tokens.surface_raised};
+        background-color: {tokens.surface_alt};
         border: 1px solid {tokens.border};
-        border-top-right-radius: {tokens.radius}px;
-        width: {control_height}px;
+        border-bottom: none;
+        border-top-right-radius: 0;
+        width: 18px;
         subcontrol-origin: border;
         subcontrol-position: top right;
     }}
     QSpinBox::down-button, QDoubleSpinBox::down-button {{
-        background-color: {tokens.surface_raised};
+        background-color: {tokens.surface_alt};
         border: 1px solid {tokens.border};
-        border-bottom-right-radius: {tokens.radius}px;
-        width: {control_height}px;
+        border-top: none;
+        border-bottom-right-radius: 0;
+        width: 18px;
+        margin-top: -1px;
         subcontrol-origin: border;
         subcontrol-position: bottom right;
     }}
     QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
     QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
-        background-color: {tokens.surface_alt};
+        background-color: {tokens.accent_soft};
     }}
     QSpinBox::up-button:pressed, QDoubleSpinBox::up-button:pressed,
     QSpinBox::down-button:pressed, QDoubleSpinBox::down-button:pressed {{
         background-color: {tokens.accent_soft};
     }}
     QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
-        width: 0;
-        height: 0;
-        border-left: 4px solid transparent;
-        border-right: 4px solid transparent;
-        border-bottom: 6px solid {tokens.text};
-        margin: 0 auto;
+        image: url(data:image/svg+xml;base64,{up_arrow_uri});
+        width: 10px;
+        height: 8px;
     }}
     QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
-        width: 0;
-        height: 0;
-        border-left: 4px solid transparent;
-        border-right: 4px solid transparent;
-        border-top: 6px solid {tokens.text};
-        margin: 0 auto;
-    }}
-    QSpinBox::up-arrow:disabled, QDoubleSpinBox::up-arrow:disabled,
-    QSpinBox::down-arrow:disabled, QDoubleSpinBox::down-arrow:disabled {{
-        border-top-color: {tokens.text_disabled};
-        border-bottom-color: {tokens.text_disabled};
+        image: url(data:image/svg+xml;base64,{down_arrow_uri});
+        width: 10px;
+        height: 8px;
     }}
     QTabWidget::pane {{
         border: 1px solid {tokens.border};
         background-color: {tokens.surface};
+        padding: {tokens.spacing * 2}px;
     }}
     QTabBar::tab {{
         background-color: {tokens.surface_alt};
         color: {tokens.text};
-        padding: 2px 8px;
+        padding: 2px 8px 2px 8px;
         border: 1px solid {tokens.border};
         border-bottom: none;
         border-top-left-radius: {tokens.radius}px;
         border-top-right-radius: {tokens.radius}px;
-        min-height: {tokens.header_height}px;
+        min-height: {tab_bar_height}px;
+        font-size: {max(8, tokens.font_size - 1)}px;
+        text-align: center;
     }}
     QTabBar::tab:selected {{
         background-color: {tokens.surface};
-        border-bottom: 1px solid {tokens.surface};
+        border-bottom: 2px solid {tokens.accent};
     }}
     QTabBar::tab:hover:!selected {{
-        background-color: {tokens.surface_raised};
+        background-color: {tokens.accent_soft};
     }}
     QTreeView, QTableView {{
         background-color: {tokens.surface};
@@ -592,7 +1028,7 @@ def build_stylesheet(tokens):
         selection-color: {tokens.selection_text};
     }}
     QTreeView::item, QTableView::item {{
-        padding: 2px 6px;
+        padding: 2px {tokens.spacing + 2}px;
         border-right: 1px solid {tokens.border};
         border-bottom: 1px solid {tokens.border};
         height: {tokens.row_height}px;
@@ -601,6 +1037,12 @@ def build_stylesheet(tokens):
         background-color: {tokens.accent};
         color: {tokens.selection_text};
     }}
+    QTreeView::item:hover:!selected, QTableView::item:hover:!selected {{
+        background-color: {tokens.accent_soft};
+    }}
+    QTreeView::item:focus:!selected, QTableView::item:focus:!selected {{
+        background-color: {tokens.accent_soft};
+    }}
     QHeaderView::section {{
         background-color: {tokens.header_bg};
         color: {tokens.header_text};
@@ -608,54 +1050,73 @@ def build_stylesheet(tokens):
         border: 1px solid {tokens.border};
         min-height: {table_header_height}px;
     }}
+    QHeaderView::section:hover {{
+        background-color: {tokens.accent_soft};
+    }}
+    QHeaderView::section:pressed {{
+        background-color: {tokens.accent_soft};
+    }}
     QListWidget, QListView {{
-        background-color: {tokens.surface_raised};
+        background-color: {tokens.surface};
+        alternate-background-color: {tokens.table_alt};
         color: {tokens.text};
         border: 1px solid {tokens.border};
         selection-background-color: {tokens.accent};
         selection-color: {tokens.selection_text};
     }}
     QDockWidget {{
-        border: 2px solid {tokens.border};
+        border: 1px solid {tokens.border};
     }}
     QDockWidget::title {{
         background-color: {tokens.dock_title_bg};
+        background-image: url(data:image/svg+xml;base64,{grip_uri});
+        background-repeat: no-repeat;
+        background-position: 6px center;
         color: {tokens.dock_title_text};
-        padding: 2px 8px;
+        padding: {tokens.spacing}px 8px;
+        padding-left: 20px;
         font-weight: bold;
         min-height: {dock_header_height}px;
+        border: 1px solid {tokens.border};
+        text-align: center;
     }}
     QDockWidget > QWidget {{
-        border-top: 2px solid {tokens.border};
-        padding-top: 12px;
+        border: none;
+        padding: 0;
     }}
     QStatusBar {{
         background-color: {tokens.status_bg};
         color: {tokens.text_muted};
-        padding: 2px 6px;
+        padding: {tokens.spacing}px 6px;
     }}
     QStatusBar::item {{
         border-left: 1px solid {tokens.separator};
         padding: 0 6px;
     }}
     QSplitter::handle {{
-        background-color: {tokens.separator};
+        background-color: transparent;
+        border: none;
     }}
     QSplitter::handle:horizontal {{
-        width: 3px;
+        width: 9px;
+        margin: 0 6px;
     }}
     QSplitter::handle:vertical {{
-        height: 3px;
+        height: 9px;
+        margin: 6px 0;
     }}
     /* Integrated header: full-width bar, centered text. Qt cannot set width on ::title;
        large padding expands title bar; parent clips. See stackoverflow.com/questions/14049290 */
     QGroupBox {{
         background-color: {tokens.surface};
         border: 1px solid {tokens.border};
+        border-width: 1px;
+        border-style: solid;
+        border-color: {tokens.border};
         border-radius: {tokens.radius}px;
         margin-top: 6px;
-        padding: 12px;
-        padding-top: {group_header_bar_height + 8}px;
+        padding: 4px 6px 2px 6px;
+        padding-top: {group_header_bar_height + 4}px;
         font-size: {group_header_font_size}px;
     }}
     QGroupBox QWidget {{
@@ -672,41 +1133,25 @@ def build_stylesheet(tokens):
         subcontrol-origin: border;
         subcontrol-position: top center;
         top: 0;
-        padding: 3px 10000px;
+        padding: 2px 10000px;
         color: {tokens.text};
         font-weight: 600;
-        background-color: {tokens.surface_alt};
-        border: 1px solid {tokens.border};
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+            stop:0 {tokens.border},
+            stop:0.003 {tokens.border},
+            stop:0.003 {tokens.surface_alt},
+            stop:0.997 {tokens.surface_alt},
+            stop:0.997 {tokens.border},
+            stop:1 {tokens.border});
+        border-top: 1px solid {tokens.border};
+        border-bottom: 1px solid {tokens.border};
         min-height: {group_header_font_size}px;
         text-align: center;
-    }}
-    QGroupBox:checkable QGroupBox::title {{
-        padding-left: 10022px;
-    }}
-    QGroupBox::indicator {{
-        width: 10px;
-        height: 10px;
-        subcontrol-position: top left;
-        subcontrol-origin: border;
-        top: 2px;
-        left: 6px;
-    }}
-    QGroupBox::indicator:unchecked {{
-        image: url(data:image/svg+xml;base64,{_arrow_svg_data_uri("right", tokens.text_muted)});
-    }}
-    QGroupBox::indicator:unchecked:hover {{
-        image: url(data:image/svg+xml;base64,{_arrow_svg_data_uri("right", tokens.text)});
-    }}
-    QGroupBox::indicator:checked {{
-        image: url(data:image/svg+xml;base64,{_arrow_svg_data_uri("down", tokens.text_muted)});
-    }}
-    QGroupBox::indicator:checked:hover {{
-        image: url(data:image/svg+xml;base64,{_arrow_svg_data_uri("down", tokens.text)});
     }}
     QLabel#PluginStatusBar {{
         background-color: {tokens.surface_alt};
         border: 1px solid {tokens.border};
-        padding: 4px 6px;
+        padding: {tokens.spacing}px 6px;
     }}
     QLabel#PluginStatusLabel {{
         color: {tokens.text_muted};
@@ -726,7 +1171,13 @@ def build_stylesheet(tokens):
     QScrollBar::handle:vertical {{
         background-color: {tokens.border};
         min-height: 20px;
-        border-radius: 6px;
+        border-radius: 0;
+    }}
+    QScrollBar::handle:vertical:hover {{
+        background-color: {tokens.accent_soft};
+    }}
+    QScrollBar::handle:vertical:pressed {{
+        background-color: {tokens.accent_soft};
     }}
     QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
         height: 0px;
@@ -739,10 +1190,274 @@ def build_stylesheet(tokens):
     QScrollBar::handle:horizontal {{
         background-color: {tokens.border};
         min-width: 20px;
-        border-radius: 6px;
+        border-radius: 0;
+    }}
+    QScrollBar::handle:horizontal:hover {{
+        background-color: {tokens.accent_soft};
+    }}
+    QScrollBar::handle:horizontal:pressed {{
+        background-color: {tokens.accent_soft};
     }}
     QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
         width: 0px;
+    }}
+    QProgressBar {{
+        background-color: {tokens.surface_alt};
+        border: 1px solid {tokens.border};
+        border-radius: {tokens.radius}px;
+        text-align: center;
+    }}
+    QProgressBar::chunk {{
+        background-color: {tokens.accent};
+        border-radius: {tokens.radius}px;
+    }}
+    QSlider {{
+        min-height: 24px;
+        padding: 6px 0;
+    }}
+    QSlider::groove:horizontal {{
+        background-color: {tokens.surface_alt};
+        border: 1px solid {tokens.border};
+        height: 6px;
+        border-radius: 0;
+    }}
+    QSlider::handle:horizontal {{
+        background-color: {tokens.surface_raised};
+        border: 1px solid {tokens.border};
+        width: 14px;
+        margin: -5px 0;
+        border-radius: 0;
+    }}
+    QSlider::handle:horizontal:hover {{
+        background-color: {tokens.accent_soft};
+        border-color: {tokens.accent_hover};
+    }}
+    QSlider::handle:horizontal:pressed {{
+        background-color: {tokens.accent_soft};
+    }}
+    QSlider::sub-page:horizontal {{
+        background-color: {tokens.accent};
+        border-radius: 0;
+    }}
+    /* Plugin-scoped overrides */
+    QDockWidget[plugin_ui="true"] {{
+        border: none;
+        background-color: {tokens.surface};
+    }}
+    QDockWidget[plugin_ui="true"] > QWidget {{
+        padding: 0;
+        border: none;
+    }}
+    QWidget#PluginDockHeader {{
+        background-color: {tokens.surface_alt};
+        border: 1px solid {tokens.border};
+    }}
+    QLabel#PluginDockTitle {{
+        color: {tokens.text};
+        font-weight: 600;
+        text-align: center;
+    }}
+    /* CollapsibleSection: sharp full-width blocks, arrow far right, text centered */
+    QWidget#CollapsibleSection {{
+        min-width: 100%;
+        border-width: 1px;
+        border-style: solid;
+        border-color: {tokens.border};
+    }}
+    QFrame#CollapsibleSectionHeader {{
+        min-height: {tokens.row_height}px;
+        min-width: 100%;
+        padding: {tokens.spacing}px 6px;
+        margin: 0;
+        background-color: {tokens.surface_alt};
+        border-width: 1px;
+        border-style: solid;
+        border-color: {tokens.border};
+        border-bottom: none;
+        border-radius: 0;
+    }}
+    QFrame#CollapsibleSectionHeader:hover {{
+        background-color: {tokens.accent_soft};
+    }}
+    QWidget#CollapsibleSection[collapsed="true"] QFrame#CollapsibleSectionHeader,
+    QFrame#CollapsibleSectionHeader[collapsed="true"] {{
+        border-bottom: 1px solid {tokens.border};
+        border-radius: 0;
+    }}
+    QWidget#CollapsibleSection QFrame#CollapsibleSectionContent {{
+        border-width: 1px;
+        border-style: solid;
+        border-color: {tokens.border};
+        border-top: none;
+        border-radius: 0;
+        background-color: {tokens.surface};
+    }}
+    QLabel#CollapsibleSectionTitle {{
+        color: {tokens.text};
+        font-weight: 600;
+        text-align: center;
+    }}
+    QWidget#CollapsibleSection QToolButton[plugin_ui_section="true"] {{
+        min-width: {tokens.row_height}px;
+        min-height: {tokens.row_height}px;
+        max-width: {tokens.row_height}px;
+        max-height: {tokens.row_height}px;
+        padding: 0;
+        margin: 0;
+        color: {tokens.text};
+        background-color: transparent;
+        border: none;
+    }}
+    QWidget#CollapsibleSection QToolButton[plugin_ui_section="true"]:hover {{
+        background-color: {tokens.accent_soft};
+        border-radius: 0;
+    }}
+    QDialog[plugin_ui="true"] {{
+        background-color: {tokens.surface};
+    }}
+    /* Scroll area: match dialog background to prevent white overlay on scrollable content */
+    QDialog[plugin_ui="true"] QScrollArea, QDockWidget[plugin_ui="true"] QScrollArea,
+    QWidget[plugin_ui="true"] QScrollArea {{
+        background-color: {tokens.surface};
+        border: none;
+    }}
+    QDockWidget[plugin_ui="true"] QPushButton {{
+        min-height: {button_height}px;
+        border-radius: 0px;
+    }}
+    QDialog[plugin_ui="true"] QPushButton {{
+        min-height: {button_height}px;
+        border-radius: 0px;
+    }}
+    QDialog[plugin_ui="true"] QWidget#PluginDialogButtonBar {{
+        min-height: {button_height + 12}px;
+    }}
+    QTabWidget[plugin_ui="true"]::pane {{
+        border: 1px solid {tokens.border};
+        background-color: {tokens.surface};
+        padding: {tokens.spacing * 2}px;
+    }}
+    QTabBar[plugin_ui="true"]::tab {{
+        min-height: {tab_bar_height}px;
+        padding: 2px 8px 2px 8px;
+        font-size: {max(8, tokens.font_size - 1)}px;
+        text-align: center;
+        background-color: {tokens.surface_alt};
+        border: 1px solid {tokens.border};
+        border-bottom: none;
+        border-radius: 0px;
+    }}
+    QTabBar[plugin_ui="true"]::tab:selected {{
+        background-color: {tokens.surface};
+        border-bottom: 2px solid {tokens.accent};
+    }}
+    QDockWidget[plugin_ui="true"] QTableView,
+    QDockWidget[plugin_ui="true"] QTableWidget,
+    QDialog[plugin_ui="true"] QTableView,
+    QDialog[plugin_ui="true"] QTableWidget {{
+        border: 1px solid {tokens.border};
+        gridline-color: {tokens.border};
+        alternate-background-color: {tokens.table_alt};
+    }}
+    QDockWidget[plugin_ui="true"] QHeaderView::section,
+    QDialog[plugin_ui="true"] QHeaderView::section {{
+        background-color: {tokens.header_bg};
+        color: {tokens.header_text};
+        padding: 2px {tokens.spacing}px;
+        border: 1px solid {tokens.border};
+        min-height: {table_header_height}px;
+    }}
+    QDialog[plugin_ui="true"] QLabel[plugin_ui_muted="true"],
+    QWidget[plugin_ui="true"] QLabel[plugin_ui_muted="true"] {{
+        color: {tokens.text_muted};
+    }}
+    QDialog[plugin_ui="true"] QLabel[plugin_ui_warning="true"],
+    QWidget[plugin_ui="true"] QLabel[plugin_ui_warning="true"] {{
+        color: {tokens.accent};
+    }}
+    /* Spin box: arrows via NetWORKSStyle, narrow buttons to avoid input overlay */
+    QDockWidget[plugin_ui="true"] QSpinBox, QDockWidget[plugin_ui="true"] QDoubleSpinBox,
+    QDialog[plugin_ui="true"] QSpinBox, QDialog[plugin_ui="true"] QDoubleSpinBox,
+    QWidget[plugin_ui="true"] QSpinBox, QWidget[plugin_ui="true"] QDoubleSpinBox {{
+        background-color: {tokens.surface_raised};
+        color: {tokens.text};
+        border: 1px solid {tokens.border};
+        border-radius: 0;
+        padding: 2px 6px;
+        padding-right: 24px;
+        min-height: {control_height}px;
+        min-width: 60px;
+        selection-background-color: {tokens.accent};
+        selection-color: {tokens.selection_text};
+    }}
+    QDockWidget[plugin_ui="true"] QSpinBox::up-button, QDockWidget[plugin_ui="true"] QDoubleSpinBox::up-button,
+    QDialog[plugin_ui="true"] QSpinBox::up-button, QDialog[plugin_ui="true"] QDoubleSpinBox::up-button,
+    QWidget[plugin_ui="true"] QSpinBox::up-button, QWidget[plugin_ui="true"] QDoubleSpinBox::up-button {{
+        background-color: {tokens.surface_alt};
+        border: 1px solid {tokens.border};
+        border-bottom: none;
+        border-top-right-radius: 0;
+        width: 18px;
+        subcontrol-origin: border;
+        subcontrol-position: top right;
+    }}
+    QDockWidget[plugin_ui="true"] QSpinBox::down-button, QDockWidget[plugin_ui="true"] QDoubleSpinBox::down-button,
+    QDialog[plugin_ui="true"] QSpinBox::down-button, QDialog[plugin_ui="true"] QDoubleSpinBox::down-button,
+    QWidget[plugin_ui="true"] QSpinBox::down-button, QWidget[plugin_ui="true"] QDoubleSpinBox::down-button {{
+        background-color: {tokens.surface_alt};
+        border: 1px solid {tokens.border};
+        border-top: none;
+        border-bottom-right-radius: 0;
+        width: 18px;
+        margin-top: -1px;
+        subcontrol-origin: border;
+        subcontrol-position: bottom right;
+    }}
+    QDockWidget[plugin_ui="true"] QSpinBox::up-arrow, QDockWidget[plugin_ui="true"] QDoubleSpinBox::up-arrow,
+    QDialog[plugin_ui="true"] QSpinBox::up-arrow, QDialog[plugin_ui="true"] QDoubleSpinBox::up-arrow,
+    QWidget[plugin_ui="true"] QSpinBox::up-arrow, QWidget[plugin_ui="true"] QDoubleSpinBox::up-arrow {{
+        image: url(data:image/svg+xml;base64,{up_arrow_uri});
+        width: 10px;
+        height: 8px;
+    }}
+    QDockWidget[plugin_ui="true"] QSpinBox::down-arrow, QDockWidget[plugin_ui="true"] QDoubleSpinBox::down-arrow,
+    QDialog[plugin_ui="true"] QSpinBox::down-arrow, QDialog[plugin_ui="true"] QDoubleSpinBox::down-arrow,
+    QWidget[plugin_ui="true"] QSpinBox::down-arrow, QWidget[plugin_ui="true"] QDoubleSpinBox::down-arrow {{
+        image: url(data:image/svg+xml;base64,{down_arrow_uri});
+        width: 10px;
+        height: 8px;
+    }}
+    QDockWidget[plugin_ui="true"] QComboBox::down-arrow, QDialog[plugin_ui="true"] QComboBox::down-arrow,
+    QWidget[plugin_ui="true"] QComboBox::down-arrow {{
+        image: url(data:image/svg+xml;base64,{down_arrow_uri});
+        width: 10px;
+        height: 8px;
+    }}
+    QDockWidget[plugin_ui="true"] QSpinBox:hover, QDockWidget[plugin_ui="true"] QDoubleSpinBox:hover,
+    QDialog[plugin_ui="true"] QSpinBox:hover, QDialog[plugin_ui="true"] QDoubleSpinBox:hover,
+    QWidget[plugin_ui="true"] QSpinBox:hover, QWidget[plugin_ui="true"] QDoubleSpinBox:hover {{
+        border-color: {tokens.accent_hover};
+    }}
+    QDockWidget[plugin_ui="true"] QSpinBox:focus, QDockWidget[plugin_ui="true"] QDoubleSpinBox:focus,
+    QDialog[plugin_ui="true"] QSpinBox:focus, QDialog[plugin_ui="true"] QDoubleSpinBox:focus,
+    QWidget[plugin_ui="true"] QSpinBox:focus, QWidget[plugin_ui="true"] QDoubleSpinBox:focus {{
+        border-color: {tokens.focus};
+    }}
+    QDockWidget[plugin_ui="true"] QSpinBox::up-button:hover, QDockWidget[plugin_ui="true"] QDoubleSpinBox::up-button:hover,
+    QDialog[plugin_ui="true"] QSpinBox::up-button:hover, QDialog[plugin_ui="true"] QDoubleSpinBox::up-button:hover,
+    QWidget[plugin_ui="true"] QSpinBox::up-button:hover, QWidget[plugin_ui="true"] QDoubleSpinBox::up-button:hover,
+    QDockWidget[plugin_ui="true"] QSpinBox::down-button:hover, QDockWidget[plugin_ui="true"] QDoubleSpinBox::down-button:hover,
+    QDialog[plugin_ui="true"] QSpinBox::down-button:hover, QDialog[plugin_ui="true"] QDoubleSpinBox::down-button:hover,
+    QWidget[plugin_ui="true"] QSpinBox::down-button:hover, QWidget[plugin_ui="true"] QDoubleSpinBox::down-button:hover {{
+        background-color: {tokens.accent_soft};
+    }}
+    QDockWidget[plugin_ui="true"] QSpinBox::up-button:pressed, QDockWidget[plugin_ui="true"] QDoubleSpinBox::up-button:pressed,
+    QDialog[plugin_ui="true"] QSpinBox::up-button:pressed, QDialog[plugin_ui="true"] QDoubleSpinBox::up-button:pressed,
+    QWidget[plugin_ui="true"] QSpinBox::up-button:pressed, QWidget[plugin_ui="true"] QDoubleSpinBox::up-button:pressed,
+    QDockWidget[plugin_ui="true"] QSpinBox::down-button:pressed, QDockWidget[plugin_ui="true"] QDoubleSpinBox::down-button:pressed,
+    QDialog[plugin_ui="true"] QSpinBox::down-button:pressed, QDialog[plugin_ui="true"] QDoubleSpinBox::down-button:pressed,
+    QWidget[plugin_ui="true"] QSpinBox::down-button:pressed, QWidget[plugin_ui="true"] QDoubleSpinBox::down-button:pressed {{
+        background-color: {tokens.accent_soft};
     }}
     """
 
@@ -764,10 +1479,17 @@ def apply_theme(
     )
     combined = build_stylesheet(tokens) + (extra_stylesheet or "")
     app.setStyleSheet(combined)
-    # Ensure primitive controls (like spin box arrows) respect theme colors.
-    # These often ignore QSS and use the palette's ButtonText role instead.
+    # Set palette so primitive controls and palette-using widgets respect theme.
     palette = app.palette()
     button_text_color = tokens.text_muted if tokens.name == "light" else tokens.text
     palette.setColor(QPalette.ButtonText, QColor(button_text_color))
+    if tokens.name == "dark":
+        palette.setColor(QPalette.Window, QColor(tokens.background))
+        palette.setColor(QPalette.WindowText, QColor(tokens.text))
+        palette.setColor(QPalette.Base, QColor(tokens.surface))
+        palette.setColor(QPalette.Text, QColor(tokens.text))
+        palette.setColor(QPalette.Button, QColor(tokens.surface_alt))
+        palette.setColor(QPalette.Highlight, QColor(tokens.accent))
+        palette.setColor(QPalette.HighlightedText, QColor(tokens.selection_text))
     app.setPalette(palette)
     return tokens

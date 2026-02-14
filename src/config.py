@@ -56,6 +56,7 @@ class Config(QObject):
                 "row_height": 22,
                 "toolbar_position": "top",
                 "show_statusbar": True,
+                "show_quickstart_on_no_plugins": True,
                 "device_table": {
                     "default_columns": ["name", "ip", "status"]
                 }

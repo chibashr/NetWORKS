@@ -18,6 +18,10 @@ Get NetWORKS running and add your first devices in a few minutes.
 3. Install dependencies: `pip install -r requirements.txt`
 4. Run the application: `python networks.py`
 
+## Quickstart (When No Plugins Loaded)
+
+If you open a workspace with no plugins loaded, a quickstart dialog appears explaining the program, where to find plugins, how to configure them, and where documentation lives. You can dismiss it with **Skip**, check **Don't show again** to disable it, or click **Open Plugin Manager** to open the Plugin Manager. To disable the quickstart globally, go to **File → Settings → General** and uncheck **Show quickstart when no plugins are loaded**.
+
 ## Main Window
 
 When NetWORKS starts, you'll see:

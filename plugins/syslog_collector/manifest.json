@@ -1,0 +1,28 @@
+{
+  "id": "syslog_collector",
+  "name": "Syslog Collector",
+  "version": "1.0.0",
+  "description": "Collects syslog messages over UDP/TCP for testing and monitoring",
+  "icon": "resources/icons/syslog_collector.svg",
+  "author": "chibashr",
+  "entry_point": "syslog_collector.py",
+  "min_app_version": "0.8.16",
+  "requirements": {
+    "python": [],
+    "system": ["Python 3.8+", "Qt 6.5+"]
+  },
+  "dependencies": [],
+  "changelog": [
+    {
+      "version": "1.0.0",
+      "date": "2026-02-13",
+      "changes": [
+        "Initial release",
+        "Live UDP/TCP receiver with configurable transport",
+        "Parsing modes: RFC 3164, RFC 5424, or raw",
+        "Ribbon + dialogs + panel with log table",
+        "Export to CSV/JSON"
+      ]
+    }
+  ]
+}

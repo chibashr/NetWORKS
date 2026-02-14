@@ -6,6 +6,14 @@ light, dark, and system themes.
 
 See `docs/Design Considerations.md` for broader product design guidance.
 
+## Visual Assets
+
+Draw as little as possible; favor stock assets. Prefer SVG icons, Material Icons,
+or platform-provided glyphs over custom QPainter drawing. Use shared themed
+assets (e.g. arrows, checkmarks) from the theme system rather than hand-drawn
+primitives. This reduces maintenance, improves consistency, and keeps the UI
+lightweight.
+
 ## Theme Support
 
 - Theme keys live under `ui.*` in configuration.
@@ -42,8 +50,8 @@ See `docs/Design Considerations.md` for broader product design guidance.
   indicator should read as clickable.
 - Section headers (group boxes, collapsible panels, dock titles) should include
   12px of bottom padding so the text does not sit flush against the border.
-- Group box titles that include checkboxes must have horizontal padding so the
-  border line does not intersect the checkbox indicator.
+- QGroupBox is for static labeled containers only; use CollapsibleSection for
+  expand/collapse sections.
 
 ## Dock Panels
 
@@ -70,3 +78,9 @@ See `docs/Design Considerations.md` for broader product design guidance.
 
 - Compact, information-dense layout with neutral background.
 - Labels should read clearly without strong borders or shadows.
+
+## Arrows, Dropdowns, Spinners
+
+Arrows (expand/collapse, sort, spinbox, combo) and spinners should use shared
+themed assets for consistency. See `docs/ui/arrow_dropdown_spinner_audit.md`
+for implementation details and recommendations.

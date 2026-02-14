@@ -10,13 +10,13 @@ import os
 import json
 from loguru import logger
 from PySide6.QtWidgets import QApplication, QMessageBox
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Signal
 
+# Load theme first so QSpinBox/QComboBox patch applies before any UI imports
+from .ui.theme import apply_theme, NetWORKSStyle
 from .config import Config
-from .ui.theme import apply_theme, NetWORKSStyle  # Before main_window so group box patch applies
 from .ui.splash_screen import SplashScreen
 from .ui.main_window import MainWindow
-from .ui.plugin_ui_theme import plugin_ui_stylesheet
 from .core.plugin_manager import PluginManager
 from .core.device_manager import DeviceManager
 from .core import LoggingManager
@@ -25,6 +25,8 @@ from .core.crash_reporter import setup_global_exception_handler, show_crash_dial
 
 class Application(QApplication):
     """Main application class for NetWORKS"""
+
+    theme_changed = Signal()
 
     def __init__(self, argv):
         """Initialize the application"""
@@ -194,6 +196,9 @@ class Application(QApplication):
             
             # Show first run dialog after a short delay to ensure main window is visible
             QTimer.singleShot(500, self.on_first_run)
+        
+        # Show quickstart when no plugins are loaded (if enabled in settings)
+        QTimer.singleShot(600, self._maybe_show_quickstart)
             
         # Check for queued issues if we have a token
         if hasattr(self, 'issue_reporter') and self.issue_reporter.github_token:
@@ -523,14 +528,24 @@ class Application(QApplication):
         font_size = self.config.get("ui.font_size", 10) if self.config else 10
         row_height = self.config.get("ui.row_height", 22) if self.config else 22
         accent_color = self.config.get("ui.accent_color", "") if self.config else ""
-        tokens = apply_theme(
+        apply_theme(
             self,
             theme_name,
             font_size=font_size,
             row_height=row_height,
             accent_override=accent_color,
         )
-        self.setStyleSheet(self.styleSheet() + plugin_ui_stylesheet(tokens))
+        # Force all widgets to re-apply style and repaint for dynamic theme switch
+        for w in self.topLevelWidgets():
+            try:
+                style = w.style()
+                if style:
+                    style.unpolish(w)
+                    style.polish(w)
+                w.update()
+            except Exception:
+                pass
+        self.theme_changed.emit()
 
     def _on_config_changed(self):
         """Handle configuration changes."""
@@ -592,6 +607,20 @@ class Application(QApplication):
         self.logger.exception(f"{title}: {str(e)}")
         show_crash_dialog(title, e, context)
         
+    def _maybe_show_quickstart(self):
+        """Show quickstart dialog when no plugins are loaded, if enabled in settings."""
+        if not self.config.get("ui.show_quickstart_on_no_plugins", True):
+            return
+        loaded = [p for p in self.plugin_manager.plugins.values() if p.state.is_loaded]
+        if loaded:
+            return
+        try:
+            from .ui.quickstart_dialog import QuickstartDialog
+            dialog = QuickstartDialog(self, self.main_window)
+            dialog.exec()
+        except Exception as e:
+            self.logger.warning(f"Failed to show quickstart: {e}")
+
     def on_first_run(self):
         """Handle first run setup and welcome"""
         try:

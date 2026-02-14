@@ -4,13 +4,11 @@
 """
 SNMP Collector Plugin for NetWORKS.
 
-Collects SNMP traps, supports SNMP polling (GET/GETNEXT), and ingestion
-for testing with pasted/simulated trap data.
+Collects SNMP traps and supports SNMP polling (GET/GETNEXT) for testing and monitoring.
 """
 
 import os
 import sys
-import json
 from datetime import datetime
 from typing import List, Optional
 
@@ -31,7 +29,6 @@ from .snmp_poller import snmp_get, snmp_getnext, build_auth_data, _init_pysnmp
 from ..ui.panel import build_snmp_panel
 from ..ui.dialogs.trap_receiver_dialog import TrapReceiverDialog
 from ..ui.dialogs.snmp_poll_dialog import SnmpPollDialog
-from ..ui.dialogs.ingestion_dialog import IngestionDialog
 from ..ui.dialogs.collected_traps_dialog import CollectedTrapsDialog
 
 
@@ -68,7 +65,7 @@ class PollerWorker(QThread):
 
 class SnmpCollectorPlugin(PluginInterface):
     """
-    SNMP Collector plugin: collects traps, supports polling, and ingestion for testing.
+    SNMP Collector plugin: collects traps and supports polling for testing and monitoring.
     """
 
     trap_received = Signal(dict)  # parsed trap data
@@ -79,7 +76,7 @@ class SnmpCollectorPlugin(PluginInterface):
     def __init__(self):
         super().__init__()
         self.name = "SNMP"
-        self.version = "1.0.4"
+        self.version = "1.0.5"
         self._trap_receiver: Optional[TrapReceiverThread] = None
         self._traps: List[dict] = []
         self._max_traps = 500
@@ -157,24 +154,6 @@ class SnmpCollectorPlugin(PluginInterface):
         """Clear collected traps."""
         self._traps.clear()
 
-    def ingest_trap_json(self, json_str: str) -> Optional[str]:
-        """
-        Ingest simulated trap from JSON string (for testing).
-        Returns None on success, error message on failure.
-        """
-        try:
-            data = json.loads(json_str)
-            if isinstance(data, list):
-                for item in data:
-                    self._on_trap(item if isinstance(item, dict) else {"raw": str(item)})
-            elif isinstance(data, dict):
-                self._on_trap(data)
-            else:
-                return "Invalid JSON: expected object or array"
-            return None
-        except json.JSONDecodeError as e:
-            return str(e)
-
     @Slot()
     def _on_start_trap_clicked(self, widget=None):
         """Start trap receiver from UI."""
@@ -240,6 +219,7 @@ class SnmpCollectorPlugin(PluginInterface):
             widget.poll_result_edit.setPlainText("Invalid auth configuration")
             return
         widget.poll_result_edit.setPlainText("Polling...")
+        widget.poll_progress.setVisible(True)
         self._poll_widget = widget
         worker = PollerWorker(host, oids, mode="get", auth_data=auth_data)
         worker.finished.connect(self._on_poll_finished)
@@ -262,6 +242,7 @@ class SnmpCollectorPlugin(PluginInterface):
             widget.poll_result_edit.setPlainText("Invalid auth configuration")
             return
         widget.poll_result_edit.setPlainText("Polling...")
+        widget.poll_progress.setVisible(True)
         self._poll_widget = widget
         worker = PollerWorker(host, oids, mode="getnext", auth_data=auth_data)
         worker.finished.connect(self._on_poll_finished)
@@ -273,29 +254,12 @@ class SnmpCollectorPlugin(PluginInterface):
         """Handle poll worker completion."""
         widget = getattr(self, "_poll_widget", None)
         if widget:
+            widget.poll_progress.setVisible(False)
             if success:
                 lines = [f"{oid} = {val}" for oid, val in results]
                 widget.poll_result_edit.setPlainText("\n".join(lines))
             else:
                 widget.poll_result_edit.setPlainText(f"Error: {error}")
-
-    @Slot()
-    def _on_ingest_clicked(self, widget=None):
-        """Ingest pasted JSON as simulated trap(s)."""
-        if not widget:
-            return
-        text = widget.ingest_edit.toPlainText().strip()
-        if not text:
-            return
-        err = self.ingest_trap_json(text)
-        if err:
-            QMessageBox.warning(
-                self.main_window,
-                "SNMP Collector",
-                f"Invalid JSON: {err}",
-            )
-        else:
-            widget.ingest_edit.clear()
 
     @Slot()
     def _on_clear_traps_clicked(self, widget=None):
@@ -317,15 +281,11 @@ class SnmpCollectorPlugin(PluginInterface):
         poll_action.setToolTip("Open SNMP Poll dialog")
         poll_action.triggered.connect(self._show_snmp_poll_dialog)
 
-        ingest_action = QAction("Ingestion", mw or self)
-        ingest_action.setToolTip("Open Ingestion dialog (testing)")
-        ingest_action.triggered.connect(self._show_ingestion_dialog)
-
         traps_action = QAction("View Traps", mw or self)
         traps_action.setToolTip("Open Collected Traps dialog")
         traps_action.triggered.connect(self._show_collected_traps_dialog)
 
-        return [trap_action, poll_action, ingest_action, traps_action]
+        return [trap_action, poll_action, traps_action]
 
     def _show_trap_receiver_dialog(self):
         dlg = TrapReceiverDialog(self, self.main_window)
@@ -333,10 +293,6 @@ class SnmpCollectorPlugin(PluginInterface):
 
     def _show_snmp_poll_dialog(self):
         dlg = SnmpPollDialog(self, self.main_window)
-        dlg.exec()
-
-    def _show_ingestion_dialog(self):
-        dlg = IngestionDialog(self, self.main_window)
         dlg.exec()
 
     def _show_collected_traps_dialog(self):

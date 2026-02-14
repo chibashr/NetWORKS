@@ -1,7 +1,7 @@
 # NetWORKS Visual Design Specification
 ## Plugins - Docked Panels & Windows
 
-> **Design Philosophy**: Compact, feature-rich, and modern with Microsoft Office-inspired interface patterns. Plugins should blend seamlessly with the main application while maintaining functional density.
+> **Design Philosophy**: Compact, feature-rich, and modern with Microsoft Office-inspired interface patterns. Plugins should blend seamlessly with the main application while maintaining functional density. Draw as little as possible; favor stock assets (SVG icons, Material Icons, shared themed glyphs) over custom drawing.
 
 ---
 
@@ -634,6 +634,9 @@ When a plugin adds a ribbon tab, follow this structure:
 ## 8. Common Patterns
 
 ### Collapsible Sections
+
+Use `CollapsibleSection` for expand/collapse. Do not use checkable QGroupBox;
+QGroupBox is for static labeled containers only.
 
 **Collapsed:**
 ```

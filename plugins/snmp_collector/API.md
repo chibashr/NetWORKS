@@ -2,7 +2,7 @@
 
 ## Overview
 
-The SNMP Collector plugin provides programmatic access to trap collection, polling, and ingestion for integration with other plugins or automated workflows.
+The SNMP Collector plugin provides programmatic access to trap collection and polling for integration with other plugins or automated workflows.
 
 ## Public Methods
 
@@ -12,10 +12,6 @@ The SNMP Collector plugin provides programmatic access to trap collection, polli
 - `stop_trap_receiver()` — Stop the trap receiver.
 - `get_traps() -> List[dict]` — Return the list of collected traps.
 - `clear_traps()` — Clear all collected traps.
-
-### Ingestion
-
-- `ingest_trap_json(json_str: str) -> Optional[str]` — Ingest simulated trap(s) from JSON. Returns None on success, error message on failure.
 
 ### Polling
 

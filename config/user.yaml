@@ -32,7 +32,7 @@ general:
   check_for_updates: true
   check_updates: true
   repository_url: https://github.com/chibashr/netWORKS
-  skipped_version: 0.9.4
+  skipped_version: 0.12.11
   update_channel: Stable
 logging:
   backtrace: true

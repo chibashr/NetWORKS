@@ -3,7 +3,7 @@
 
 """
 Scan panel layout for the Network Scanner plugin.
-Builds the dock panel (Quick Scan controls, progress, Results).
+Builds the dock panel (Scan Settings, progress, Logs).
 """
 
 from PySide6.QtWidgets import (
@@ -15,14 +15,13 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QComboBox,
     QPushButton,
-    QSplitter,
     QProgressBar,
     QTextEdit,
     QSizePolicy,
+    QGroupBox,
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QTimer
 
-from src.ui.plugin_widgets import CollapsibleSection
 from src.ui.plugin_ui_theme import mark_plugin_ui, PLUGIN_UI_SIZES
 
 
@@ -41,9 +40,10 @@ def build_scan_panel(plugin):
     top_layout.setContentsMargins(0, 0, 0, 0)
     top_layout.setSpacing(PLUGIN_UI_SIZES["collapsible_stack_spacing"])
 
-    quick_scan_section = CollapsibleSection("Quick Scan", expanded=True)
-    plugin.control_group = quick_scan_section.content_frame
-    control_layout = quick_scan_section.content_layout
+    scan_settings_group = QGroupBox("Scan Settings")
+    mark_plugin_ui(scan_settings_group)
+    plugin.control_group = scan_settings_group
+    control_layout = QVBoxLayout(scan_settings_group)
 
     interface_layout = QHBoxLayout()
     interface_layout.setSpacing(grid)
@@ -145,7 +145,7 @@ def build_scan_panel(plugin):
     plugin.advanced_scan_button.setToolTip("Open the advanced scan configuration dialog")
     button_grid.addWidget(plugin.advanced_scan_button, 0, 1)
     control_layout.addLayout(button_grid)
-    top_layout.addWidget(quick_scan_section)
+    top_layout.addWidget(scan_settings_group)
 
     progress_widget = QWidget()
     plugin.progress_layout = QVBoxLayout(progress_widget)
@@ -157,27 +157,28 @@ def build_scan_panel(plugin):
     plugin.progress_bar.setRange(0, 100)
     plugin.progress_bar.setValue(0)
     plugin.progress_layout.addWidget(plugin.progress_bar)
-    top_layout.addWidget(progress_widget)
 
-    results_section = CollapsibleSection("Results", expanded=True)
-    plugin.results_group = results_section.content_frame
-    plugin.results_layout = results_section.content_layout
+    logs_group = QGroupBox("Logs")
+    mark_plugin_ui(logs_group)
+    plugin.results_group = logs_group
+    plugin.results_layout = QVBoxLayout(logs_group)
+    plugin.results_layout.setContentsMargins(2, 4, 2, 2)
+    plugin.results_layout.setSpacing(2)
     plugin.results_text = QTextEdit()
     plugin.results_text.setReadOnly(True)
-    plugin.results_text.setPlaceholderText("No scan results yet. Click Start Scan to begin.")
+    plugin.results_text.setPlaceholderText("No scan logs yet. Click Start Scan to begin.")
+    font = plugin.results_text.font()
+    font.setPointSize(max(8, font.pointSize() - 1))
+    plugin.results_text.setFont(font)
     plugin.results_layout.addWidget(plugin.results_text)
     mark_plugin_ui(plugin.results_text)
     plugin.results_footer = QLabel("Ready | 0 devices")
     plugin.results_footer.setProperty("plugin_ui_muted", "true")
     plugin.results_layout.addWidget(plugin.results_footer)
 
-    plugin.main_splitter = QSplitter(Qt.Vertical)
-    plugin.main_splitter.addWidget(top_section)
-    plugin.main_splitter.addWidget(results_section)
-    plugin.main_splitter.setStretchFactor(0, 0)
-    plugin.main_splitter.setStretchFactor(1, 1)
-    plugin.main_splitter.setSizes([200, 400])
-    plugin.main_layout.addWidget(plugin.main_splitter)
+    plugin.main_layout.addWidget(top_section)
+    plugin.main_layout.addWidget(progress_widget)
+    plugin.main_layout.addWidget(logs_group, 1)
 
     mark_plugin_ui(plugin.main_widget)
     return plugin.main_widget

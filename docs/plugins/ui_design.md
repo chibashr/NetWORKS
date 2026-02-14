@@ -2,6 +2,14 @@
 
 This guide describes the plugin-scoped UI theme and helper widgets available in NetWORKS. Use these helpers to keep plugin panels, dialogs, and sections consistent with the application styling while staying scoped to plugin surfaces only.
 
+## Visual Assets
+
+Draw as little as possible; favor stock assets. Use SVG icons, Material Icons, or
+shared themed assets from the core theme over custom QPainter drawing. Prefer
+existing assets (e.g. `arrow_icon`, checkmark SVG) rather than hand-drawn
+primitives. This reduces maintenance and keeps plugin UIs consistent with the
+core.
+
 ## Design Tokens
 
 - **Accent**: Configurable accent color (default muted Aruba orange `#E87722`)
@@ -11,6 +19,7 @@ This guide describes the plugin-scoped UI theme and helper widgets available in 
 - **Dock header height**: compact, targeting ~28px at default scaling
 - **Section header height**: compact, targeting ~24px at default scaling
 - **Tab height**: compact tab row, targeting ~32px at default scaling
+- **Tab content padding**: 8px inset from pane edges (applied via stylesheet to `QTabWidget::pane`)
 - **Button height**: compact single-line height, targeting ~28px at default scaling
 - **Button bar height**: compact bottom bar, targeting ~40px at default scaling
 
@@ -54,8 +63,8 @@ flush against the content.
 - Text labels should render on transparent backgrounds.
 - Checkbox and radio labels should not render with a white highlight; only the
   indicator should read as clickable.
-- Group box titles with checkboxes need horizontal padding so the section border
-  does not intersect the checkbox indicator.
+- QGroupBox is for static labeled containers only; use CollapsibleSection for
+  expand/collapse sections.
 - Plugin toolbar actions must define an icon asset and label.
 - When toolbars are narrow, labels switch to icon-only before truncating text;
   icons remain visible and tooltips provide the full label.
@@ -103,6 +112,21 @@ Follow the application icon spec in `docs/Design Considerations.md`.
 **Behavior:**
 - Icon-only actions must include tooltips and aria-labels
 
+## Tab Content Spacing
+
+Tab content is automatically inset 8px from the pane edges via the application stylesheet (`QTabWidget::pane` padding). This applies to both core and plugin tab widgets.
+
+**For plugins:** Use `create_plugin_tab_widget()` when building tabbed UIs in docks or panels:
+
+```python
+from src.ui.plugin_widgets import create_plugin_tab_widget, wrap_in_scroll_area
+
+tab_widget = create_plugin_tab_widget()
+tab_widget.addTab(wrap_in_scroll_area(content), "Tab Name")
+```
+
+This ensures the tab widget receives plugin styling and pane padding. Tab content does not need extra layout margins—the pane padding provides consistent 8px spacing from the tab edges. If you need to override spacing, use `PLUGIN_UI_SIZES["tab_content_padding"]`.
+
 ## Overflow and Scrollable Sections
 
 When tab content, form sections, or panels can overflow (e.g. many fields, conditional v3 options), wrap the content in a scroll area so users can access all controls without clipping:
@@ -124,7 +148,9 @@ The helper applies: `setWidgetResizable(True)`, `setHorizontalScrollBarPolicy(Qt
 
 ## Collapsible Sections
 
-Use `CollapsibleSection` for sharp full-width blocks with centered headers and arrow far right:
+Use `CollapsibleSection` for expand/collapse sections—sharp full-width blocks with
+centered headers and arrow far right. Do not use checkable QGroupBox; QGroupBox
+is for static labeled containers only.
 
 ```python
 from src.ui.plugin_widgets import CollapsibleSection

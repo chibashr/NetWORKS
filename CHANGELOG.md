@@ -2,19 +2,52 @@
 
 All notable changes to this project will be documented in this file.
 
-<<<<<<< HEAD
+## [Unreleased]
+### Changed
+- **Network Scanner plugin** (v10.8): Removed splitter from dock; top group renamed to Scan Settings.
+- **Network Scanner plugin** (v10.7): Results panel renamed to Logs; reduced margins and smaller text in logs area; removed separator between progress bar and logs.
+- **Network Scanner plugin** (v10.6): Scan and Results panels use QGroupBox instead of CollapsibleSection.
+- **SNMP Collector plugin** (v1.0.6): Trap Receiver config moved from dedicated tab to button in SNMP Poll tab; opens dialog.
+- **SNMP Collector plugin** (v1.0.5): SNMP Poll adds preset OID dropdown (sysDescr, sysUpTime, sysName, etc.); Ingestion tab and dialog removed.
+- Arrows: Centralized via get_arrow_color(); all arrows (dropdown, spin box, CollapsibleSection) use text_muted for consistent, theme-aware appearance in light and dark mode.
+- QGroupBox: Reduced padding (4px 6px 2px, top bar +4) so groups fit content more tightly.
+- QDockWidget (plugin_ui): Tab widget extends to dock edges—removed content padding and panel layout margins (SNMP, Syslog panels).
+- QDockWidget: Content area border and padding removed so inner elements can fill the entire space; plugin_ui docks have no outer border.
+- QDockWidget: Title bar shows 3-dot grip icon and tooltip "Drag the header to move or reorder this panel" to clarify draggability.
+- QSplitter: Handle shows 3 dots in the center only (custom DotSplitterHandle); no border around handle.
+- Controls (buttons, line edits, combos, spin boxes): Compact height (font_size+6) and reduced padding (2px vertical) to match tab header density.
+- QTabWidget: Tab text centered and bottom-aligned; tabs sized to text (height font_size+4, padding 2px); tab font 1px smaller.
+- QGroupBox: Removed checkable/expand-collapse support; use CollapsibleSection for expand/collapse sections.
+- Theme tester: Light/Dark toggle now works (unpolish/polish all widgets, pass config to apply_theme). Added "Change Accent Color..." button. QCheckBox: checkmark symbol (stroke) instead of solid fill. QProgressBar/QSlider: themed (accent, surface_alt, border).
+- Theme tester: Consolidated into single comprehensive UI (`scripts/test_grouping_panel_ui.py`) with all theme elements (buttons, inputs, groupbox, collapsible, tabs, table, tree, list, labels, progress, splitter, debug). Removed separate Grouping/Panels/Debug tabs and `test_arrows.py`. Each element has clear labels and debug hints.
+- Tabs: QTabWidget::pane now has 8px padding so tab content is inset from pane edges; applies to core and plugin tab widgets. Added tab_content_padding to PLUGIN_UI_SIZES and plugin UI design doc.
+- Panels: Dock content area now has full border (left, right, bottom) using theme border color; previously only border-top was set, so panels appeared borderless at sides and bottom.
+- Panels: Dock header (QDockWidget::title) now has border on all sides so the title bar is fully outlined.
+- Groups: CollapsibleSection container now has full border; QGroupBox and CollapsibleSection headers use theme border color for consistent outline.
+- Groups: QGroupBox::title uses qlineargradient background for left/right border effect (Qt does not render border-left/right on padded subcontrol); border-top and border-bottom remain explicit.
+- Theme: Merged plugin UI stylesheet into core `build_stylesheet()`; single theme file, no redundant append.
+- Arrows: Use _draw_arrow_standalone in patched SpinBox/ComboBox—style can be QCommonStyle when stylesheet is active, so no longer rely on NetWORKSStyle._draw_arrow. Set NETWORKS_ARROW_DEBUG=1 for verbose arrow debug.
+
+### Fixed
+- QRadioButton: Indicator restored to circular shape (border-radius: 7px).
+- QSlider: Top clipping fixed—added min-height 24px and padding 6px 0 so handle is fully visible.
+- Spin box and ComboBox arrow buttons: Hover now uses surface_raised (was surface_alt) so buttons visibly highlight on hover; ComboBox::drop-down styled with hover/pressed states for consistent feedback.
+- Dark theme: Dynamic switch when triggered from Settings—theme_changed signal, force unpolish/polish/update on all widgets; full palette for dark mode; CollapsibleSection refreshes arrow icons.
+- Arrows: Unified geometry via _arrow_polygon_points; 4:3 aspect ratio; scale cap 0.85 for compact arrows; rounded center/points for proper alignment; ComboBox::drop-down full border.
+- SpinBox: Remove white line between up/down buttons—margin-top: -1px on down-button overlaps gap; border-bottom/top: none at seam; use subControlRect for arrow placement.
+- Spin box arrows: Draw via NetWORKSStyle.drawPrimitive (PE_IndicatorSpinUp/Down) instead of QSS image—base64 data URIs fail on Windows. Use theme tokens (text/text_disabled) for arrow color to ensure visibility on white. Larger arrow size (min 5px). Button width 18px, padding-right 24px to prevent white overlay.
+- Spin box up/down buttons: Use full `border: 1px solid` on both buttons so they render with visible borders and clear separation on Windows (was border-left/border-bottom only, causing grey blob appearance).
+- Spin box arrows: Patch QSpinBox/QDoubleSpinBox with paintEvent override; manual rect fallback when subControlRect fails; QSS ::up-arrow/::down-arrow image (SVG data URI) as backup. QComboBox::down-arrow uses same triangle style for consistency.
+
+## [0.12.11] - 2026-02-13
+### Added
+- Quickstart dialog when no plugins are loaded: explains plugins, where to find them (Tools → Plugin Manager), how to configure, where docs are, and program overview (dockable widgets, device table, importing). Dismiss via Skip, "Don't show again" checkbox, or Open Plugin Manager. Setting in File → Settings → General to disable globally.
+
 ## [0.12.10] - 2026-02-13
 ### Changed
 - Core release zip renamed to `NetWORKS-Core-<version>.zip` (was NetWORKS-Repo).
 - Release Windows Zip: added `tag` input for manual runs on existing tags; explicit checkout ref for correct build source.
 - Release-core: added `actions: write` permission so `gh workflow run` can trigger Release Windows Zip (fixes HTTP 403).
-=======
-## [0.12.9] - 2026-02-13
-
-### Changed
-- Version bump to 0.12.9
-
->>>>>>> a2ab52160ba2fad5e8a0324136923f9b4d42d520
 
 ## [0.12.8] - 2026-02-13
 ### Added

@@ -90,6 +90,13 @@ class SettingsDialog(QDialog):
         # Enable plugins
         self.enable_plugins_check = QCheckBox("Load plugins on startup")
         application_layout.addRow("Plugins:", self.enable_plugins_check)
+
+        # Show quickstart when no plugins
+        self.show_quickstart_check = QCheckBox("Show quickstart when no plugins are loaded")
+        self.show_quickstart_check.setToolTip(
+            "When enabled, a quickstart tutorial appears when you open a workspace with no plugins."
+        )
+        application_layout.addRow("Quickstart:", self.show_quickstart_check)
         
         # External plugins directory
         plugins_layout = QHBoxLayout()
@@ -507,6 +514,9 @@ class SettingsDialog(QDialog):
         self.theme_combo.setCurrentText(theme.capitalize())
         
         self.enable_plugins_check.setChecked(self.config.get("application.plugins_enabled", True))
+        self.show_quickstart_check.setChecked(
+            self.config.get("ui.show_quickstart_on_no_plugins", True)
+        )
         self.plugins_dir_edit.setText(self.config.get("application.external_plugins_directory", ""))
         
         # Update settings
@@ -559,6 +569,10 @@ class SettingsDialog(QDialog):
         # General settings
         self.config.set("ui.theme", self.theme_combo.currentText().lower())
         self.config.set("application.plugins_enabled", self.enable_plugins_check.isChecked())
+        self.config.set(
+            "ui.show_quickstart_on_no_plugins",
+            self.show_quickstart_check.isChecked(),
+        )
         self.config.set("application.external_plugins_directory", self.plugins_dir_edit.text())
         
         # Update settings

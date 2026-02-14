@@ -138,8 +138,27 @@ class MainWindow(QMainWindow):
         else:
             # All plugins are already loaded or none enabled, restore layout now
             self._restore_plugin_layout_after_load()
-        
+            # When switching workspace (main window already visible), show quickstart if no plugins
+            if self.isVisible() and self.config.get("ui.show_quickstart_on_no_plugins", True):
+                loaded = [p for p in self.plugin_manager.plugins.values() if p.state.is_loaded]
+                if not loaded:
+                    QTimer.singleShot(500, self._maybe_show_quickstart)
+
         logger.debug("UI refresh complete")
+
+    def _maybe_show_quickstart(self):
+        """Show quickstart dialog when no plugins are loaded (called on workspace switch)."""
+        if not self.config.get("ui.show_quickstart_on_no_plugins", True):
+            return
+        loaded = [p for p in self.plugin_manager.plugins.values() if p.state.is_loaded]
+        if loaded:
+            return
+        try:
+            from .ui.quickstart_dialog import QuickstartDialog
+            dialog = QuickstartDialog(self.app, self)
+            dialog.exec()
+        except Exception as e:
+            logger.warning(f"Failed to show quickstart: {e}")
         
     def _create_menus(self):
         """Create menu bar and menus"""
@@ -340,6 +359,7 @@ class MainWindow(QMainWindow):
         
         self.dock_device_tree.setWidget(self.device_tree_panel)
         self.dock_device_tree.setObjectName("DeviceTreeDock")
+        self.dock_device_tree.setToolTip("Drag the header to move or reorder this panel")
         self.addDockWidget(Qt.LeftDockWidgetArea, self.dock_device_tree)
         # Connect signals to save layout when dock widget changes
         self.dock_device_tree.topLevelChanged.connect(self._on_dock_widget_changed)
@@ -349,6 +369,7 @@ class MainWindow(QMainWindow):
         self.dock_properties = QDockWidget("Properties", self)
         self.dock_properties.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
         self.dock_properties.setObjectName("PropertiesDock")
+        self.dock_properties.setToolTip("Drag the header to move or reorder this panel")
         
         # Create properties panel
         self.properties_widget = QTabWidget()
@@ -417,6 +438,7 @@ class MainWindow(QMainWindow):
         self.dock_log = QDockWidget("Log", self)
         self.dock_log.setAllowedAreas(Qt.BottomDockWidgetArea | Qt.TopDockWidgetArea)
         self.dock_log.setObjectName("LogDock")
+        self.dock_log.setToolTip("Drag the header to move or reorder this panel")
         
         # Use LogPanel in the dock widget
         self.log_panel = LogPanel()
@@ -563,6 +585,7 @@ class MainWindow(QMainWindow):
             mark_plugin_ui(dock)
             if dock.widget():
                 mark_plugin_ui(dock.widget())
+            dock.setToolTip("Drag the header to move or reorder this panel")
             
             # Set unique object name for proper layout restoration
             if not dock.objectName():

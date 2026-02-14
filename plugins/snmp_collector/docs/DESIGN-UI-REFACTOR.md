@@ -9,11 +9,11 @@
 Refactor the SNMP Collector plugin to provide:
 1. **Toolbar (ribbon tab "SNMP")** with buttons that open dialogs for each function
 2. **Panel (dock)** with an SNMP tab containing the full workflow
-3. **Dialogs** for each function: Trap Receiver, SNMP Poll, Ingestion, Collected Traps
+3. **Dialogs** for each function: Trap Receiver, SNMP Poll, Collected Traps
 
 ## Current State
 
-- Single dock panel with collapsible sections: Trap Receiver, SNMP Poll, Ingestion, Collected Traps
+- Single dock panel with collapsible sections: Trap Receiver, SNMP Poll, Collected Traps
 - No toolbar actions
 - All functionality in one panel
 
@@ -22,10 +22,9 @@ Refactor the SNMP Collector plugin to provide:
 ### 1. Ribbon Tab: "SNMP"
 
 - Change manifest `name` to `"SNMP"` (or keep "SNMP Collector" and use a display name if the core supports it)
-- Add `get_toolbar_actions()` returning 4 QActions:
+- Add `get_toolbar_actions()` returning 3 QActions:
   - **Trap Receiver** → opens `TrapReceiverDialog`
   - **SNMP Poll** → opens `SnmpPollDialog`
-  - **Ingestion** → opens `IngestionDialog`
   - **View Traps** → opens `CollectedTrapsDialog` (or focuses the panel)
 
 ### 2. Dialogs (one per function)
@@ -33,8 +32,7 @@ Refactor the SNMP Collector plugin to provide:
 | Dialog | Purpose | Content (from current panel) |
 |--------|---------|------------------------------|
 | `TrapReceiverDialog` | Start/stop trap receiver | Bind host, port, Start/Stop, status |
-| `SnmpPollDialog` | Run GET/GETNEXT | Host, OID(s), community, GET/GETNEXT buttons, results |
-| `IngestionDialog` | Paste JSON traps | Text area, Ingest button |
+| `SnmpPollDialog` | Run GET/GETNEXT | Host, OID(s), preset OID dropdown, community, GET/GETNEXT buttons, results |
 | `CollectedTrapsDialog` | View collected traps | Table, Clear button |
 
 Each dialog:
@@ -46,10 +44,10 @@ Each dialog:
 
 - Single dock titled **"SNMP"**
 - Internal `QTabWidget` with tabs:
-  - **Trap Receiver** – same content as `TrapReceiverDialog` (or embedded widget)
-  - **SNMP Poll** – same content as `SnmpPollDialog`
-  - **Ingestion** – same content as `IngestionDialog`
+  - **SNMP Poll** – poll form + "Trap Receiver" button (opens `TrapReceiverDialog`), same content as `SnmpPollDialog`
   - **Collected Traps** – traps table + Clear
+
+  *(Trap Receiver tab removed; config accessible via button in SNMP Poll tab.)*
 
 - Alternatively: panel shows traps table + toolbar-style buttons that open the dialogs (lighter panel, dialogs do the work)
 
@@ -62,12 +60,10 @@ ui/
   dialogs/
     trap_receiver_dialog.py   # TrapReceiverDialog
     snmp_poll_dialog.py      # SnmpPollDialog
-    ingestion_dialog.py      # IngestionDialog
     collected_traps_dialog.py # CollectedTrapsDialog
   widgets/
     trap_receiver_widget.py  # Shared by dialog and panel
     snmp_poll_widget.py
-    ingestion_widget.py
     traps_table_widget.py
   panel.py                   # Builds panel from widgets
 ```
@@ -95,5 +91,5 @@ Per workspace rules: keep files under 500 lines, target 200–400. Each dialog/w
 ## Compatibility
 
 - Existing settings remain unchanged
-- Trap receiver, poller, and ingestion logic stay in `core/`
+- Trap receiver and poller logic stay in `core/`
 - UI-only refactor
