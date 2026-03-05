@@ -1,17 +1,25 @@
 {
   "version": "1.0",
   "min_app_version": "0.12.0",
-  "updated": "2026-02-13T16:03:43Z",
+  "updated": "2026-03-05T15:04:10Z",
   "plugins": [
     {
       "id": "command_manager",
       "name": "Command Manager",
-      "version": "1.0.3",
+      "version": "1.0.4",
       "description": "Run and manage commands on network devices",
       "author": "chibashr",
-      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/command_manager-1.0.3.zip",
+      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/command_manager-1.0.4.zip",
       "min_app_version": "0.8.16",
       "changelog": [
+        {
+          "version": "1.0.4",
+          "date": "2026-03-05",
+          "changes": [
+            "Improved placeholder support for command text and batch export filename templates, including case-insensitive aliases like {Alias} and {ip-address} based on device properties",
+            "Clarified placeholder usage in Command Manager batch export UI"
+          ]
+        },
         {
           "version": "1.0.3",
           "date": "2025-05-16",
@@ -50,7 +58,7 @@
           ]
         }
       ],
-      "sha256": "c6493f288b51f27364be28b08c5db6f5b2d2543c4f495d80f78c48cd39b59c6e"
+      "sha256": "cbf5b3eec7d32f1dd3a3fef496d30702fd67deb0307fa0beab8c0eca2eda6dcb"
     },
     {
       "id": "device_connector",
@@ -91,17 +99,38 @@
           ]
         }
       ],
-      "sha256": "2da0f87864a95718edaca7c077b439998beba0e0b905bb96c571eb3216044481"
+      "sha256": "f3506353c03017a7907783352142fefd84d4b15252faaca9e61ba44dec6ab782"
     },
     {
       "id": "network_scanner",
       "name": "Network Scanner",
-      "version": "10.5",
+      "version": "10.8",
       "description": "A plugin that scans the network for devices and adds them to NetWORKS",
       "author": "chibashr",
-      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/network_scanner-10.5.zip",
+      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/network_scanner-10.8.zip",
       "min_app_version": "0.8.16",
       "changelog": [
+        {
+          "version": "10.8",
+          "date": "2026-02-14",
+          "changes": [
+            "Removed splitter from dock; top group renamed to Scan Settings"
+          ]
+        },
+        {
+          "version": "10.7",
+          "date": "2026-02-14",
+          "changes": [
+            "Results panel renamed to Logs; reduced margins and smaller text in logs area; removed separator between progress bar and logs"
+          ]
+        },
+        {
+          "version": "10.6",
+          "date": "2026-02-13",
+          "changes": [
+            "Scan and Results panels use QGroupBox instead of CollapsibleSection"
+          ]
+        },
         {
           "version": "10.5",
           "date": "2026-01-27",
@@ -280,7 +309,7 @@
           ]
         }
       ],
-      "sha256": "9d5250632b56d9447403665215295727e9c0755fd353849da813d851cd5b1532"
+      "sha256": "d1cd6644750e0f457c01b74639c2b410711fef7ac5bd4eaa12afce252eae1100"
     },
     {
       "id": "report_generator",
@@ -313,7 +342,7 @@
           ]
         }
       ],
-      "sha256": "036d67e928d76372f6832809d5b3a6b4daa35bf9deaa74ccd74b94d827368ed7"
+      "sha256": "a2f37517ed86264f4afdfca9d6507439862bb2d3db3be5a79c69e4933faa5ac8"
     },
     {
       "id": "sample",
@@ -420,17 +449,32 @@
           ]
         }
       ],
-      "sha256": "af121fef81145432ffb45673b0d1ced4a56d89768ad21baea41450c78bd7fe52"
+      "sha256": "ba6605d773006ffe39e37b287786727e064c0f99d084753cd07f880493d3415d"
     },
     {
       "id": "snmp_collector",
       "name": "SNMP",
-      "version": "1.0.3",
+      "version": "1.0.6",
       "description": "Collects SNMP traps and supports SNMP polling for testing and monitoring",
       "author": "chibashr",
-      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/snmp_collector-1.0.3.zip",
+      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/snmp_collector-1.0.6.zip",
       "min_app_version": "0.8.16",
       "changelog": [
+        {
+          "version": "1.0.6",
+          "date": "2026-02-14",
+          "changes": [
+            "Trap Receiver config moved from dedicated tab to button in SNMP Poll tab; opens dialog"
+          ]
+        },
+        {
+          "version": "1.0.5",
+          "date": "2026-02-13",
+          "changes": [
+            "SNMP Poll: preset OID dropdown (sysDescr, sysUpTime, sysName, etc.)",
+            "Removed Ingestion tab and dialog"
+          ]
+        },
         {
           "version": "1.0.3",
           "date": "2026-02-13",
@@ -468,7 +512,30 @@
           ]
         }
       ],
-      "sha256": "3beac919d0590a3de00863f848562326012e598b2ebd3a9f381f7eaab635a0d5"
+      "sha256": "d57ad56f123e30f3bda5e1868fe082d067608b775e470f54534f6435efd8fdc7"
+    },
+    {
+      "id": "syslog_collector",
+      "name": "Syslog Collector",
+      "version": "1.0.0",
+      "description": "Collects syslog messages over UDP/TCP for testing and monitoring",
+      "author": "chibashr",
+      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/syslog_collector-1.0.0.zip",
+      "min_app_version": "0.8.16",
+      "changelog": [
+        {
+          "version": "1.0.0",
+          "date": "2026-02-13",
+          "changes": [
+            "Initial release",
+            "Live UDP/TCP receiver with configurable transport",
+            "Parsing modes: RFC 3164, RFC 5424, or raw",
+            "Ribbon + dialogs + panel with log table",
+            "Export to CSV/JSON"
+          ]
+        }
+      ],
+      "sha256": "e862d4e17f5b8ec0313117ddb7b2c3fb7ecb6c5ebe4d27c4ef88241a1bfc4488"
     },
     {
       "id": "template_manager",
@@ -491,7 +558,7 @@
           ]
         }
       ],
-      "sha256": "39a79a38ce66cf237121630eac09f8c112d58cb4bf4256414ca312bb47842774"
+      "sha256": "59ee38c99eff753c572389465c892356b5d6d41fe64472328de34282294a84db"
     }
   ]
 }
