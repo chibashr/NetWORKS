@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.13] - 2026-03-05
+### Added
+- Core: Initial pytest-based tests for update branch mapping and version comparison logic, and for plugin installer/download flows (including SHA-256 verification and catalog-driven plugin updates).
+
 ## [0.12.12] - 2026-02-14
 ### Changed
 - **Network Scanner plugin** (v10.8): Removed splitter from dock; top group renamed to Scan Settings.

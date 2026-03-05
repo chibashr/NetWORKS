@@ -1,50 +1,8 @@
 {
-  "command_manager": {
-    "state": "DISCOVERED",
-    "last_loaded": "",
-    "path": "plugins\\command_manager",
-    "version": "1.0.4"
-  },
-  "device_connector": {
-    "state": "DISCOVERED",
-    "last_loaded": "",
-    "path": "plugins\\device_connector",
-    "version": "1.2.0"
-  },
-  "network_scanner": {
-    "state": "DISCOVERED",
-    "last_loaded": "",
-    "path": "plugins\\network_scanner",
-    "version": "10.8"
-  },
-  "report_generator": {
-    "state": "DISCOVERED",
-    "last_loaded": "",
-    "path": "plugins\\report_generator",
-    "version": "1.0.1"
-  },
-  "sample": {
-    "state": "DISABLED",
-    "last_loaded": "",
-    "path": "plugins\\sample",
-    "version": "1.0.9"
-  },
-  "snmp_collector": {
-    "state": "DISCOVERED",
-    "last_loaded": "",
-    "path": "plugins\\snmp_collector",
-    "version": "1.0.6"
-  },
-  "syslog_collector": {
-    "state": "DISCOVERED",
-    "last_loaded": "",
-    "path": "plugins\\syslog_collector",
-    "version": "1.0.0"
-  },
-  "template_manager": {
-    "state": "DISCOVERED",
-    "last_loaded": "",
-    "path": "plugins\\template_manager",
+  "test.plugin": {
+    "state": "LOADED",
+    "last_loaded": "2026-03-05 09:15:07.488482",
+    "path": null,
     "version": "1.0.0"
   }
 }
