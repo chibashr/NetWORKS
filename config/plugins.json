@@ -1,13 +1,13 @@
 {
   "command_manager": {
-    "state": "LOADED",
-    "last_loaded": "2026-02-14 08:03:36.093204",
+    "state": "DISCOVERED",
+    "last_loaded": "",
     "path": "plugins\\command_manager",
-    "version": "1.0.3"
+    "version": "1.0.4"
   },
   "device_connector": {
-    "state": "LOADED",
-    "last_loaded": "2026-02-14 08:03:36.093204",
+    "state": "DISCOVERED",
+    "last_loaded": "",
     "path": "plugins\\device_connector",
     "version": "1.2.0"
   },
@@ -15,11 +15,11 @@
     "state": "DISCOVERED",
     "last_loaded": "",
     "path": "plugins\\network_scanner",
-    "version": "10.6"
+    "version": "10.8"
   },
   "report_generator": {
-    "state": "LOADED",
-    "last_loaded": "2026-02-14 08:03:36.093204",
+    "state": "DISCOVERED",
+    "last_loaded": "",
     "path": "plugins\\report_generator",
     "version": "1.0.1"
   },
@@ -30,20 +30,20 @@
     "version": "1.0.9"
   },
   "snmp_collector": {
-    "state": "LOADED",
-    "last_loaded": "2026-02-14 08:03:36.093204",
+    "state": "DISCOVERED",
+    "last_loaded": "",
     "path": "plugins\\snmp_collector",
-    "version": "1.0.5"
+    "version": "1.0.6"
   },
   "syslog_collector": {
-    "state": "LOADED",
-    "last_loaded": "2026-02-14 08:03:36.093204",
+    "state": "DISCOVERED",
+    "last_loaded": "",
     "path": "plugins\\syslog_collector",
     "version": "1.0.0"
   },
   "template_manager": {
-    "state": "LOADED",
-    "last_loaded": "2026-02-14 08:03:36.093204",
+    "state": "DISCOVERED",
+    "last_loaded": "",
     "path": "plugins\\template_manager",
     "version": "1.0.0"
   }

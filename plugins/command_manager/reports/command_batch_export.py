@@ -140,7 +140,9 @@ class CommandBatchExport(QDialog):
         
         # Template help
         template_help = QLabel(
-            "Available variables: {hostname}, {ip}, {command}, {date}, {status}, plus any device property"
+            "Available variables: {hostname}, {ip}, {command}, {date}, {status}, plus any device property "
+            "(placeholders are case-insensitive; underscores and dashes are interchangeable, "
+            "for example {alias}, {Alias}, {ip_address}, {ip-address})."
         )
         template_help.setWordWrap(True)
         options_layout.addRow("", template_help)

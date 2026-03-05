@@ -319,19 +319,37 @@ class CommandDialog(QDialog):
         custom_header = QWidget()
         custom_header_layout = QHBoxLayout(custom_header)
         custom_header_layout.setContentsMargins(0, 0, 0, 0)
-
+        
         # Custom commands are treated as a single pasted block per device.
         custom_label = QLabel("Commands executed as a pasted block per device (top to bottom):")
         custom_header_layout.addWidget(custom_label)
-        custom_header_layout.addStretch()
 
+        # Quick-access variable insertion button for custom commands.
+        self.custom_insert_var_btn = QPushButton("Insert Variable")
+        self.custom_insert_var_btn.setToolTip(
+            "Insert a device variable like {alias}, {hostname}, {ip_address}, {ip-address} at the cursor position."
+        )
+        self.custom_insert_var_btn.clicked.connect(self._on_insert_variable_clicked)
+        custom_header_layout.addWidget(self.custom_insert_var_btn)
+
+        custom_header_layout.addStretch()
+        
         self.custom_clear_btn = QPushButton("Clear")
         self.custom_clear_btn.clicked.connect(self._on_clear_custom_commands)
         custom_header_layout.addWidget(self.custom_clear_btn)
-
+        
         self.custom_commands_text = LineNumberedPlainTextEdit()
-        self.custom_commands_text.setPlaceholderText("show version\nshow interfaces\n...")
+        self.custom_commands_text.setPlaceholderText(
+            "show version\n"
+            "show interfaces\n"
+            "# You can also use device variables like {alias}, {Alias}, {hostname}, {ip_address}, {ip-address}."
+        )
         self.custom_commands_text.setFont(QFont("Courier New", 9))
+        # Enable context menu hook so we can add "Insert Variable" on right-click.
+        self.custom_commands_text.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.custom_commands_text.customContextMenuRequested.connect(
+            self._on_custom_commands_context_menu
+        )
 
         custom_options = QWidget()
         custom_options_layout = QHBoxLayout(custom_options)
@@ -455,6 +473,133 @@ class CommandDialog(QDialog):
     def _on_clear_custom_commands(self):
         if hasattr(self, "custom_commands_text"):
             self.custom_commands_text.clear()
+
+    # --- Custom commands variable insertion helpers ---
+
+    def _available_custom_variables(self):
+        """Return a list of (label, placeholder) tuples for all available device fields.
+
+        Fields are discovered dynamically from the current environment:
+        - Core/base program fields (id, alias, hostname, ip_address, etc.)
+        - Any additional properties attached to devices in this workspace (including plugin fields).
+        """
+        keys = []
+
+        # Prefer currently targeted devices; if none, fall back to all devices in the workspace.
+        try:
+            devices = self._get_selected_devices()
+        except Exception:
+            devices = []
+
+        if (not devices) and hasattr(self.plugin, "device_manager") and self.plugin.device_manager:
+            try:
+                devices = self.plugin.device_manager.get_devices()
+            except Exception:
+                devices = []
+
+        for device in devices or []:
+            if not hasattr(device, "get_properties"):
+                continue
+            try:
+                props = device.get_properties() or {}
+            except Exception:
+                continue
+            for key in props.keys():
+                if not isinstance(key, str):
+                    continue
+                if key not in keys:
+                    keys.append(key)
+
+        # If we couldn't discover anything (e.g. no devices yet), fall back to known core fields.
+        if not keys:
+            keys = [
+                "id",
+                "alias",
+                "hostname",
+                "ip_address",
+                "mac_address",
+                "status",
+                "notes",
+                "tags",
+                "type",
+                "name",
+                "created",
+            ]
+
+        # Ensure core/base fields are presented first in a sensible order.
+        core_order = [
+            "id",
+            "alias",
+            "hostname",
+            "ip_address",
+            "mac_address",
+            "status",
+            "notes",
+            "tags",
+            "type",
+            "name",
+            "created",
+        ]
+        ordered = []
+        seen = set()
+        for core_key in core_order:
+            if core_key in keys and core_key not in seen:
+                ordered.append(core_key)
+                seen.add(core_key)
+        for key in sorted(keys):
+            if key not in seen:
+                ordered.append(key)
+                seen.add(key)
+
+        # Build menu entries: one placeholder per underlying field, using the canonical {field_name}.
+        items = []
+        for key in ordered:
+            placeholder = f"{{{key}}}"
+            label = f"{key} ({placeholder})"
+            items.append((label, placeholder))
+        return items
+
+    def _insert_variable_placeholder(self, placeholder: str):
+        """Insert a variable placeholder into the custom commands editor."""
+        if not hasattr(self, "custom_commands_text") or not self.custom_commands_text:
+            return
+        cursor = self.custom_commands_text.textCursor()
+        cursor.insertText(placeholder)
+        self.custom_commands_text.setTextCursor(cursor)
+
+    def _build_variable_menu(self, parent_widget):
+        """Create a QMenu populated with available variable placeholders."""
+        menu = QMenu(parent_widget)
+        for label, placeholder in self._available_custom_variables():
+            action = menu.addAction(label)
+            # Use lambda with default arg to capture current placeholder
+            action.triggered.connect(lambda _checked=False, p=placeholder: self._insert_variable_placeholder(p))
+        return menu
+
+    def _on_insert_variable_clicked(self):
+        """Show a popup menu to insert a variable at the cursor in custom commands."""
+        if not hasattr(self, "custom_insert_var_btn"):
+            return
+        menu = self._build_variable_menu(self.custom_insert_var_btn)
+        global_pos = self.custom_insert_var_btn.mapToGlobal(
+            self.custom_insert_var_btn.rect().bottomLeft()
+        )
+        menu.exec(global_pos)
+
+    def _on_custom_commands_context_menu(self, pos):
+        """Augment the default context menu with an 'Insert Variable' section."""
+        if not hasattr(self, "custom_commands_text") or not self.custom_commands_text:
+            return
+        # Start with the standard context menu for the editor
+        menu = self.custom_commands_text.createStandardContextMenu()
+        menu.addSeparator()
+        var_menu = menu.addMenu("Insert Variable")
+        for label, placeholder in self._available_custom_variables():
+            action = var_menu.addAction(label)
+            action.triggered.connect(lambda _checked=False, p=placeholder: self._insert_variable_placeholder(p))
+        global_pos = self.custom_commands_text.mapToGlobal(pos)
+        menu.exec(global_pos)
+        menu.deleteLater()
         
     def refresh_devices(self):
         refresh_target_tables(self)

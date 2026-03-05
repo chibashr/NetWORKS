@@ -15,11 +15,16 @@ from plugins.command_manager.utils.command_set import CommandSet, Command
 
 
 def expand_command_for_device(command_text, device):
-    """Expand {{property}} placeholders in command_text using the device's properties.
-    Matches Template Manager / Report Generator syntax so variables translate when
-    running template-loaded commands."""
-    if not command_text or "{{" not in command_text:
+    """Expand placeholders in command_text using the device's properties.
+
+    Supports:
+    - ``{{property}}`` (legacy Template Manager / Report Generator syntax)
+    - ``{property}`` with case-insensitive names and optional dashes/underscores
+      (e.g. {Alias}, {alias}, {ip-address}, {ip_address})."""
+    if not command_text or ("{{" not in command_text and "{" not in command_text):
         return command_text
+
+    # Build context from device properties
     context = {}
     if hasattr(device, "get_properties"):
         try:
@@ -31,15 +36,82 @@ def expand_command_for_device(command_text, device):
             if key not in context:
                 context[key] = device.get_property(key, "")
 
-    def repl(m):
-        key = m.group(1).strip()
-        val = context.get(key, "")
+    # Enrich context with common aliases / normalized keys
+    enriched = {}
+    for raw_key, val in context.items():
+        if val is None:
+            continue
+        key_str = str(raw_key)
+        variants = {
+            key_str,
+            key_str.lower(),
+            key_str.upper(),
+            key_str.title(),
+            key_str.replace(" ", "_"),
+            key_str.replace(" ", "-"),
+            key_str.replace("_", "-"),
+            key_str.replace("-", "_"),
+        }
+        for v in variants:
+            if v and v not in enriched:
+                enriched[v] = val
+
+    # Hard-coded helpful aliases
+    if "ip_address" in enriched:
+        ip_val = enriched["ip_address"]
+        for k in ("ip", "IP", "Ip", "ip-address", "IP-ADDRESS"):
+            enriched.setdefault(k, ip_val)
+    if "hostname" in enriched:
+        hn_val = enriched["hostname"]
+        for k in ("host", "Host", "HOST"):
+            enriched.setdefault(k, hn_val)
+    if "alias" in enriched:
+        alias_val = enriched["alias"]
+        for k in ("Alias", "ALIAS"):
+            enriched.setdefault(k, alias_val)
+
+    def _resolve(raw_key: str, *, allow_fallback_literal: bool) -> str:
+        key = (raw_key or "").strip()
+        if not key:
+            return "" if not allow_fallback_literal else ""
+
+        # Direct lookup first
+        if key in enriched:
+            val = enriched[key]
+        else:
+            normalized = key.lower().replace(" ", "_").replace("-", "_")
+            val = (
+                enriched.get(normalized)
+                or enriched.get(normalized.replace("_", "-"))
+                or enriched.get(normalized.upper())
+                or enriched.get(normalized.title())
+            )
+
+        if val is None:
+            return "" if not allow_fallback_literal else ""
         if isinstance(val, list):
             return ", ".join(str(v) for v in val)
-        return "" if val is None else str(val)
+        return str(val)
 
-    pattern = re.compile(r"\{\{\s*([^}]+)\s*\}\}")
-    return pattern.sub(repl, command_text)
+    # First expand legacy {{property}} syntax
+    pattern_double = re.compile(r"\{\{\s*([^}]+)\s*\}\}")
+
+    def repl_double(m):
+        return _resolve(m.group(1), allow_fallback_literal=False)
+
+    text = pattern_double.sub(repl_double, command_text)
+
+    # Then expand single-brace {property} placeholders.
+    # If we can't resolve a key, leave the literal placeholder intact so we
+    # don't accidentally strip meaningful characters from commands.
+    pattern_single = re.compile(r"\{([^{}]+)\}")
+
+    def repl_single(m):
+        key = m.group(1)
+        value = _resolve(key, allow_fallback_literal=True)
+        return value if value else m.group(0)
+
+    return pattern_single.sub(repl_single, text)
 from plugins.command_manager.utils.ssh_client import SSHClient
 from plugins.command_manager.utils.telnet_client import TelnetClient
 

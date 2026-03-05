@@ -11,6 +11,7 @@ import datetime
 from pathlib import Path
 from collections import Counter
 from loguru import logger
+import re
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -581,7 +582,9 @@ class OutputHandler:
         
         # Template help
         template_help = QLabel(
-            "Available variables: {hostname}, {ip}, {command}, {date}, {status}, plus any device property"
+            "Available variables: {hostname}, {ip}, {command}, {date}, {status}, plus any device property "
+            "(placeholders are case-insensitive; underscores and dashes are interchangeable, "
+            "for example {alias}, {Alias}, {ip_address}, {ip-address})."
         )
         template_help.setWordWrap(True)
         template_layout.addRow("", template_help)
@@ -2227,34 +2230,89 @@ class OutputHandler:
         else:  # "full" format - still replace spaces with hyphens for filename safety
             cmd_text = cmd_text.replace(" ", "-")
         
-        # Create placeholder values
-        placeholders = {
+        # Base values (raw, before adding aliases / normalized keys)
+        raw_values = {
             "command": cmd_text,
             "date": current_date,
             "hostname": device.get_property("hostname", "unknown"),
             "ip": device.get_property("ip_address", "unknown"),
+            "ip_address": device.get_property("ip_address", "unknown"),
             "status": device.get_property("status", "unknown"),
         }
-        
-        # Add all device properties as potential placeholders
-        for key, value in device.get_properties().items():
-            # Only add simple values, not lists or dicts
-            if isinstance(value, (str, int, float, bool)):
-                placeholders[key] = str(value)
-        
-        # Apply the template
+
+        # Add all simple device properties as potential placeholders
         try:
-            filename = template.format(**placeholders)
-            # Sanitize filename to remove characters that aren't allowed in filenames
-            return self._sanitize_filename(filename)
-        except KeyError as e:
-            logger.error(f"Error in filename template: Unknown placeholder {e}")
-            # Fallback to a simple filename
-            return f"{device.get_property('hostname', 'device')}_{cmd_text}_{current_date}.txt"
-        except Exception as e:
-            logger.error(f"Error generating filename from template: {e}")
-            # Fallback to a simple filename
-            return f"command_output_{current_date}.txt"
+            for key, value in (device.get_properties() or {}).items():
+                if isinstance(value, (str, int, float, bool)):
+                    raw_values.setdefault(str(key), str(value))
+        except Exception:
+            # If device properties cannot be fetched, continue with what we have
+            pass
+
+        # Build a normalized placeholder map:
+        # - Case-insensitive
+        # - Dashes/underscores interchangeable (e.g. {ip-address}, {ip_address})
+        # - Handy aliases like {Alias}, {IP}
+        placeholders = {}
+        for base_key, val in raw_values.items():
+            if val is None:
+                continue
+            base = str(base_key)
+            value_str = str(val)
+            variants = {
+                base,
+                base.lower(),
+                base.upper(),
+                base.title(),
+                base.replace("_", "-"),
+                base.replace("-", "_"),
+            }
+            # Special-case some common network fields
+            if base in ("ip_address", "ip"):
+                variants.update({"ip", "IP", "Ip", "ip-address", "IP-ADDRESS"})
+            if base == "hostname":
+                variants.update({"host", "Host", "HOST"})
+            if base == "alias":
+                variants.update({"Alias", "ALIAS"})
+
+            for k in variants:
+                if k and k not in placeholders:
+                    placeholders[k] = value_str
+
+        def _resolve(name: str) -> str:
+            key = (name or "").strip()
+            if not key:
+                return ""
+            # Direct match first
+            if key in placeholders:
+                return placeholders[key]
+            # Normalized lookups (case-insensitive, dash/underscore agnostic)
+            normalized = key.lower().replace(" ", "_").replace("-", "_")
+            for candidate in (
+                normalized,
+                normalized.replace("_", "-"),
+                normalized.upper(),
+                normalized.title(),
+            ):
+                if candidate in placeholders:
+                    return placeholders[candidate]
+            return ""
+
+        # Replace {placeholder} patterns in the template.
+        # We intentionally handle this manually instead of str.format so we can
+        # support names like {ip-address} that are not valid Python identifiers.
+        pattern = re.compile(r"\{([^{}]+)\}")
+
+        def repl(match: re.Match) -> str:
+            inner = match.group(1)
+            value = _resolve(inner)
+            # If we can't resolve the key, leave the placeholder literal so users
+            # can spot mistakes instead of silently stripping text.
+            return value if value else match.group(0)
+
+        filename = pattern.sub(repl, template)
+        # Sanitize filename to remove characters that aren't allowed in filenames
+        return self._sanitize_filename(filename)
     
     def _sanitize_filename(self, filename):
         """Sanitize a filename to remove illegal characters

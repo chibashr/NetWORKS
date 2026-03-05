@@ -277,6 +277,21 @@
         "output": "conf t\r\nEnter configuration commands, one per line. End with CNTL/Z.\r\nDM-CORE-3850-1(config)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#conf t\r\n^\r\n% Invalid input detected at '^' marker.\r\n\r\nDM-CORE-3850-1(config-if)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#conf t\r\n^\r\n% Invalid input detected at '^' marker.\r\n\r\nDM-CORE-3850-1(config-if)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#conf t\r\n^\r\n% Invalid input detected at '^' marker.\r\n\r\nDM-CORE-3850-1(config-if)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#conf t\r\n^\r\n% Invalid input detected at '^' marker.\r\n\r\nDM-CORE-3850-1(config-if)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#conf t\r\n^\r\n% Invalid input detected at '^' marker.\r\n\r\nDM-CORE-3850-1(config-if)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#conf t\r\n^\r\n% Invalid input detected at '^' marker.\r\n\r\nDM-CORE-3850-1(config-if)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#conf t\r\n^\r\n% Invalid input detected at '^' marker.\r\n\r\nDM-CORE-3850-1(config-if)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#conf t\r\n^\r\n% Invalid input detected at '^' marker.\r\n\r\nDM-CORE-3850-1(config-if)#int t1/0/7\r\nDM-CORE-3850-1(config-if)#desc 10.1.8.2\r\nDM-CORE-3850-1(config-if)#",
         "success": true,
         "command": "conf t\nint t1/0/7\ndesc 10.1.8.2\nconf t\nint t1/0/7\ndesc 10.1.8.2\nconf t\nint t1/0/7\ndesc 10.1.8.2\nconf t\nint t1/0/7\ndesc 10.1.8.2\nconf t\nint t1/0/7\ndesc 10.1.8.2\nconf t\nint t1/0/7\ndesc 10.1.8.2\nconf t\nint t1/0/7\ndesc 10.1.8.2\nconf t\nint t1/0/7\ndesc 10.1.8.2\nconf t\nint t1/0/7\ndesc 10.1.8.2"
+      },
+      "2026-03-05T08:49:19.339640": {
+        "output": "^\r\n% Invalid input detected at '^' marker.",
+        "success": true,
+        "command": "show {hostname}"
+      },
+      "2026-03-05T09:02:49.662556": {
+        "output": "^\r\n% Invalid input detected at '^' marker.",
+        "success": true,
+        "command": "show {hostname}"
+      },
+      "2026-03-05T09:03:17.880945": {
+        "output": "Port Name Status Vlan Duplex Speed Type",
+        "success": true,
+        "command": "show int status | i up"
       }
     }
   }

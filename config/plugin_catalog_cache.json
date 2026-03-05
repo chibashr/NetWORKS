@@ -7,7 +7,7 @@
       "description": "Run and manage commands on network devices",
       "author": "chibashr",
       "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/command_manager-1.0.3.zip",
-      "sha256": "2a34ccd228a46ba5eab1b24f380ce5163ec5568edde25ccac9ee6ec5d734fff4",
+      "sha256": "c6493f288b51f27364be28b08c5db6f5b2d2543c4f495d80f78c48cd39b59c6e",
       "min_app_version": "0.8.16",
       "changelog": [
         {
@@ -56,7 +56,7 @@
       "description": "Adds a Connect submenu to open SSH, Telnet, VNC, RDP, HTTP, HTTPS, or FTP as links; the system decides how to open them (like FTP).",
       "author": "chibashr",
       "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/device_connector-1.2.0.zip",
-      "sha256": "31a9a68f216b8c5e4c2ce1c50539b19a567a230fec61bd4ac0beabff7454b558",
+      "sha256": "2da0f87864a95718edaca7c077b439998beba0e0b905bb96c571eb3216044481",
       "min_app_version": "0.8.16",
       "changelog": [
         {
@@ -97,7 +97,7 @@
       "description": "A plugin that scans the network for devices and adds them to NetWORKS",
       "author": "chibashr",
       "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/network_scanner-10.5.zip",
-      "sha256": "a255b3f439f3e63e01994928ab9646bbbb13ee56d58803c37322d0e6790cc466",
+      "sha256": "9d5250632b56d9447403665215295727e9c0755fd353849da813d851cd5b1532",
       "min_app_version": "0.8.16",
       "changelog": [
         {
@@ -286,7 +286,7 @@
       "description": "Build tabular and template-based reports from devices and export to common formats",
       "author": "chibashr",
       "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/report_generator-1.0.1.zip",
-      "sha256": "83a5c3e286cf96ffbfb566df796b6a37f2a1e0b0112248a4cd4e2643faf8060b",
+      "sha256": "036d67e928d76372f6832809d5b3a6b4daa35bf9deaa74ccd74b94d827368ed7",
       "min_app_version": "0.8.16",
       "changelog": [
         {
@@ -319,7 +319,7 @@
       "description": "A comprehensive sample plugin that demonstrates the plugin system and provides testing capabilities",
       "author": "chibashr",
       "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/sample-1.0.9.zip",
-      "sha256": "4b39c054e4f7342775f896cd60f3e54ef6cf75e151530b479c1154d818cd7210",
+      "sha256": "af121fef81145432ffb45673b0d1ced4a56d89768ad21baea41450c78bd7fe52",
       "min_app_version": "0.8.16",
       "changelog": [
         {
@@ -421,14 +421,40 @@
     },
     {
       "id": "snmp_collector",
-      "name": "SNMP Collector",
-      "version": "1.0.0",
+      "name": "SNMP",
+      "version": "1.0.3",
       "description": "Collects SNMP traps and supports SNMP polling for testing and monitoring",
       "author": "chibashr",
-      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/snmp_collector-1.0.0.zip",
-      "sha256": "eb928005267e6ec116decf1b7125efe249d1bddf54be080b187d8a58d3787dba",
+      "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/snmp_collector-1.0.3.zip",
+      "sha256": "3beac919d0590a3de00863f848562326012e598b2ebd3a9f381f7eaab635a0d5",
       "min_app_version": "0.8.16",
       "changelog": [
+        {
+          "version": "1.0.3",
+          "date": "2026-02-13",
+          "changes": [
+            "SNMP Poll: v1/v2c/v3 version dropdown",
+            "Community field visible (no longer hidden)",
+            "v3 options: user, auth/priv protocol and passwords (shown only when v3 selected)"
+          ]
+        },
+        {
+          "version": "1.0.2",
+          "date": "2026-02-13",
+          "changes": [
+            "UI refactor: toolbar with dialogs for each function",
+            "SNMP ribbon tab with Trap Receiver, SNMP Poll, Ingestion, View Traps",
+            "Tabbed panel with Trap Receiver, SNMP Poll, Ingestion, Collected Traps",
+            "Panel scaling: max height 420px, content anchored to top, traps table expands"
+          ]
+        },
+        {
+          "version": "1.0.1",
+          "date": "2026-02-12",
+          "changes": [
+            "Trap receiver: compatibility with both etingof pysnmp and pysnmp-lextudio"
+          ]
+        },
         {
           "version": "1.0.0",
           "date": "2025-02-11",
@@ -448,7 +474,7 @@
       "description": "Create reusable command templates from device outputs using Report Generator-style variable binding; export or send to Command Manager for execution.",
       "author": "chibashr",
       "download_url": "https://github.com/chibashr/NetWORKS/releases/download/plugins/template_manager-1.0.0.zip",
-      "sha256": "7022b808396c0db8352681933f0141c334001c4b75f9d9719a84bc84da85e285",
+      "sha256": "39a79a38ce66cf237121630eac09f8c112d58cb4bf4256414ca312bb47842774",
       "min_app_version": "0.8.16",
       "changelog": [
         {
