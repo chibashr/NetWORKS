@@ -1,6 +1,6 @@
 {
   "name": "NetWORKS",
-  "version": "0.12.13",
+  "version": "0.12.14",
   "description": "Network management and monitoring tool",
   "author": "chibashr",
   "license": "MIT",
@@ -9,12 +9,12 @@
     "type": "git",
     "url": "https://github.com/networks/networks.git"
   },
-  "version_string": "0.12.13",
+  "version_string": "0.12.14",
   "version_info": {
     "major": 0,
     "minor": 12,
-  "patch": 13,
-  "build": 243
+    "patch": 14,
+    "build": 244
   },
   "app_directory": "src",
   "main_module": "main",
@@ -36,8 +36,8 @@
   "update_url": "https://api.networks.dev/updates",
   "telemetry_enabled": false,
   "analytics_enabled": false,
-  "build_date": "2026-02-14",
-  "release_notes": "### Changed\n- **Network Scanner plugin** (v10.8): Removed splitter from dock; top group renamed to Scan Settings.\n- **Network Scanner plugin** (v10.7): Results panel renamed to Logs; reduced margins and smaller text in logs area; removed separator between progress bar and logs.\n- **Network Scanner plugin** (v10.6): Scan and Results panels use QGroupBox instead of CollapsibleSection.",
+  "build_date": "2026-03-05",
+  "release_notes": "Release 0.12.14.",
   "release_type": "stable",
   "versioning_scheme": "semver",
   "update_channel": "stable"

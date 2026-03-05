@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.12.14] - 2026-03-05
+
+### Changed
+- Version bump to 0.12.14
+
+
 ## [0.12.13] - 2026-03-05
 ### Added
 - Core: Initial pytest-based tests for update branch mapping and version comparison logic, and for plugin installer/download flows (including SHA-256 verification and catalog-driven plugin updates).
